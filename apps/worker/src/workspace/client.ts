@@ -80,6 +80,10 @@ export class WorkspaceClient {
     return this.call<ExecResult>("/tools/exec", request);
   }
 
+  previewStatus() {
+    return this.call<{ running: boolean; ready: boolean }>("/preview/status");
+  }
+
   startPreview() {
     return this.call<{ status: string; url: string }>("/preview/start", {});
   }

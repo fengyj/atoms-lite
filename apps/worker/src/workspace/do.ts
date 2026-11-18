@@ -553,6 +553,13 @@ export class Workspace extends DurableObject<Env> {
         }
       }
 
+      if (path === "/preview/status") {
+        // 只探测，不主动启动：iframe 请求本身会触发 ensure()
+        const running = this.container.running;
+        const ready = running ? await this.checkPreview() : false;
+        return Response.json({ running, ready });
+      }
+
       if (path === "/preview/start") {
         await this.ensure();
         return Response.json({ status: "ready", url: "/previews/demo/" });

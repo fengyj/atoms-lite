@@ -11,6 +11,7 @@ import {
 } from "@/components/ai-elements/web-preview";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/workspace/panel";
+import { fetchPreviewStatus } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
 type PreviewPhase = "loading" | "ready" | "error";
@@ -36,9 +37,41 @@ export function PreviewPanel({
 }) {
   const [phase, setPhase] = useState<PreviewPhase>("loading");
 
-  // 工具结果或手动刷新导致的重载：先回到加载态
+  // iframe 的 onError 对 HTTP 4xx/5xx 不会触发，所以用健康探测决定状态。
   useEffect(() => {
     setPhase("loading");
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const deadline = Date.now() + 45_000;
+
+    const probe = async () => {
+      try {
+        const status = await fetchPreviewStatus(controller.signal);
+        if (cancelled) return;
+        if (status.ready) {
+          setPhase("ready");
+          return;
+        }
+      } catch {
+        if (cancelled || controller.signal.aborted) return;
+      }
+
+      if (Date.now() >= deadline) {
+        if (!cancelled) setPhase("error");
+        return;
+      }
+      timer = setTimeout(probe, 1200);
+    };
+
+    void probe();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
   }, [reloadKey, url]);
 
   const openExternal = () => {
@@ -94,11 +127,7 @@ export function PreviewPanel({
             <ExternalLink className="size-3.5" />
           </WebPreviewNavigationButton>
         </WebPreviewNavigation>
-        <WebPreviewBody
-          key={reloadKey}
-          onLoad={() => setPhase("ready")}
-          onError={() => setPhase("error")}
-        />
+        <WebPreviewBody key={reloadKey} />
       </WebPreview>
     </Panel>
   );

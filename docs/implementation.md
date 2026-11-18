@@ -28,6 +28,7 @@
 
 - 沙箱空闲 **5 分钟**回收；版本创建与 `finish` 时自动快照，重启时从快照恢复。
 - 预览通过 Worker 代理 `/previews/demo/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
+- 预览状态由 `GET /api/workspace/preview/status` 探测（`running` / `ready`）；前端每 1.2s 轮询，45s 未就绪显示「失败」。
 - 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。
 - 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。

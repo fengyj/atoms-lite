@@ -29,6 +29,9 @@ export const PREVIEW_URL = workerUrl("/previews/demo/");
 
 export const WORKSPACE_VERSIONS_URL = workerUrl("/api/workspace/versions");
 export const WORKSPACE_FILES_URL = workerUrl("/api/workspace/files");
+export const WORKSPACE_PREVIEW_STATUS_URL = workerUrl(
+  "/api/workspace/preview/status"
+);
 
 /** GET /api/workspace/versions 的条目（冻结接口） */
 export type WorkspaceVersion = {
@@ -70,6 +73,21 @@ export async function fetchWorkspaceFiles(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as FilesResponse;
   return data.entries ?? [];
+}
+
+export type PreviewStatus = { running: boolean; ready: boolean };
+
+/**
+ * 预览健康探测：iframe 的 onError 对 4xx/5xx 不会触发，
+ * 因此状态徽标以这个接口为准。
+ */
+export async function fetchPreviewStatus(
+  signal?: AbortSignal
+): Promise<PreviewStatus> {
+  const res = await fetch(WORKSPACE_PREVIEW_STATUS_URL, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as Partial<PreviewStatus>;
+  return { running: Boolean(data.running), ready: Boolean(data.ready) };
 }
 
 /** 侧栏数据的统一状态：data 为 null 表示尚未拿到过数据 */

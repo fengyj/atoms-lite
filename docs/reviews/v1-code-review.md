@@ -18,12 +18,12 @@
 | P2-4 | 生产构建忘传 `NEXT_PUBLIC_WORKER_HOST` 会指向 localhost | 默认值改为「开发 localhost，生产同源」 |
 | P2-5 | 空态示例按钮绕过 busy 守卫 | 流式中禁用 |
 | P2-3 | 硬编码超时/步数，截断不置位 | 使用 `EXEC_TIMEOUT_MS` / `EXEC_MAX_OUTPUT_BYTES` / `MAX_AGENT_STEPS`；返回 `truncated` |
+| P1-8 | 预览 500 时 UI 仍显示「就绪」；worker 不可达时永远「加载中」 | 新增 `GET /api/workspace/preview/status` 健康探测；面板改为轮询该接口（45s 超时），不再依赖 iframe `onError` |
 
 ## 暂未处理
 
 | 级别 | 问题 | 说明 |
 |---|---|---|
-| P1-8 | 预览 500 时 UI 仍显示「就绪」 | 代理已修复，500 已很少见；后续用 fetch 探测预览状态替换 iframe `onError` |
 | P2-1 | `stop_preview` 曾是假实现 | 已从 Agent 工具中移除；`/preview/stop` 返回 400 |
 | P2-2 | 审批 UI 是死代码 | v1 自动执行写/exec；审批未接线，README 已注明 |
 | P2-6 | exec 计时器 / 子进程组 | 计时器已清理；子进程组 kill 未做 |
@@ -39,3 +39,5 @@
 - `/api/workspace/versions` 返回 current 版本
 - `/previews/demo/` 200，标题「五子棋 · Gomoku」
 - Origin 白名单：`https://evil.example` → 403，正式域 → 200
+- `/api/workspace/preview/status` → `{"running":true,"ready":true}`
+- 浏览器徽标随探测从「加载中」变为「就绪」，无 console 错误
