@@ -68,7 +68,13 @@ ps -eo pid,comm | awk '$2 ~ /^downloaded-@clo/ {print $1}' | xargs -r kill -9
 - 1.64/1.65 分别需要 1248/1255，会触发下载。
 - 脚本：`scripts/poc01-shots.mjs`（截图）、`scripts/poc06.mjs`、`scripts/poc08.mjs`。
 
-## 8. 依赖版本约束
+## 8. 域名
+
+- `*.workers.dev` 在本机被 DNS 污染（解析到 Meta IP），无法访问。
+- 生产验证统一使用自定义域名：`atoms-lite.fengyj.me`（Cloudflare 托管 zone）。
+- 部署时通过 `wrangler.jsonc` 的 `routes: [{ pattern, custom_domain: true }]` 自动创建 DNS 与证书。
+
+## 9. 依赖版本约束
 
 见 `docs/decisions/01-scope-and-architecture.md`。
 `agents` / `@cloudflare/ai-chat` / `ai` / `@ai-sdk/react` 之间存在 peer 约束，

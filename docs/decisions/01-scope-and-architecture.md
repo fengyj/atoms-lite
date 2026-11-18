@@ -33,8 +33,10 @@ Project（D1 元数据）
 - v1 只有 `WorkspaceDO` + `ChatAgent` 两个 DO；Verifier 后加。
 - 多会话 = 多个 ChatAgent DO 共享同一个 WorkspaceDO，写操作由 WorkspaceDO 的锁串行化。
 
-原因：POC-10 验证了**子代理无法访问父对象的运行中容器**（`running: false`）。
-把沙箱所有权收敛到独立 DO，比"父级代理"更干净，也不会让某个角色变成瓶颈。
+原因：POC-10 在本地验证了**子代理无法访问父对象的运行中容器**（`running: false`），
+但在生产（Cloudflare Containers）中子代理可以访问父容器（facet 共享机器）。
+两种行为不一致，因此**架构不依赖任何一种**：统一走 `WorkspaceDO` 的 RPC，
+本地与生产表现一致。
 
 ## 3. 技术栈（锁定版本）
 

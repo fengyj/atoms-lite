@@ -68,7 +68,35 @@ RUN chmod +x /usr/local/bin/sandbox-shim
 代价：镜像 +3.7MB（shim），依赖 +1。
 Plan B（已可用）：全部走 `exec`（`cat`/`tee`/`find`），不引入 SDK。
 
-## 5. 对主设计的影响
+## 5. 生产验证（2026-11-19，atoms-lite.fengyj.me）
+
+| 项 | 结果 |
+|---|---|
+| `/start` 冷启动 | **8.1s** |
+| `/start` 热调用 | 27ms |
+| `/files`（Files API） | 67ms，SDK 与 raw exec 一致 |
+| `/child`（子代理访问容器） | ✅ `running: true`，`exec` 成功读到父容器文件 |
+| `/snapshot` | 4.2s，**2507 bytes** |
+| `/restore` | 1.4s，文件完整 |
+
+### 与本地最大的三个差异
+
+1. **快照语义不同**
+   - 本地：整个 rootfs（76MB），约 40MB/s；
+   - 生产：增量 diff（2.5KB），4.2s，恢复 1.4s。
+   - 容量规划以生产为准；本地数据只用于验证流程。
+
+2. **子代理的容器访问不同**
+   - 本地 `wrangler dev`：`running: false`，`exec` 失败；
+   - 生产：`running: true`，能直接读到父容器文件（facet 共享机器）。
+   - **架构不依赖任何一种行为**：统一走 `WorkspaceDO` 的 `WorkspaceTools` RPC，
+     本地与生产表现一致。
+
+3. **workers.dev 在本机不可用**
+   - 域名被 DNS 污染，解析到 `157.240.2.50`（Meta）；
+   - 自定义域名 `atoms-lite.fengyj.me` 正常（Cloudflare IP）。
+
+## 6. 对主设计的影响
 
 - 沙箱工具的作用域收敛到项目 DO；子角色的工具结果由父级回传。
 - 附件继续走自研 `artifacts` + R2（框架没有公开 API）。

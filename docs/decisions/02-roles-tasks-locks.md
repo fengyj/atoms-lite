@@ -70,6 +70,8 @@ interface WorkspaceTools {
 - v1：`ChatAgent` 与 `WorkspaceDO` 本地调用；多角色时同签名换 RPC。
 - **代理执行不增加 token**：它是函数调用，不是模型转述。结果本来就要进入角色上下文，
   多出来的只有一次 DO 往返的延迟。
+- 注意：本地 `wrangler dev` 中子代理访问不到父容器，生产中可以。
+  两种行为不一致，架构不依赖任何一种，统一走 `WorkspaceDO`。
 
 ## 7. 写冲突：方案暂缓，原则先定
 

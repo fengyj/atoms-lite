@@ -105,13 +105,49 @@ export class Parent extends Agent<Env> {
 
     if (url.pathname === "/snapshot") {
       const container = await this.ensure();
+      await this.ctx.storage.put("snapshotId", "pending");
       const t0 = Date.now();
       const snap = await container.snapshotContainer({ name: "poc10" });
+      await this.ctx.storage.put("snapshotId", snap.id);
       return Response.json({
         ok: true,
         ms: Date.now() - t0,
-        sizeMb: Math.round(snap.size / 1024 / 1024),
+        sizeBytes: String(snap.size),
+        sizeMb: Math.round(Number(snap.size) / 1024 / 1024),
         id: snap.id,
+      });
+    }
+
+    if (url.pathname === "/restore") {
+      const snapshotId = await this.ctx.storage.get<string>("snapshotId");
+      if (!snapshotId || snapshotId === "pending") {
+        return Response.json({ ok: false, error: "no snapshot" }, { status: 404 });
+      }
+
+      const t0 = Date.now();
+      const container = this.ctx.container;
+      if (container.running) await container.destroy();
+
+      container.start({
+        containerSnapshot: { id: snapshotId },
+        entrypoint: ["sleep", "infinity"],
+        enableInternet: false,
+      });
+      await container.setInactivityTimeout(5 * 60_000);
+      const deadline = Date.now() + 60_000;
+      while (!container.running && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      const sdk = await run(container, ["cat", "/workspace/from-sdk.txt"]);
+      const shared = await run(container, ["cat", "/workspace/shared.txt"]);
+
+      return Response.json({
+        ok: container.running,
+        snapshotId,
+        ms: Date.now() - t0,
+        sdkText: sdk.stdout,
+        sharedText: shared.stdout,
       });
     }
 

@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-18",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    { "pattern": "atoms-lite.fengyj.me", "custom_domain": true }
+  ],
   "containers": [
     {
       "class_name": "Parent",
