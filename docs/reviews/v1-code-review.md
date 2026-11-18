@@ -41,3 +41,5 @@
 - Origin 白名单：`https://evil.example` → 403，正式域 → 200
 - `/api/workspace/preview/status` → `{"running":true,"ready":true}`
 - 浏览器徽标随探测从「加载中」变为「就绪」，无 console 错误
+- 空闲回收（400s 后 `running:false`）再请求预览：200、标题「五子棋 · Gomoku」、文件与版本完整
+- 强制预览不可用：45s 后徽标显示「失败」
