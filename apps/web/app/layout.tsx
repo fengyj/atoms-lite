@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "atoms-lite",
@@ -10,8 +11,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
-      <body className="min-h-full antialiased">{children}</body>
+    <html lang="zh-CN" className="dark">
+      <body className="h-full bg-background text-foreground antialiased">
+        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>任务看板 · 预览</title>
+    <style>
+      :root {
+        --bg: #0f0f13;
+        --panel: #17171d;
+        --panel-2: #1d1d25;
+        --line: #2a2a34;
+        --fg: #ececf1;
+        --muted: #8d8d9c;
+        --primary: #7c8cf8;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .logo {
+        width: 22px; height: 22px; border-radius: 6px;
+        background: linear-gradient(135deg, var(--primary), #b48cf8);
+      }
+      h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+      .sub { font-size: 12px; color: var(--muted); }
+      .spacer { flex: 1; }
+      .btn {
+        border: 1px solid var(--line); background: var(--panel-2); color: var(--fg);
+        font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      }
+      .btn.primary { background: var(--primary); border-color: transparent; color: #0f0f13; font-weight: 600; }
+      main { flex: 1; display: grid; grid-template-columns: 1fr 300px; gap: 14px; padding: 16px; min-height: 0; }
+      .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; min-height: 0; }
+      .col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+      .col h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 2px 4px 6px; font-weight: 600; }
+      .card {
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+        padding: 10px 12px; font-size: 13px; line-height: 1.45; cursor: grab;
+      }
+      .card p { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+      .tag { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+      .tag.hi { color: var(--warn); border-color: #3d3520; background: #221d10; }
+      .tag.ok { color: var(--ok); border-color: #1d3326; background: #12211a; }
+      aside { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+      .stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+      .stat b { color: var(--fg); font-weight: 600; }
+      .bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+      .bar > i { display: block; height: 100%; width: 62%; background: var(--primary); }
+      .empty { border: 1px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo"></div>
+      <div>
+        <h1>任务看板</h1>
+        <div class="sub">本周迭代 · 3 人</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn">筛选</button>
+      <button class="btn primary">+ 新建任务</button>
+    </header>
+    <main>
+      <div class="board">
+        <div class="col">
+          <h2>待办 · 3</h2>
+          <div class="card">设计评审 <p>与产品和视觉对齐空状态</p><span class="tag hi">高优先级</span></div>
+          <div class="card">补齐移动端布局 <p>1280 / 768 / 375 三档</p></div>
+          <div class="card">接入构建日志 <p>终端输出截断策略</p></div>
+        </div>
+        <div class="col">
+          <h2>进行中 · 2</h2>
+          <div class="card">版本回滚 <p>只回滚代码，不动数据</p><span class="tag">P1</span></div>
+          <div class="card">预览代理 <p>HMR 走 WebSocket</p><span class="tag">风险</span></div>
+        </div>
+        <div class="col">
+          <h2>已完成 · 4</h2>
+          <div class="card">会话持久化 <p>刷新后消息仍在</p><span class="tag ok">已验证</span></div>
+          <div class="card">工具调用卡片 <p>四态齐全</p><span class="tag ok">已验证</span></div>
+          <div class="empty">拖到这里完成任务</div>
+        </div>
+      </div>
+      <aside>
+        <div class="stat"><span>本周完成</span><b>12</b></div>
+        <div class="bar"><i></i></div>
+        <div class="stat"><span>进行中</span><b>2</b></div>
+        <div class="stat"><span>逾期</span><b>1</b></div>
+        <div class="stat"><span>平均周期</span><b>2.4 天</b></div>
+      </aside>
+    </main>
+  </body>
+</html>

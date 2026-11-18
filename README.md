@@ -60,6 +60,8 @@ pnpm build
 - [x] Next.js + Tailwind v4 可启动（`/` 返回 200）
 - [x] Wrangler 可启动（`/` 返回占位文本）
 - [x] TypeScript 6 全量类型检查通过
+- [x] 设计 token + 工作台三栏 shell + 组件 gallery（`/design`）
+- [x] AI Elements 组件接入（假数据）
 
 ## 未实现（按计划推进）
 
