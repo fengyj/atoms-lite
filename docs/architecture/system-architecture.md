@@ -222,13 +222,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  user["用户 / 角色"] --> board["任务板 + 调度器<br/>（代码）"]
-  board -->|"target = builder"| b["Builder DO"]
-  board -->|"target = verifier"| v["Verifier DO"]
-  board -->|"无 target"| sup["Supervisor"]
+  user["用户 / 角色"] --> orch["OrchestratorDO<br/>任务表 / 调度 / 预算"]
+  orch -->|"target = builder"| b["Builder DO"]
+  orch -->|"target = verifier"| v["Verifier DO"]
+  orch -->|"无 target"| sup["Supervisor（角色）"]
   b -->|"WorkspaceTools"| ws["WorkspaceDO"]
   v -->|"WorkspaceTools（只读）"| ws
-  sup -->|"调度 / 上报"| board
+  sup -->|"调度 / 上报"| orch
+  orch -->|"申请 / 释放写锁"| ws
   ws --> lock["项目写锁"]
 ```
 
@@ -314,7 +315,28 @@ Run
 
 ---
 
-## 10. 未定与风险
+## 10. 通信与协议
+
+| 通道 | 协议 | 用途 |
+|---|---|---|
+| 对话流 | **WebSocket**（`useAgentChat`，UIMessage chunks） | 消息、工具调用、审批、停止/续传 |
+| 面板状态 | **WebSocket**（`useAgent`，DO state 同步） | 预览状态、版本、Sandbox、Run |
+| 业务 CRUD | HTTP JSON | 项目/会话/版本/产物/导出 |
+| 预览 | HTTP 代理 + WebSocket | iframe 资源；HMR |
+| 附件 | HTTP multipart + 签名 URL | 上传/下载 |
+| 模型调用 | HTTPS（服务端） | AI SDK → provider |
+
+### 为什么用 WebSocket 而不是 SSE
+
+- Durable Object 原生支持 WebSocket（含 hibernation），连接即会话，天然带断线重连与事件重放；
+- 对话流与面板状态共用一条连接，不需要两套推送；
+- 双向：审批、停止、RPC 都可以走同一通道。
+
+SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可以改走 HTTP SSE。
+代价是要自己实现续传（cursor / replay）和面板状态的独立推送。**v1 用 WebSocket；
+如果面试官网络对 WS 不友好，再加 SSE 回退**（UIMessage chunk 格式不变，只换传输）。
+
+## 11. 未定与风险
 
 | 项 | 说明 |
 |---|---|

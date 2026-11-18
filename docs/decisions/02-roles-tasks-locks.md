@@ -73,7 +73,16 @@ interface WorkspaceTools {
 - 注意：本地 `wrangler dev` 中子代理访问不到父容器，生产中可以。
   两种行为不一致，架构不依赖任何一种，统一走 `WorkspaceDO`。
 
-## 7. 写冲突：方案暂缓，原则先定
+## 7. 调度器部署位置
+
+- 多角色时新增 **`OrchestratorDO`**（每项目一个），部署在同一个 Worker 里，按项目 ID 寻址。
+- 它持有：任务表、调度队列、角色注册表、预算、handoff 规则。
+- 写锁仍在 `WorkspaceDO`：调度器派发写任务前向 `WorkspaceDO` 申请，结束时释放。
+- Supervisor 是一个**角色 Agent**（模型），只在"无 target / 冲突 / 超预算"时被调用；
+  调度器本身是代码，不是模型。
+- v1 不单独部署：`ChatAgent` 内的 `Scheduler` 模块，接口按 DO 设计，后续抽成 `OrchestratorDO`。
+
+## 8. 写冲突：方案暂缓，原则先定
 
 v1 串行执行，**不实现并行写**。未来方案：
 
@@ -102,7 +111,7 @@ v1 串行执行，**不实现并行写**。未来方案：
 
 工具权限保留为**第二道防线**：Verifier 不提供 `write_file`；`exec` 默认视为写，除非命中只读白名单（`ls`/`cat`/`grep`/`git status`/`git diff`/`wc`）。
 
-## 8. 待定
+## 9. 待定
 
 - 角色清单与各自职责（v1 只需要 builder / verifier）。
 - `workspace:config`（package.json 等）是否只允许 builder 写。
