@@ -6,6 +6,10 @@
 - 本目录描述的是**当前实现要遵守的约束**；
 - 两者冲突时，**以本目录为准**，并在实现完成后回写设计文档。
 
+## 架构
+
+- [system-architecture](../architecture/system-architecture.md)：系统架构图、组件图、Agent 架构图
+
 ## 索引
 
 | 文档 | 内容 |
