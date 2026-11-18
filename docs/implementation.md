@@ -42,6 +42,9 @@
 
 ### 生产（https://atoms-lite.fengyj.me）
 
+![生产界面](assets/v1-production.png)
+
+
 - 静态资源 200；`/health` 200；容器冷启动 ~8s。
 - 真实 UI 输入 → 版本创建 → 预览可玩；生成约 3 分钟。
 - 预览 200，文件列表 3 个，版本列表 1 条（commit `1d6d331`）。
