@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "poc-06-sdk-audit",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
+  },
+  "exports": {
+    "ChatAgent": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

@@ -1,0 +1,10 @@
+packages:
+  - "."
+
+allowBuilds:
+  core-js-pure: false
+  esbuild: true
+  workerd: true
+
+# spike 内部关闭发布冷却策略（依赖版本与主仓库一致）
+minimumReleaseAge: 0

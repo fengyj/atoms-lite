@@ -55,7 +55,7 @@
 | POC-03 | 沙箱持久化与恢复 | 1.5h | 02 | 04 | [poc-03](poc-03-persistence.md) | ✅ |
 | POC-04 | 版本与回滚 | 2h | 03 | — | [poc-04](poc-04-versions.md) | ✅ |
 | POC-05 | 模型基线 | 1.5h | — | 演示脚本 | [poc-05](poc-05-model.md) | ✅ |
-| POC-06 | Agents SDK 能力审计 | 1.5h | — | 08 | [poc-06](poc-06-sdk-audit.md) | ⬜ |
+| POC-06 | Agents SDK 能力审计 | 1.5h | — | 08 | [poc-06](poc-06-sdk-audit.md) | 🔶 5/7 |
 | POC-07 | 可观测性 | 1h | 06 | — | [poc-07](poc-07-observability.md) | ⬜ |
 | POC-08 | Agent ↔ UI 接线 | 2h | 01, 06 | — | [poc-08](poc-08-wiring.md) | ⬜ |
 

@@ -78,4 +78,50 @@
 
 ## 结论
 
-（待填写：B1-B7 结果 + 依赖边界表）
+**核心项通过（B1 / B2 / B3 / B5 / B7），B4 / B6 本轮未覆盖。**
+
+### 实测结果（2026-11-18）
+
+| # | 验证项 | 结果 | 证据 |
+|---|---|---|---|
+| B1 | 停止是否真的中止 | ✅ | 停止前 48 字符，停止后 2.5s 仍 48，状态回到 `ready` |
+| B2 | Worker 重启后消息是否还在 | ✅ | 重启后 `hasUser=true`，末块 `chunk-40` 在，完整 376 字符 |
+| B3 | 自建表与框架表共存 | ✅ | `atoms_versions` 与 20+ 张 `cf_agents_*` / `cf_ai_chat_*` 表同库共存 |
+| B5 | 多会话隔离 | ✅ | s2 初始为空；有自己的消息；不泄漏 s1；切回 s1 仍在；s2 重连后仍在 |
+| B7 | 流式中刷新能否续上 | ✅ | 刷新后从 chunk-1 重放，继续增长到 chunk-40，状态 `streaming → ready` |
+| B4 | 工具审批 | ⬜ | 需要 mock 产出 tool-call + `toolApproval`，本轮未做 |
+| B6 | 面板事件与对话并行 | ⬜ | `cf_agents_state` 表存在，但未做 UI 侧探针 |
+
+### 框架实际建的表（B3 副产物）
+
+```
+cf_agents_session_messages          # 消息
+cf_agents_session_message_chunks    # 流式分片
+cf_agents_session_compactions       # 压缩（说明 compaction 已内置）
+cf_agents_streams / stream_blocks   # 耐久流（续传基础）
+cf_agents_state                     # useAgent 状态同步
+cf_agents_runs / jobs / task_*      # 运行与任务
+cf_agent_tool_runs                  # 工具调用记录
+cf_ai_chat_agent_tool_*             # 聊天工具审批/里程碑
+_cf_KV / _cf_METADATA               # DO 内部
+```
+
+结论：**自建表必须加前缀**（我们用 `atoms_`），且不要改框架表结构。
+
+### 三个环境坑（都会影响 POC-08）
+
+1. **Next 16 默认拦截跨源 dev 资源。**
+   Playwright 用 `127.0.0.1` 访问时，客户端 JS 不加载、页面不 hydration，表现为「点击没反应」。
+   修复：`next.config.ts` 里 `allowedDevOrigins: ["127.0.0.1", "localhost"]`。
+2. **Worker 的 CORS 必须回显 Origin。**
+   `localhost:3000` 与 `127.0.0.1:3000` 是两个 origin，写死一个会让另一个的
+   `get-messages` 失败，并导致 `useAgentChat` 抛错、页面白屏。
+3. **会话名要放进 URL。**
+   `useAgentChat` 的状态在内存里，刷新会回到默认会话，看起来像"消息丢了"。
+   真实产品里会话 id 本来就在路由 `/sessions/:id`，这条只影响 PoC 页面。
+
+### 对 POC-08 的输入
+
+- `useAgentChat` 的 `stop` 可用，刷新续流可用，可以直接接 AI Elements。
+- 不要自己实现消息持久化，框架已经在做；我们只加 `atoms_` 前缀的业务表。
+- 工具审批需要额外配置 `toolApproval`，并且 mock 要能产出 tool-call，属于 POC-08 的范围。
