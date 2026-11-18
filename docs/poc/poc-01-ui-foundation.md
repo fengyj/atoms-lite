@@ -173,7 +173,7 @@ type VersionVM  = { id, commit, summary, status, createdAt, sourceMessageId };
 5. **CodeBlock 在 shiki 完成前是空白**，且原实现的 `mounted` 逻辑导致高亮永远不会更新。
    修复：先渲染纯文本兜底。后续排查发现 shiki 在浏览器端加载 oniguruma WASM 会挂住，
    且把 8 种语言 + 2 个主题打进客户端包会让 dev 的 postcss 子进程 OOM。
-   最终**移除 shiki**，改为轻量代码块（等宽展示 + 复制 + 语言标签），语法高亮后置。
+   最终移除全量 shiki，改为轻量代码块；语法高亮由 POC-09 用「动态 import + JS 引擎 + 3 语言」补回。
 
 ### 已知限制
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { highlightCode } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 type CodeBlockProps = {
@@ -13,11 +14,8 @@ type CodeBlockProps = {
 };
 
 /**
- * 轻量代码块：只做等宽展示 + 复制。
- *
- * 之前用 shiki 做高亮，但它在浏览器端加载 oniguruma WASM 时会挂住，
- * 且把 8 种语言 + 2 个主题打进客户端包，dev 下直接把 postcss 子进程打到 OOM。
- * 演示阶段先保证「内容可见、可复制」，高亮后续用按需动态加载再补。
+ * 代码块：先渲染纯文本，shiki 按需加载完成后再替换为高亮版本。
+ * 高亮失败时保留纯文本，内容始终可见。
  */
 export const CodeBlock = ({
   code,
@@ -26,6 +24,20 @@ export const CodeBlock = ({
   className,
 }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
+  const [html, setHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHtml(null);
+
+    highlightCode(code, language ?? "tsx").then((result) => {
+      if (!cancelled) setHtml(result);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, language]);
 
   const display = showLineNumbers
     ? code
@@ -48,11 +60,21 @@ export const CodeBlock = ({
           </span>
         </div>
       ) : null}
-      <div className="overflow-auto">
-        <pre className="m-0 p-4 font-mono text-sm leading-6">
-          <code className="font-mono text-sm">{display}</code>
-        </pre>
+
+      <div className="overflow-auto scrollbar-thin">
+        {html ? (
+          <div
+            className="[&_code]:font-mono [&_code]:text-sm [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm"
+            // shiki 生成的 HTML 由库产出，不是用户输入
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          <pre className="m-0 p-4 font-mono text-sm leading-6">
+            <code className="font-mono text-sm">{display}</code>
+          </pre>
+        )}
       </div>
+
       <Button
         type="button"
         variant="ghost"

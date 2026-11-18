@@ -49,13 +49,59 @@ export class ChatAgent extends AIChatAgent<Env> {
     ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO atoms_versions (id, git_commit) VALUES ('ver_1', 'abc123')`,
     );
+
+    // POC-07：运行事件表（自建，带 atoms_ 前缀）
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_run_events (
+        run_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        data TEXT,
+        PRIMARY KEY (run_id, seq)
+      )
+    `);
+  }
+
+  private emit(runId: string, type: string, data?: unknown) {
+    const next = this.ctx.storage.sql
+      .exec<{ n: number }>(
+        "SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM atoms_run_events WHERE run_id = ?",
+        runId,
+      )
+      .one();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO atoms_run_events (run_id, seq, type, at, data) VALUES (?, ?, ?, ?, ?)",
+      runId,
+      next.n,
+      type,
+      Date.now(),
+      JSON.stringify(data ?? null),
+    );
   }
 
   async onChatMessage() {
+    const runId = `run_${Date.now()}`;
+    const t0 = Date.now();
+    this.emit(runId, "run.started", { messages: this.messages.length });
+
     const result = streamText({
       model: mockModel(),
       messages: await convertToModelMessages(this.messages),
+      onFinish: ({ text, usage, finishReason }) => {
+        this.emit(runId, "model.finished", {
+          ms: Date.now() - t0,
+          chars: text.length,
+          finishReason,
+          usage,
+        });
+        this.emit(runId, "run.finished", { ok: true, ms: Date.now() - t0 });
+      },
+      onError: ({ error }) => {
+        this.emit(runId, "run.failed", { error: String(error).slice(0, 300) });
+      },
     });
+
     return result.toUIMessageStreamResponse();
   }
 }
