@@ -51,55 +51,80 @@
 
 ## 结论
 
-**不通过（环境限制），Plan B 已明确。**
+**通过（Docker 路径）。** 本地容器可用，不需要开通 Workers Paid。
 
-### 实施记录（2026-11-18）
+### 最终结果（2026-11-18）
 
-Podman rootless 下无法跑通 `wrangler dev` 的 Containers。逐项结果：
+```json
+{
+  "ok": true,
+  "running": true,
+  "startedInMs": 1597,          // 冷启动
+  "hostname": "1f6182329556",
+  "stateText": "persisted-at-1795000352",
+  "image": "cloudflare-dev/sandbox-base-03dec61db8d1:ae004255"
+}
+```
+
+| 指标 | 数值 |
+|---|---|
+| 冷启动（含容器创建 + exec 就绪） | ~1.6s |
+| 热调用（容器已运行） | ~230ms |
+| 主容器内存 | 1.7 MiB |
+| egress sidecar 内存 | 9.3 MiB |
+| 主容器 + sidecar | 均正常 Up |
+
+### 环境前置（已在本机完成）
+
+1. **Docker Engine** 29.1.3（`apt install docker.io`），手动启动，不设开机自启。
+2. **buildx 插件**：Ubuntu 的 `docker.io` 不带，缺了会回退 legacy builder 并报
+   `unknown flag: --provenance`。无需 sudo 的装法：
+   `apt-get download docker-buildx` → `dpkg -x` → 拷到 `~/.docker/cli-plugins/`。
+3. **镜像站**：`/etc/docker/daemon.json` 配 `docker.m.daocloud.io`（Docker Hub 直连不通）。
+4. **socket 权限**：账号已在 `docker` 组，但已运行的 shell/agent 进程不会重新读取组，
+   临时用 `sudo chown eric /var/run/docker.sock`；长期方案是从新登录的 shell 启动。
+
+### 四个关键发现
+
+1. **`setInactivityTimeout()` 必须显式设置。**
+   不设置时，实例在两次请求之间就被回收：第二次调用拿到的是**新容器**（hostname 变化、文件丢失）。
+   设置 5 分钟后，三次连续调用 hostname 与文件内容都保持一致。
+   → 直接影响 POC-03：不设超时，所谓"持久化"是假的。
+
+2. **`start()` 必须先判断 `running`。**
+   重复调用会抛 `start() cannot be called on a container that is already running.`
+
+3. **配置必须用 DO 调度策略 + `images` map。**
+   ```
+   containers[0] = { class_name, scheduling_policy: "durable_object",
+                     images: { base: { dockerfile } } }
+   ```
+   代码里用 `container.images["base"]` 作为 `start({ image })`。
+   默认策略下 `ctx.container.start()` 不会真正启动（`running` 恒为 false）。
+
+4. **egress sidecar 是固定组件。**
+   `cloudflare/proxy-everything` 承担出站拦截（对应 `interceptOutboundHttp`），
+   且需要 `NET_ADMIN`/`NET_RAW`；rootless Podman 给不了，所以那条路走不通。
+   wrangler **不使用 docker compose**，它直接调 Docker CLI/API 动态编排（容器名带 session 哈希，用完即删）。
+
+### Podman 负结果（保留备查）
 
 | 环节 | 结果 |
 |---|---|
-| Podman 5.7 + Docker socket | ✅ 可用 |
-| `WRANGLER_DOCKER_BIN=podman` + `DOCKER_HOST=<podman.sock>` | ✅ wrangler 接受 |
-| 镜像构建（Dockerfile） | ✅ 成功（需 shim 过滤 `--provenance`、把 `-f -` 转为临时文件） |
-| 拉取 Docker Hub 镜像 | ⚠️ 直连超时，走 `docker.m.daocloud.io` 镜像站成功 |
-| egress sidecar（`cloudflare/proxy-everything`） | ❌ 启动 1 秒后退出 |
-| `ctx.container.start()` | ❌ `running` 始终为 false，无容器被创建 |
+| Podman 5.7 + Docker socket | ✅ |
+| `WRANGLER_DOCKER_BIN=podman` | ✅ |
+| 镜像构建 | ✅（需 shim 过滤 `--provenance`、把 `-f -` 转临时文件） |
+| 拉取 Docker Hub | ⚠️ 需镜像站 |
+| egress sidecar | ❌ `setsockoptint: operation not permitted`；加 caps 可手动启动，但 wrangler 下仍启动即退出 |
 
-关键错误链：
+### 本机环境副作用
 
-1. crun + cgroup v2：`cannot set memory swappiness` → 换 runc 解决
-2. sidecar 缺权限：`setsockoptint: operation not permitted` → 手动加 `NET_ADMIN`/`NET_RAW` 可启动
-3. 但在 wrangler 下 sidecar 仍启动即退出，主容器从未创建 → 无日志可查（容器被自动删除）
-
-判断：**rootless Podman 缺少 wrangler 本地容器网络所需的权限/接口**，继续调参收益很低。
-
-### 本机环境副作用（可回滚）
-
-为这次验证改了三个用户级配置，若要还原：
-
-```bash
-rm -f ~/.config/containers/registries.conf.d/dockerhub-mirror.conf
-rm -f ~/.config/containers/containers.conf
-rm -f ~/.local/bin/runc
-```
-
-- `registries.conf.d/dockerhub-mirror.conf`：Docker Hub → daocloud 镜像（**建议保留**，本机直连不通）
-- `containers.conf`：`runtime = runc`（技术栈）与 `default_capabilities` 追加 `NET_ADMIN`/`NET_RAW`
-- `~/.local/bin/runc`：从 Ubuntu 包中解出的 runc 1.4.0（无 sudo 安装）
-
-### Plan B
-
-| 方案 | 代价 | 建议 |
-|---|---|---|
-| 安装 Docker Engine（`sudo apt install docker.io`，加入 docker 组） | 需要 sudo，5 分钟 | **推荐** |
-| Colima / Docker Desktop | 需要先装 brew/VM，几十 MB~GB | 次选 |
-| rootful Podman（`sudo podman` + rootful socket） | 需要 sudo；配置更绕 | 不推荐 |
-| 放弃本地容器，直接用远端预览 | 每次改动都要部署，迭代极慢 | 不可接受 |
-
-注意：即使换 Docker，**Docker Hub 直连仍然不通**，镜像站配置需要保留（或打开 VPN）。
+- `~/.docker/cli-plugins/docker-buildx`（buildx 0.30.1）
+- `/etc/docker/daemon.json`（镜像站）
+- `~/.local/bin/runc`、`~/.config/containers/containers.conf`（Podman 时代的，可删）
+- `~/.local/bin/runc` / Podman 配置不再需要；`spikes/poc-00-container-gate/bin/docker` 也已无用
 
 ### 对后续 PoC 的影响
 
-- POC-02 / 03 / 04 全部阻塞，直到容器可用。
-- POC-01（UI）、POC-05（模型）、POC-06（SDK 审计）、POC-07（可观测性）不受影响，继续推进。
+- POC-02 / 03 / 04 解除阻塞。
+- POC-03 需要把「setInactivityTimeout + 快照」作为首要验证点。

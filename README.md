@@ -75,9 +75,9 @@ pnpm build
 
 ## 已知约束
 
-- 本机**没有 Docker**。Podman rootless 已实测**无法**满足 wrangler 本地容器的 sidecar 权限要求
-  （详见 `docs/poc/poc-00-container-gate.md`），Sandbox 相关 PoC 需要先安装 Docker Engine 或 Colima。
-- Docker Hub 直连不通，已在 `~/.config/containers/registries.conf.d/` 配置镜像站。
-- Containers（Sandbox）需要 Workers Paid（$5/月）。纯本地开发不受影响。
+- 本机已安装 Docker（29.1.3），手动启动（不开机自启）；`wrangler dev` 走本地 Docker，不需要 Workers Paid。
+- Ubuntu 的 `docker.io` 不含 buildx，已单独放到 `~/.docker/cli-plugins/docker-buildx`。
+- Docker Hub 直连不通，已在 `/etc/docker/daemon.json` 配置 `docker.m.daocloud.io` 镜像站。
+- 容器实例需要显式 `setInactivityTimeout()`，否则两次请求之间会被回收（详见 POC-00 文档）。
 - `apps/web/AGENTS.md` 是 Next 16 自动生成的，可用 `agentRules: false` 关闭。
 - 契约包通过 `exports` 直接暴露 `.ts` 源码，不设构建步骤。
