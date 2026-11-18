@@ -39,11 +39,17 @@ export class ChatAgent extends AIChatAgent<Env> {
         execute: async ({ path }) => {
           try {
             const result = await ws.listFiles();
-            return {
-              entries: result.entries.filter(
-                (e) => !path || e.path.startsWith(path.replace(/^\//, "")),
-              ),
-            };
+            const base = (path ?? "/workspace")
+              .replace(/^\/workspace\/?/, "")
+              .replace(/\/$/, "");
+
+            const entries = base
+              ? result.entries.filter(
+                  (e) => e.path === base || e.path.startsWith(`${base}/`),
+                )
+              : result.entries;
+
+            return { entries };
           } catch (error) {
             return { error: String(error) };
           }
