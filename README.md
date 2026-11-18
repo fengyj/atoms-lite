@@ -2,7 +2,10 @@
 
 对话式应用生成平台 —— 面试笔试 Demo。
 
-当前状态：**只有骨架，没有任何业务代码**。
+当前状态：**PoC 阶段完成，尚未开始产品实现**。
+
+- 验证记录：`docs/poc/`
+- 实现决策：`docs/decisions/`（与设计文档冲突时以此为准）
 
 ## 技术选型（Phase 1）
 
@@ -22,11 +25,15 @@
 
 ```
 apps/
-  web/          Next.js 前端（空白页）
+  web/          Next.js 前端（工作台 shell + /design gallery + /poc-chat）
   worker/       Cloudflare Worker（占位入口）
 packages/
-  contracts/    共享契约（当前为空）
-docs/           需求设计与竞品分析
+  contracts/    共享契约（待实现）
+docs/
+  poc/          PoC 的假设、过程、结论
+  decisions/    已定的实现决策（ADR）
+  *.md          需求设计与竞品分析
+spikes/         一次性验证代码（不属于 workspace）
 ```
 
 依赖方向：`web → contracts ← worker`。两个 app 之间没有代码依赖，只通过 contracts 交换数据。
@@ -57,21 +64,22 @@ pnpm build
 ## 已就绪
 
 - [x] pnpm workspace、共享 tsconfig、锁文件
-- [x] Next.js + Tailwind v4 可启动（`/` 返回 200）
-- [x] Wrangler 可启动（`/` 返回占位文本）
-- [x] TypeScript 6 全量类型检查通过
-- [x] 设计 token + 工作台三栏 shell + 组件 gallery（`/design`）
-- [x] AI Elements 组件接入（假数据）
+- [x] Next.js + Tailwind v4 可启动
+- [x] 设计 token + 三栏工作台 shell + 组件 gallery（`/design`）
+- [x] AI Elements 组件接入（含本地化、shiki 按需高亮）
+- [x] 容器启停、预览 HTTP/WS 代理、快照恢复、版本回滚（PoC 验证）
+- [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证）
+- [x] 运行事件表与时间线（PoC 验证）
 
 ## 未实现（按计划推进）
 
-- [ ] 契约（实体 / 事件 / 工具名）
-- [ ] `AIChatAgent` + Durable Object 绑定
-- [ ] 前端聊天界面 + AI Elements
-- [ ] 工具集（文件 / 命令 / 预览）
-- [ ] Sandbox
-- [ ] 版本与产物
-- [ ] 多角色（Phase 1 明确不做）
+- [ ] `packages/contracts`（实体 / 事件 / 工具 / 任务 / 附件）
+- [ ] `apps/worker` 的正式 `ChatAgent` + 工具集
+- [ ] 工作台接真实数据（当前是静态假数据）
+- [ ] 模板优先的多文件生成闭环
+- [ ] 版本 / 产物 / 导出
+- [ ] 多角色（v1 不做，接口预留）
+- [ ] 生产部署与访问门禁
 
 ## 已知约束
 
@@ -81,3 +89,5 @@ pnpm build
 - 容器实例需要显式 `setInactivityTimeout()`，否则两次请求之间会被回收（详见 POC-00 文档）。
 - `apps/web/AGENTS.md` 是 Next 16 自动生成的，可用 `agentRules: false` 关闭。
 - 契约包通过 `exports` 直接暴露 `.ts` 源码，不设构建步骤。
+- Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
+- 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。

@@ -50,13 +50,13 @@
 | ID | 名称 | 时间盒 | 依赖 | 阻塞谁 | 文档 | 状态 |
 |---|---|---|---|---|---|---|
 | POC-00 | 本地容器闸门（Podman/Docker） | 30m | — | 02/03/04 | [poc-00](poc-00-container-gate.md) | ✅ |
-| POC-01 | UI 基座：token + 版面 + 组件 gallery | 2-3h | — | 08 | [poc-01](poc-01-ui-foundation.md) | 🔶 待视觉确认 |
+| POC-01 | UI 基座：token + 版面 + 组件 gallery | 2-3h | — | 08 | [poc-01](poc-01-ui-foundation.md) | ✅ |
 | POC-02 | 预览链路：HTTP / WS / base 前缀 | 1.5h | 00 | 03/04 | [poc-02](poc-02-preview.md) | ✅ |
 | POC-03 | 沙箱持久化与恢复 | 1.5h | 02 | 04 | [poc-03](poc-03-persistence.md) | ✅ |
 | POC-04 | 版本与回滚 | 2h | 03 | — | [poc-04](poc-04-versions.md) | ✅ |
 | POC-05 | 模型基线 | 1.5h | — | 演示脚本 | [poc-05](poc-05-model.md) | ✅ |
-| POC-06 | Agents SDK 能力审计 | 1.5h | — | 08 | [poc-06](poc-06-sdk-audit.md) | 🔶 5/7 |
-| POC-07 | 可观测性 | 1h | 06 | — | [poc-07](poc-07-observability.md) | ⬜ |
+| POC-06 | Agents SDK 能力审计 | 1.5h | — | 08 | [poc-06](poc-06-sdk-audit.md) | 🔶 6/7 |
+| POC-07 | 可观测性 | 1h | 06 | — | [poc-07](poc-07-observability.md) | ✅ |
 | POC-08 | Agent ↔ UI 接线 | 2h | 01, 06 | — | [poc-08](poc-08-wiring.md) | ✅ |
 | POC-09 | shiki 按需加载（语法高亮） | 0.75h | 01 | — | [poc-09](poc-09-shiki.md) | ✅ |
 
@@ -125,3 +125,20 @@ POC-00 已通过：POC-02/03/04 解除阻塞。POC-01/05/06/07 本来就不受�
 
 - 公网部署、冷启动、访问门禁：最后一天处理，只保留「不可猜链接 + 预算上限」两件止血措施。
 - 多角色、PPT 产物、上下文压缩的产品化、外部发布：不进 Phase 1。
+
+---
+
+## 7. 结论汇总
+
+所有 PoC 的最终结论已沉淀到 `docs/decisions/`：
+
+| 文档 | 内容 |
+|---|---|
+| [01-scope-and-architecture](../decisions/01-scope-and-architecture.md) | 范围、技术栈、项目/会话/沙箱粒度 |
+| [02-roles-tasks-locks](../decisions/02-roles-tasks-locks.md) | 多角色形态、任务模型、写冲突与锁 |
+| [03-attachments-artifacts](../decisions/03-attachments-artifacts.md) | 附件、产物、跨角色引用 |
+| [04-sandbox-and-versions](../decisions/04-sandbox-and-versions.md) | 沙箱生命周期、快照、版本与回滚 |
+| [05-generation-model-ux](../decisions/05-generation-model-ux.md) | 生成策略、模型基线、UI 与可观测性 |
+| [06-dev-environment](../decisions/06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
+
+仍待验证：POC-06 B6（面板事件并行）、生产 Containers 一致性、多文件生成闭环、`pnpm build`。
