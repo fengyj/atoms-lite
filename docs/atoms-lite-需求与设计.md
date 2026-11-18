@@ -247,6 +247,87 @@ atoms-lite 以单机或单租户式部署假设运行，不实现注册、邀请
 
 多角色模式不意味着所有角色必须并行执行。系统可以按顺序或在互不冲突的步骤中并行，并始终保持统一的项目状态和完成标准。
 
+#### 5.3.0 多角色扩展边界
+
+第一阶段即使只启用单角色，也应将角色作为稳定边界引入。消息、工具调用、模型请求和 UI 事件不得直接假定“整个会话只有一个无身份的 Agent”。
+
+核心契约包括：
+
+```ts
+interface RoleDefinition {
+  id: string;
+  name: string;
+  description: string;
+  systemPromptRef: string;
+  allowedTools: readonly string[];
+  modelProfile?: string;
+}
+
+interface RoleInvocation {
+  runId: string;
+  sessionId: string;
+  roleId: string;
+  objective: string;
+  contextRefs: readonly ContextRef[];
+  targetVersionId?: string;
+}
+
+interface RoleResult {
+  roleId: string;
+  status: "completed" | "handoff" | "needs_input" | "failed" | "stopped";
+  summary: string;
+  nextRoleId?: string;
+  artifactRefs?: readonly ArtifactRef[];
+  toolResultRefs?: readonly ToolResultRef[];
+}
+
+interface RoleOrchestrator {
+  start(input: StartSessionInput): Promise<RoleInvocation>;
+  next(input: RoleTransitionInput): Promise<RoleInvocation | null>;
+}
+```
+
+这些类型是产品层协议，不能直接以 Cloudflare `subAgent()`、`agentTool()` 或某个模型 SDK 类型作为公共接口。具体 SDK 只负责实现某个 `RoleOrchestrator` 或角色运行器。
+
+第一阶段可以使用 `SingleRoleOrchestrator`：
+
+```text
+用户消息
+  ↓
+coordinator 角色
+  ↓
+模型与工具循环
+  ↓
+完成、审批或失败
+```
+
+后续多角色模式可替换为 `MultiRoleOrchestrator`：
+
+```text
+用户消息
+  ↓
+Coordinator 调度
+  ├── Product
+  ├── Builder
+  ├── Visual
+  └── Verifier
+```
+
+切换编排器不应改变消息协议、Sandbox 工具接口、版本模型或前端事件格式。
+
+角色实现还应满足：
+
+- 所有消息至少包含 `authorRole`；定向消息包含 `targetRoles`。
+- 模型和工具事件至少包含 `runId`、`roleId` 和 `sessionId`。
+- 工具注册表是全局的，角色只通过 `allowedTools` 获得子集。
+- 所有角色共享同一 Sandbox、Git 仓库和版本模型。
+- 角色之间通过结构化 `RoleResult` 交接，不传递隐式自由文本状态。
+- `@角色` 产生定向调度请求，但最终仍由 Coordinator 检查角色能力和当前阶段。
+- 第一阶段不要求角色独立 Durable Object；后续是否使用 `subAgent()` 是运行器实现选择。
+- 写文件和执行构建的角色默认串行持有 workspace 写锁。
+
+消息历史继续由 Agents SDK/AIChatAgent 管理。atoms-lite 不修改框架消息表，只使用 `atoms_` 前缀的业务表保存角色元数据、角色状态、摘要和调度事件。消息 ID、run ID 和 role ID 建立关联。
+
 可选角色包括：
 
 - 协调者：决定下一步和完成条件

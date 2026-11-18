@@ -66,47 +66,43 @@
 
 ## 结论
 
-**已实现，未完成端到端验证（环境问题）。**
+**通过。** 三条工具路径 + 审批/拒绝全部符合预期。
 
-### 已完成（2026-11-18）
+### 实测结果（2026-11-18，真实模型）
 
-- Worker 侧三个工具：`slow_tool`（1s）、`fail_tool`（抛错）、`risky_tool`（需审批）
-- `streamText` 接入 `tools` + `toolApproval: { risky_tool: "user-approval" }`
-- 前端用 AI Elements 渲染真实流：
-  - `Message` + `MessageResponse` 渲染文本
-  - `Tool` + `ToolHeader/ToolInput/ToolOutput` 渲染工具四态
-  - `Confirmation` + 批准/拒绝按钮，调用 `addToolApprovalResponse({ id, approved })`
-- `scripts/poc08.mjs`：覆盖成功 / 失败 / 批准 / 拒绝四条路径
-
-### 未完成
-
-端到端脚本没有跑通。原因不是代码，而是本地环境：
-
-- 长时间会话后，Next dev 的 postcss 子进程反复被 OOM/挂起（`fetch` 返回 000，进程仍在）
-- Worker 端口也出现过无响应
-- 多次重启后仍不稳定
-
-需要在干净环境下重跑：
-
-```bash
-pnpm dev:web
-(cd spikes/poc-06-sdk-audit && pnpm exec wrangler dev --port 8796)
-node scripts/poc08.mjs
-```
-
-### 一个重要发现：mock 无法驱动工具调用
-
-`MockLanguageModelV4` 在 AI SDK 7 下有两种写法都不行：
-
-| 写法 | 结果 |
+| 场景 | 结果 |
 |---|---|
-| `tool-input-start` + `tool-input-delta` + `tool-input-end` | 能解析出 tool part，但不会组装成 tool-call，工具不执行 |
-| `tool-call`（input 为字符串） | 能识别，但 `toolResults` 仍为 0，第二步不触发 |
+| `slow_tool` | ✅ `output-available` |
+| `fail_tool` | ✅ `output-error`，错误文本可见 |
+| `risky_tool` + 批准 | ✅ 出现审批卡片 → 点击批准 → `output-available` |
+| `risky_tool` + 拒绝 | ✅ 第二次调用出现 `output-denied` |
 
-结论：**工具调用链路必须用真实模型验证**，mock 只适合验证文本流、停止、持久化、续传（POC-06 的四项）。
+说明：
 
-### 对 POC-08 正式实现的建议
+- AI Elements 的 `Message` / `Tool` / `Confirmation` 可以直接吃真实流，不需要改组件。
+- `addToolApprovalResponse({ id, approved })` 生效。
+- 真实模型会自行决定是否调用工具；测试里通过 system prompt 强制指定，验证的是**链路**而不是模型判断。
 
-- 工具定义与 UI 渲染层已经可用，正式实现时直接复用。
-- 审批卡片必须处理三种状态：`approval-requested`、`approval-responded`、`output-denied`。
-- 真实模型的工具调用延迟明显（单步 5-15s），UI 必须有"正在调用工具"的中间态。
+### 之前为什么一直“跑不通”
+
+不是代码问题，是三个叠加的环境问题：
+
+1. **Worker 构建失败**：给 `onChatMessage` 加了 `createOpenAICompatible`，但没把
+   `@ai-sdk/openai-compatible` 加进 spike 的依赖 → `Could not resolve`。
+2. **假 000**：重启后用 `curl -m 3` 探活，而 `/poc-chat` 首次编译需要 ~3s，
+   curl 先超时，看起来像服务没起来。
+3. **自伤**：清理进程时用了 `awk '/next/ {kill}'`，而 Next 的 postcss worker 路径是
+   `apps/web/.next/dev/build/...`，同样命中 `/next/` → 被 `kill -9`，
+   于是响应变成 500（`postcss subprocess crashed ... SIGKILL`）。
+   这不是 OOM，是我自己的杀进程规则太宽。
+
+### 环境使用建议
+
+- 清进程按端口（`lsof -t -i:3000`），不要按名字模糊匹配。
+- 同时只保留一个 web + 一个 worker。
+- 探活用 `-m 10` 以上，或用 `waitUntil: "domcontentloaded"`。
+
+### 遗留
+
+- `apps/web/app/poc-chat/` 与 `spikes/poc-06-sdk-audit/` 是验证用代码，正式实现开始前删除。
+- `hasDone` 为 false：真实模型的收尾文案不是固定的 "done"，不影响工具链路结论。
