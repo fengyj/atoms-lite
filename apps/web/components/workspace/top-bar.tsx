@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, PanelRight, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, Download, PanelRight, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,14 +39,19 @@ export function TopBar({
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/60 px-3">
-      <div className="flex items-center gap-2">
+      <Link
+        href="/"
+        title="返回工作台"
+        className="flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-accent"
+      >
+        <ChevronLeft className="size-3 text-muted-foreground sm:hidden" />
         <span className="grid size-5 place-items-center rounded-md bg-primary text-primary-foreground">
           <Sparkles className="size-3" />
         </span>
         <span className="hidden text-sm font-semibold tracking-tight whitespace-nowrap sm:inline">
           atoms-lite
         </span>
-      </div>
+      </Link>
 
       <span className="text-border">/</span>
 

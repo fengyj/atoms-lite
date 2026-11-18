@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "preview";
 
+const SESSION_PATH = "/sessions/demo";
+
 export function Workspace() {
   const [tab, setTab] = useState<Tab>("chat");
   const [sideOpen, setSideOpen] = useState(false);
@@ -40,6 +42,41 @@ export function Workspace() {
     addToolApprovalResponse,
     isStreaming,
   } = useAgentChat({ agent });
+
+  // 首页把第一条需求放在 ?prompt= 里；连接就绪且当前空闲时自动发送
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [agentReady, setAgentReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    agent.ready
+      .then(() => {
+        if (alive) setAgentReady(true);
+      })
+      .catch(() => {
+        // 连接失败时保持手动输入，错误由对话面板展示
+      });
+    return () => {
+      alive = false;
+    };
+  }, [agent]);
+
+  useEffect(() => {
+    const prompt = new URLSearchParams(window.location.search)
+      .get("prompt")
+      ?.trim();
+    if (!prompt) return;
+    // 清掉 query，刷新时不再重复发送
+    window.history.replaceState(null, "", SESSION_PATH);
+    setPendingPrompt(prompt);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingPrompt || !agentReady) return;
+    if (status !== "ready" || isStreaming) return;
+    setPendingPrompt(null);
+    sendMessage({ text: pendingPrompt });
+  }, [pendingPrompt, agentReady, status, isStreaming, sendMessage]);
 
   // 侧栏数据：版本（DO 存储，容器停止也能读）与文件列表
   const versions = useWorkspaceVersions();

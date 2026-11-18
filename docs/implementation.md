@@ -4,6 +4,7 @@
 
 ## 1. 范围
 
+- 两个页面：**首页工作台** `/` 与**会话工作区** `/sessions/demo`
 - 单项目 `demo`、单会话 `demo`
 - 用户输入需求 → ChatAgent 调工具 → WorkspaceDO 写文件 → 启动预览 → 创建版本
 - 生成物：多文件静态站点（`index.html` / `styles.css` / `app.js`），无构建步骤
@@ -20,9 +21,35 @@
 | Workspace 客户端 | `apps/worker/src/workspace/client.ts` |
 | Worker 路由 | `apps/worker/src/index.ts` |
 | 沙箱镜像 | `apps/worker/Dockerfile` + `container/` |
-| Web 工作台 | `apps/web/components/workspace/*` + `lib/agent.ts` |
+| Web 首页 | `apps/web/components/dashboard/dashboard.tsx` |
+| Web 工作区 | `apps/web/components/workspace/*` + `lib/agent.ts` |
 
 架构与决策见 `docs/architecture/`、`docs/decisions/`。
+
+## 2.1 页面结构
+
+```text
+/                 首页工作台（dashboard）
+/sessions/demo    会话工作区（单会话 v1 固定为 demo）
+```
+
+**首页 `/`**
+
+- 左侧边栏：品牌、工作台/我的项目/模板/设置、最近项目、当前模式
+- 主区：聚焦式需求输入（多行、模式选择、附件占位、⌘/Ctrl+Enter）
+- 示例需求：五子棋 / 待办清单 / 作品集主页
+- 概况：项目数、版本数、最近保存时间、沙箱状态（`preview/status`）
+- 我的项目：真实版本数据（commit、summary、文件数、保存时间）+ 打开工作区
+- 提交需求后跳转 `/sessions/demo?prompt=...`
+
+**会话工作区 `/sessions/demo`**
+
+- 三栏：对话、预览、Sandbox/产物/版本（窄屏切换）
+- 进入时读取 `?prompt=`，待 Agent 连接就绪且当前空闲后自动发送；
+  发送前用 `history.replaceState` 清掉 query，刷新不会重复发送
+- 顶栏 logo 可返回首页
+
+首页与工作区之间没有额外的管理页面；设置、版本、文件都在工作区面板内完成。
 
 ## 3. 关键行为
 
@@ -53,9 +80,28 @@
 - **空闲回收恢复**：停止请求 400s 后 `preview/status` 为 `{running:false}`；再请求 `/previews/demo/` 返回 200、标题仍为「五子棋 · Gomoku」，3 个文件大小不变，版本仍为 `1d6d331`。
 - **预览状态探测**：正常时徽标 `加载中 → 就绪`；强制 `ready:false` 时 45s 后显示「失败」。
 
+### 首页 → 工作区闭环
+
+![首页工作台](assets/v1-dashboard.png)
+
+- `/` 200，标题正确；项目卡显示真实 commit、summary、文件数与保存时间。
+- 点击项目卡 → `/sessions/demo` 200，三栏工作区正常加载。
+- 在首页输入修改需求并点「开始生成」：
+  - 跳转 `/sessions/demo?prompt=...`，随后 query 被清空；
+  - Agent 连接就绪后自动发送，对话中可见该需求；
+  - 约 3 分钟后生成完成，新版本 `50fff0b`，summary 为提子计数条改动；
+  - 首页刷新后显示新版本；预览出现「黑棋提子 / 白棋提子」计数条；
+  - 点击棋盘仍可正常落子（`已落子 1 手`、`轮到白棋落子`），无 console 错误。
+
 ## 4.1 代码审查
 
 详见 `docs/reviews/v1-code-review.md`。P0（快照/seed 覆盖）与关键 P1（ensure 覆盖、healthz、checkout、幂等、超时、白名单、Origin）已修复并通过生产回归；审批接线、预览错误态等列为后续。
+
+## 4.2 页面截图
+
+| 首页 | 工作区 |
+|---|---|
+| ![首页](assets/v1-dashboard.png) | ![工作区](assets/v1-workspace.png) |
 
 ## 5. 已知限制
 

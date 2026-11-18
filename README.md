@@ -2,9 +2,14 @@
 
 对话式应用生成平台 —— 面试笔试 Demo。
 
-当前状态：**v1 可用**。输入需求（如五子棋）即可生成可运行的多文件网站，支持预览与版本。
+当前状态：**v1 可用**。首页工作台输入需求（如五子棋）即可生成可运行的多文件网站，支持预览与版本。
 
 线上：https://atoms-lite.fengyj.me
+
+页面：
+
+- `/` 首页工作台（需求输入、示例、项目概况、最近项目）
+- `/sessions/demo` 会话工作区（对话 / 预览 / Sandbox / 版本）
 
 - 实现记录：`docs/implementation.md`
 - 系统架构：`docs/architecture/system-architecture.md`
@@ -30,8 +35,8 @@
 
 ```
 apps/
-  web/          Next.js 前端（工作台 shell + /design gallery + /poc-chat）
-  worker/       Cloudflare Worker（占位入口）
+  web/          Next.js 前端（首页工作台 + 会话工作区 + /design gallery）
+  worker/       Cloudflare Worker（ChatAgent + WorkspaceDO + 容器沙箱）
 packages/
   contracts/    共享契约（待实现）
 docs/
@@ -82,6 +87,7 @@ pnpm build
 - [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证）
 - [x] 运行事件表与时间线（PoC 验证）
 - [x] **单角色生成闭环**：需求 → 工具写文件 → 预览 → 版本
+- [x] **首页 + 会话页**：首页提交需求后进入工作区并自动发送
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）
