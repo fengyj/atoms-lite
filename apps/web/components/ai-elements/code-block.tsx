@@ -1,191 +1,80 @@
 "use client";
 
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { CheckIcon, CopyIcon } from "lucide-react";
-import {
-  type ComponentProps,
-  createContext,
-  type HTMLAttributes,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
 
-type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
+type CodeBlockProps = {
   code: string;
-  language: BundledLanguage;
+  language?: string;
   showLineNumbers?: boolean;
+  className?: string;
 };
 
-type CodeBlockContextType = {
-  code: string;
-};
-
-const CodeBlockContext = createContext<CodeBlockContextType>({
-  code: "",
-});
-
-const lineNumberTransformer: ShikiTransformer = {
-  name: "line-numbers",
-  line(node, line) {
-    node.children.unshift({
-      type: "element",
-      tagName: "span",
-      properties: {
-        className: [
-          "inline-block",
-          "min-w-10",
-          "mr-4",
-          "text-right",
-          "select-none",
-          "text-muted-foreground",
-        ],
-      },
-      children: [{ type: "text", value: String(line) }],
-    });
-  },
-};
-
-export async function highlightCode(
-  code: string,
-  language: BundledLanguage,
-  showLineNumbers = false
-) {
-  const transformers: ShikiTransformer[] = showLineNumbers
-    ? [lineNumberTransformer]
-    : [];
-
-  return await Promise.all([
-    codeToHtml(code, {
-      lang: language,
-      theme: "one-light",
-      transformers,
-    }),
-    codeToHtml(code, {
-      lang: language,
-      theme: "one-dark-pro",
-      transformers,
-    }),
-  ]);
-}
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-const plainHtml = (value: string) =>
-  `<pre class="m-0 bg-background p-4 text-sm"><code class="font-mono text-sm">${escapeHtml(value)}</code></pre>`;
-
+/**
+ * 轻量代码块：只做等宽展示 + 复制。
+ *
+ * 之前用 shiki 做高亮，但它在浏览器端加载 oniguruma WASM 时会挂住，
+ * 且把 8 种语言 + 2 个主题打进客户端包，dev 下直接把 postcss 子进程打到 OOM。
+ * 演示阶段先保证「内容可见、可复制」，高亮后续用按需动态加载再补。
+ */
 export const CodeBlock = ({
   code,
   language,
   showLineNumbers = false,
   className,
-  children,
-  ...props
 }: CodeBlockProps) => {
-  // 先渲染纯文本，shiki 就绪后替换为高亮版本。
-  // 这样即使高亮失败（如 WASM 加载被拦），代码仍然可见。
-  const [html, setHtml] = useState<string>(() => plainHtml(code));
-  const [darkHtml, setDarkHtml] = useState<string>(() => plainHtml(code));
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    highlightCode(code, language, showLineNumbers)
-      .then(([light, dark]) => {
-        if (cancelled) return;
-        setHtml(light);
-        setDarkHtml(dark);
-      })
-      .catch(() => {
-        // 高亮失败时保留纯文本
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [code, language, showLineNumbers]);
+  const display = showLineNumbers
+    ? code
+        .split("\n")
+        .map((line, i) => `${String(i + 1).padStart(2, " ")}  ${line}`)
+        .join("\n")
+    : code;
 
   return (
-    <CodeBlockContext.Provider value={{ code }}>
-      <div
-        className={cn(
-          "group relative w-full overflow-hidden rounded-md border bg-background text-foreground",
-          className
-        )}
-        {...props}
-      >
-        <div className="relative">
-          <div
-            className="overflow-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-          <div
-            className="hidden overflow-auto dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-            dangerouslySetInnerHTML={{ __html: darkHtml }}
-          />
-          {children && (
-            <div className="absolute top-2 right-2 flex items-center gap-2">
-              {children}
-            </div>
-          )}
-        </div>
-      </div>
-    </CodeBlockContext.Provider>
-  );
-};
-
-export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
-  onCopy?: () => void;
-  onError?: (error: Error) => void;
-  timeout?: number;
-};
-
-export const CodeBlockCopyButton = ({
-  onCopy,
-  onError,
-  timeout = 2000,
-  children,
-  className,
-  ...props
-}: CodeBlockCopyButtonProps) => {
-  const [isCopied, setIsCopied] = useState(false);
-  const { code } = useContext(CodeBlockContext);
-
-  const copyToClipboard = async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(code);
-      setIsCopied(true);
-      onCopy?.();
-      setTimeout(() => setIsCopied(false), timeout);
-    } catch (error) {
-      onError?.(error as Error);
-    }
-  };
-
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
-  return (
-    <Button
-      className={cn("shrink-0", className)}
-      onClick={copyToClipboard}
-      size="icon"
-      variant="ghost"
-      {...props}
+    <div
+      className={cn(
+        "group relative w-full overflow-hidden rounded-md border border-border bg-background",
+        className
+      )}
     >
-      {children ?? <Icon size={14} />}
-    </Button>
+      {language ? (
+        <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+          <span className="text-3xs tracking-wide text-muted-foreground uppercase">
+            {language}
+          </span>
+        </div>
+      ) : null}
+      <div className="overflow-auto">
+        <pre className="m-0 p-4 font-mono text-sm leading-6">
+          <code className="font-mono text-sm">{display}</code>
+        </pre>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="复制代码"
+        className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          } catch {
+            // 剪贴板不可用时静默失败
+          }
+        }}
+      >
+        {copied ? (
+          <CheckIcon className="size-3.5" />
+        ) : (
+          <CopyIcon className="size-3.5" />
+        )}
+      </Button>
+    </div>
   );
 };

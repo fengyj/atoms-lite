@@ -171,8 +171,9 @@ type VersionVM  = { id, commit, summary, status, createdAt, sourceMessageId };
 4. **移动端审批卡片被输入框截断**：
    修复：窄屏隐藏执行计划列表（次要信息），保证审批按钮可见。
 5. **CodeBlock 在 shiki 完成前是空白**，且原实现的 `mounted` 逻辑导致高亮永远不会更新。
-   修复：先渲染纯文本兜底，高亮完成后再替换；失败时保留纯文本。
-   （副作用：目前 shiki 在 dev 下未成功出颜色，但内容始终可见。）
+   修复：先渲染纯文本兜底。后续排查发现 shiki 在浏览器端加载 oniguruma WASM 会挂住，
+   且把 8 种语言 + 2 个主题打进客户端包会让 dev 的 postcss 子进程 OOM。
+   最终**移除 shiki**，改为轻量代码块（等宽展示 + 复制 + 语言标签），语法高亮后置。
 
 ### 已知限制
 
