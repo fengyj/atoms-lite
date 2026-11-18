@@ -66,4 +66,47 @@
 
 ## 结论
 
-（待填写：通过 / 组件需修改项 / 是否切换 transport）
+**已实现，未完成端到端验证（环境问题）。**
+
+### 已完成（2026-11-18）
+
+- Worker 侧三个工具：`slow_tool`（1s）、`fail_tool`（抛错）、`risky_tool`（需审批）
+- `streamText` 接入 `tools` + `toolApproval: { risky_tool: "user-approval" }`
+- 前端用 AI Elements 渲染真实流：
+  - `Message` + `MessageResponse` 渲染文本
+  - `Tool` + `ToolHeader/ToolInput/ToolOutput` 渲染工具四态
+  - `Confirmation` + 批准/拒绝按钮，调用 `addToolApprovalResponse({ id, approved })`
+- `scripts/poc08.mjs`：覆盖成功 / 失败 / 批准 / 拒绝四条路径
+
+### 未完成
+
+端到端脚本没有跑通。原因不是代码，而是本地环境：
+
+- 长时间会话后，Next dev 的 postcss 子进程反复被 OOM/挂起（`fetch` 返回 000，进程仍在）
+- Worker 端口也出现过无响应
+- 多次重启后仍不稳定
+
+需要在干净环境下重跑：
+
+```bash
+pnpm dev:web
+(cd spikes/poc-06-sdk-audit && pnpm exec wrangler dev --port 8796)
+node scripts/poc08.mjs
+```
+
+### 一个重要发现：mock 无法驱动工具调用
+
+`MockLanguageModelV4` 在 AI SDK 7 下有两种写法都不行：
+
+| 写法 | 结果 |
+|---|---|
+| `tool-input-start` + `tool-input-delta` + `tool-input-end` | 能解析出 tool part，但不会组装成 tool-call，工具不执行 |
+| `tool-call`（input 为字符串） | 能识别，但 `toolResults` 仍为 0，第二步不触发 |
+
+结论：**工具调用链路必须用真实模型验证**，mock 只适合验证文本流、停止、持久化、续传（POC-06 的四项）。
+
+### 对 POC-08 正式实现的建议
+
+- 工具定义与 UI 渲染层已经可用，正式实现时直接复用。
+- 审批卡片必须处理三种状态：`approval-requested`、`approval-responded`、`output-denied`。
+- 真实模型的工具调用延迟明显（单步 5-15s），UI 必须有"正在调用工具"的中间态。

@@ -1,39 +1,113 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { routeAgentRequest } from "agents";
-import { convertToModelMessages, streamText } from "ai";
+import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { z } from "zod";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 export interface Env {
   ChatAgent: DurableObjectNamespace;
+  MODEL_BASE_URL?: string;
+  MODEL_API_KEY?: string;
+  MODEL_ID?: string;
 }
 
 const CHUNKS = 40;
 const CHUNK_DELAY_MS = 150;
 
-function mockModel() {
-  return new MockLanguageModelV4({
-    doStream: async () => ({
-      stream: simulateReadableStream({
-        chunkDelayInMs: CHUNK_DELAY_MS,
-        chunks: [
-          { type: "stream-start", warnings: [] },
-          { type: "text-start", id: "t1" },
-          ...Array.from({ length: CHUNKS }, (_, i) => ({
-            type: "text-delta" as const,
-            id: "t1",
-            delta: `chunk-${i + 1} `,
-          })),
-          { type: "text-end", id: "t1" },
-          {
-            type: "finish",
-            finishReason: "stop",
-            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-          },
-        ],
-      }),
-    }),
+const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
+
+function textStream(text: string) {
+  return simulateReadableStream({
+    chunkDelayInMs: CHUNK_DELAY_MS,
+    chunks: [
+      { type: "stream-start", warnings: [] },
+      { type: "text-start", id: "t1" },
+      ...Array.from({ length: CHUNKS }, (_, i) => ({
+        type: "text-delta" as const,
+        id: "t1",
+        delta: i === 0 ? `${text} ` : `chunk-${i + 1} `,
+      })),
+      { type: "text-end", id: "t1" },
+      { type: "finish", finishReason: "stop", usage },
+    ],
   });
 }
+
+function toolCallStream(name: string, input: unknown) {
+  return simulateReadableStream({
+    chunks: [
+      { type: "stream-start", warnings: [] },
+      { type: "tool-input-start", id: "call1", toolName: name },
+      {
+        type: "tool-input-delta",
+        id: "call1",
+        delta: JSON.stringify(input),
+      },
+      { type: "tool-input-end", id: "call1" },
+      { type: "finish", finishReason: "tool-calls", usage },
+    ],
+  });
+}
+
+function realModel(env: Env) {
+  const provider = createOpenAICompatible({
+    name: "atoms-poc",
+    baseURL: (env.MODEL_BASE_URL ?? "").replace(/\/chat\/completions\/?$/, ""),
+    apiKey: env.MODEL_API_KEY,
+    headers: { "x-opencode-session": "poc-08" },
+  });
+  return provider(env.MODEL_ID ?? "deepseek-v4.1-flash");
+}
+
+function mockModel() {
+  return new MockLanguageModelV4({
+    doStream: async ({ prompt }) => {
+      const hasToolResult = prompt.some((m) => m.role === "tool");
+      const lastUser = [...prompt]
+        .reverse()
+        .find((m) => m.role === "user");
+      const text = JSON.stringify(lastUser?.content ?? "");
+
+      if (!hasToolResult) {
+        if (text.includes("slow")) {
+          return { stream: toolCallStream("slow_tool", { seconds: 1 }) };
+        }
+        if (text.includes("fail")) {
+          return { stream: toolCallStream("fail_tool", {}) };
+        }
+        if (text.includes("risky")) {
+          return { stream: toolCallStream("risky_tool", { target: "app.tsx" }) };
+        }
+      }
+
+      return { stream: textStream(hasToolResult ? "done" : "plain") };
+    },
+  });
+}
+
+const tools = {
+  slow_tool: tool({
+    description: "等待指定秒数后返回",
+    inputSchema: z.object({ seconds: z.number() }),
+    execute: async ({ seconds }) => {
+      await new Promise((r) => setTimeout(r, seconds * 1000));
+      return { slept: seconds };
+    },
+  }),
+  fail_tool: tool({
+    description: "总是失败",
+    inputSchema: z.object({}),
+    execute: async () => {
+      throw new Error("boom: 模拟失败");
+    },
+  }),
+  risky_tool: tool({
+    description: "需要人工确认的写操作",
+    inputSchema: z.object({ target: z.string() }),
+    execute: async ({ target }) => ({ written: target }),
+  }),
+};
 
 export class ChatAgent extends AIChatAgent<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -85,9 +159,17 @@ export class ChatAgent extends AIChatAgent<Env> {
     const t0 = Date.now();
     this.emit(runId, "run.started", { messages: this.messages.length });
 
+    const useReal = Boolean(this.env.MODEL_API_KEY && this.env.MODEL_BASE_URL);
+
     const result = streamText({
-      model: mockModel(),
+      model: useReal ? realModel(this.env) : mockModel(),
+      system: useReal
+        ? "你是测试助手。用户说 slow 时必须调用 slow_tool；说 fail 时必须调用 fail_tool；说 risky 时必须调用 risky_tool。不要直接回答，先调用工具。"
+        : undefined,
       messages: await convertToModelMessages(this.messages),
+      tools,
+      toolApproval: { risky_tool: "user-approval" },
+      stopWhen: stepCountIs(5),
       onFinish: ({ text, usage, finishReason }) => {
         this.emit(runId, "model.finished", {
           ms: Date.now() - t0,
