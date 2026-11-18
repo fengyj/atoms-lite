@@ -143,6 +143,47 @@ export function ChatPanel({
   );
 }
 
+
+/** 工具卡片只展示关键信息，避免把整个文件内容铺满对话 */
+function truncate(value: string, max = 1200) {
+  return value.length > max ? `${value.slice(0, max)}\n… (${value.length} chars)` : value;
+}
+
+function displayInput(tool: ToolUIPart): unknown {
+  const name = tool.type.replace(/^tool-/, "");
+  const input = tool.input as Record<string, unknown> | undefined;
+  if (!input || typeof input !== "object") return tool.input;
+
+  if (name === "write_file") {
+    return {
+      path: input.path,
+      bytes: typeof input.content === "string" ? input.content.length : undefined,
+    };
+  }
+  if (name === "read_file") {
+    return { path: input.path };
+  }
+  return tool.input;
+}
+
+function displayOutput(tool: ToolUIPart): unknown {
+  const name = tool.type.replace(/^tool-/, "");
+  const output = tool.output as Record<string, unknown> | undefined;
+  if (!output || typeof output !== "object") return tool.output;
+
+  if (name === "read_file" && typeof output.content === "string") {
+    return { content: truncate(output.content), truncated: output.truncated };
+  }
+  if (name === "exec") {
+    return {
+      exitCode: output.exitCode,
+      stdout: typeof output.stdout === "string" ? truncate(output.stdout) : output.stdout,
+      stderr: typeof output.stderr === "string" ? truncate(output.stderr, 600) : output.stderr,
+    };
+  }
+  return tool.output;
+}
+
 /** 单个消息 part 的渲染：text / reasoning / tool-* */
 function renderPart(
   part: UIMessage["parts"][number],
@@ -173,8 +214,8 @@ function renderPart(
         <Tool defaultOpen>
           <ToolHeader type={tool.type} state={tool.state} />
           <ToolContent>
-            {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}
-            <ToolOutput output={tool.output} errorText={tool.errorText} />
+            {tool.input !== undefined ? <ToolInput input={displayInput(tool)} /> : null}
+            <ToolOutput output={displayOutput(tool)} errorText={tool.errorText} />
           </ToolContent>
         </Tool>
 
