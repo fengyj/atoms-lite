@@ -1,0 +1,114 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --bg-glow: #12202e;
+  --surface: #121821;
+  --border: #243040;
+  --text: #e6edf5;
+  --muted: #8b9aad;
+  --accent: #4cc2a0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(60rem 40rem at 50% -10%, var(--bg-glow), transparent 70%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.stage {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+}
+
+.card {
+  width: min(32rem, 100%);
+  padding: 2.5rem 2rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.hint {
+  margin: 1rem 0 2rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: rgb(255 255 255 / 3%);
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+.meta {
+  margin: 1.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.6rem transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}

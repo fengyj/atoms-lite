@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>等待生成</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <section class="card" aria-labelledby="title">
+        <p class="eyebrow">atoms-lite</p>
+        <h1 id="title">等待生成</h1>
+        <p class="hint">应用还没有生成。描述你想要的页面，稍后这里会出现结果。</p>
+        <div class="status" role="status">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="status-text">预览服务器已就绪</span>
+        </div>
+        <p class="meta" id="meta" hidden></p>
+      </section>
+    </main>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

@@ -13,6 +13,7 @@
     "@ai-sdk/openai-compatible": "3.0.93",
     "@atoms-lite/contracts": "workspace:*",
     "@cloudflare/ai-chat": "0.12.2",
+    "@cloudflare/sandbox": "1.0.3",
     "agents": "0.33.0",
     "ai": "7.0.176",
     "zod": "^4.6.7"

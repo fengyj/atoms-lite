@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "atoms-lite",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "../web/out",
+    "binding": "ASSETS"
+  },
+  "routes": [
+    { "pattern": "atoms-lite.fengyj.me", "custom_domain": true }
+  ],
+  "containers": [
+    {
+      "class_name": "Workspace",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": { "dockerfile": "./Dockerfile" }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "class_name": "ChatAgent", "name": "ChatAgent" },
+      { "class_name": "Workspace", "name": "WORKSPACE" }
+    ]
+  },
+  "exports": {
+    "ChatAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Workspace": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "vars": {
+    "MODEL_BASE_URL": "https://opencode.ai/inference/go/openai/v1",
+    "MODEL_ID": "deepseek-v4.1-flash"
+  }
+}
