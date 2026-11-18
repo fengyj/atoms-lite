@@ -1,0 +1,25 @@
+{
+  "name": "@atoms-lite/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.93",
+    "@atoms-lite/contracts": "workspace:*",
+    "@cloudflare/ai-chat": "0.12.2",
+    "agents": "0.33.0",
+    "ai": "7.0.176",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261118.1",
+    "typescript": "~6.0.3",
+    "wrangler": "^4.164.0"
+  }
+}
