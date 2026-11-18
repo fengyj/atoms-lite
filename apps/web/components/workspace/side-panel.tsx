@@ -1,42 +1,72 @@
 "use client";
 
 import {
-  FileArchive,
-  FileImage,
   FileText,
+  Folder,
   FolderTree,
-  Globe,
   History,
+  Loader2,
   Package,
+  RotateCw,
   Terminal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { artifacts, files, logs, versions } from "@/lib/fixtures";
+import { EmptyState } from "@/components/workspace/panel";
+import {
+  formatClock,
+  formatSize,
+  shortCommit,
+  type Endpoint,
+  type WorkspaceFileEntry,
+  type WorkspaceVersion,
+} from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
-const logTone: Record<string, string> = {
-  cmd: "text-foreground",
-  muted: "text-muted-foreground",
-  ok: "text-success",
-  err: "text-warning",
-};
+/** 路径深度 → 缩进（沿用树形视觉，不用任意值） */
+const INDENT = ["pl-1.5", "pl-5", "pl-8", "pl-11"] as const;
+const MAX_INDENT = "pl-11";
 
-const artifactIcon = {
-  web: Globe,
-  zip: FileArchive,
-  log: FileText,
-  pptx: FileText,
-  image: FileImage,
-} as const;
+function indent(depth: number): string {
+  return INDENT[depth] ?? MAX_INDENT;
+}
 
-const versionTone = {
-  verified: "bg-success/15 text-success border-success/30",
-  failed: "bg-destructive/15 text-destructive border-destructive/30",
-  draft: "bg-muted text-muted-foreground border-border",
-} as const;
+function isDirectory(entry: WorkspaceFileEntry): boolean {
+  return entry.type === "dir" || entry.type === "directory";
+}
 
-export function SidePanel({ className }: { className?: string }) {
+/** 版本状态 → 展示（未知状态原样显示，不假装认识） */
+function versionStatus(status: string): { label: string; tone: string } {
+  if (status === "verified") {
+    return {
+      label: "已验证",
+      tone: "bg-success/15 text-success border-success/30",
+    };
+  }
+  if (status === "failed") {
+    return {
+      label: "失败",
+      tone: "bg-destructive/15 text-destructive border-destructive/30",
+    };
+  }
+  if (status === "draft") {
+    return { label: "草稿", tone: "bg-muted text-muted-foreground border-border" };
+  }
+  return { label: status, tone: "bg-muted text-muted-foreground border-border" };
+}
+
+export function SidePanel({
+  className,
+  versions,
+  files,
+}: {
+  className?: string;
+  /** 版本列表（真实请求；DO 存储，容器停止也能读） */
+  versions: Endpoint<WorkspaceVersion[]>;
+  /** 文件列表（真实请求；工具完成后由工作台触发刷新） */
+  files: Endpoint<WorkspaceFileEntry[]>;
+}) {
   return (
     <section
       className={cn(
@@ -62,127 +92,206 @@ export function SidePanel({ className }: { className?: string }) {
           </TabsList>
         </div>
 
-        <TabsContent value="sandbox" className="mt-0 min-h-0 flex-1 overflow-auto scrollbar-thin">
-          <div className="border-b border-border px-3 py-2">
-            <div className="flex items-center justify-between text-2xs">
-              <span className="text-muted-foreground">进程</span>
-              <span className="inline-flex items-center gap-1.5 text-foreground">
-                <span className="size-1.5 animate-pulse rounded-full bg-success" />
-                pnpm start :3000
+        <TabsContent
+          value="sandbox"
+          className="mt-0 min-h-0 flex-1 overflow-auto scrollbar-thin"
+        >
+          <div className="border-b border-border p-2">
+            <div className="mb-1.5 flex items-center justify-between px-1 text-2xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <FolderTree className="size-3.5" />
+                工作区 /workspace
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span>{files.data?.length ?? 0} 个文件</span>
+                <button
+                  type="button"
+                  onClick={files.refresh}
+                  aria-label="刷新文件列表"
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <RotateCw
+                    className={cn("size-3.5", files.loading && "animate-spin")}
+                  />
+                </button>
               </span>
             </div>
-          </div>
 
-          <div className="border-b border-border p-2">
-            <div className="mb-1.5 flex items-center gap-1.5 px-1 text-2xs text-muted-foreground">
-              <FolderTree className="size-3.5" />
-              工作区 /workspace
-            </div>
-            <ul className="space-y-0.5">
-              {files.map((file) => (
-                <li
-                  key={file.path}
-                  className={cn(
-                    "flex items-center gap-2 rounded py-1 pr-1.5 text-xs hover:bg-accent",
-                    file.depth === 0 ? "pl-1.5" : "pl-5"
-                  )}
-                >
-                  <span className={file.kind === "dir" ? "text-muted-foreground" : "text-foreground/80"}>
-                    {file.path}
-                  </span>
-                  {file.change ? (
-                    <span
-                      className={cn(
-                        "ml-auto text-3xs",
-                        file.change === "add" && "text-success",
-                        file.change === "mod" && "text-warning",
-                        file.change === "del" && "text-destructive"
-                      )}
-                    >
-                      {file.change === "add" ? "A" : file.change === "mod" ? "M" : "D"}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
+            <StateRow
+              loading={files.loading}
+              error={files.error}
+              onRetry={files.refresh}
+            />
 
-          <div className="p-2">
-            <div className="mb-1 flex items-center justify-between px-1 text-2xs text-muted-foreground">
-              <span>终端</span>
-              <span>最后 9 行</span>
-            </div>
-            <pre className="max-h-64 overflow-auto rounded-md bg-muted/60 p-2 font-mono text-2xs leading-5 scrollbar-thin">
-              {logs.map((line, i) => (
-                <div key={i} className={logTone[line.tone]}>
-                  {line.text}
-                </div>
-              ))}
-            </pre>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="artifacts" className="mt-0 min-h-0 flex-1 overflow-auto p-2 scrollbar-thin">
-          <ul className="space-y-1">
-            {artifacts.map((item) => {
-              const Icon = artifactIcon[item.kind];
-              return (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent"
-                >
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{item.name}</span>
-                  <span className="text-3xs text-muted-foreground">{item.size}</span>
-                  <span className="text-3xs text-muted-foreground">{item.time}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </TabsContent>
-
-        <TabsContent value="versions" className="mt-0 min-h-0 flex-1 overflow-auto p-2 scrollbar-thin">
-          <ul className="space-y-1.5">
-            {versions.map((v) => (
-              <li
-                key={v.id}
-                className={cn(
-                  "rounded-md border px-2.5 py-2",
-                  v.current ? "border-primary/40 bg-primary/5" : "border-transparent hover:bg-accent"
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">{v.id}</span>
-                  <code className="font-mono text-3xs text-muted-foreground">
-                    {v.commit}
-                  </code>
-                  <span
-                    className={cn(
-                      "ml-auto rounded-full border px-1.5 py-0.5 text-3xs",
-                      versionTone[v.status]
-                    )}
-                  >
-                    {v.status === "verified" ? "已验证" : v.status === "failed" ? "失败" : "草稿"}
-                  </span>
-                </div>
-                <p className="mt-1 line-clamp-2 text-2xs text-muted-foreground">
-                  {v.summary}
+            {files.data ? (
+              files.data.length === 0 ? (
+                <p className="px-1 py-2 text-2xs text-muted-foreground">
+                  空工作区：还没有任何文件。
                 </p>
-                <div className="mt-1 flex items-center gap-2 text-3xs text-muted-foreground/70">
-                  <span>{v.time}</span>
-                  {v.current ? (
-                    <Badge variant="secondary" className="h-4 px-1.5 text-3xs">
-                      当前
-                    </Badge>
-                  ) : (
-                    <span className="text-primary/80">回滚</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+              ) : (
+                <ul className="space-y-0.5">
+                  {files.data.map((entry) => (
+                    <FileRow key={entry.path} entry={entry} />
+                  ))}
+                </ul>
+              )
+            ) : null}
+          </div>
+        </TabsContent>
+
+        <TabsContent
+          value="artifacts"
+          className="mt-0 min-h-0 flex-1 overflow-auto scrollbar-thin"
+        >
+          <EmptyState
+            title="暂无产物"
+            hint="版本验证后会生成可下载的产物。"
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="versions"
+          className="mt-0 min-h-0 flex-1 overflow-auto p-2 scrollbar-thin"
+        >
+          <div className="mb-1.5 flex items-center justify-between px-1 text-2xs text-muted-foreground">
+            <span>版本历史</span>
+            <span className="flex items-center gap-1.5">
+              <span>{versions.data?.length ?? 0} 个版本</span>
+              <button
+                type="button"
+                onClick={versions.refresh}
+                aria-label="刷新版本列表"
+                className="text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <RotateCw
+                  className={cn("size-3.5", versions.loading && "animate-spin")}
+                />
+              </button>
+            </span>
+          </div>
+
+          <StateRow
+            loading={versions.loading}
+            error={versions.error}
+            onRetry={versions.refresh}
+          />
+
+          {versions.data ? (
+            versions.data.length === 0 ? (
+              <p className="px-1 py-2 text-2xs text-muted-foreground">
+                还没有版本：让 Agent 完成一轮修改后自动创建。
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {versions.data.map((version) => (
+                  <VersionRow key={version.id} version={version} />
+                ))}
+              </ul>
+            )
+          ) : null}
         </TabsContent>
       </Tabs>
     </section>
   );
+}
+
+function FileRow({ entry }: { entry: WorkspaceFileEntry }) {
+  const dir = isDirectory(entry);
+  const depth = entry.path.split("/").length - 1;
+  const Icon = dir ? Folder : FileText;
+
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-2 rounded py-1 pr-1.5 text-xs hover:bg-accent",
+        indent(depth)
+      )}
+      title={entry.path}
+    >
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          dir ? "text-muted-foreground" : "text-foreground/80"
+        )}
+      >
+        {entry.path}
+      </span>
+      <span className="text-3xs text-muted-foreground">
+        {formatSize(entry.size)}
+      </span>
+    </li>
+  );
+}
+
+function VersionRow({ version }: { version: WorkspaceVersion }) {
+  const meta = versionStatus(version.status);
+
+  return (
+    <li
+      className={cn(
+        "rounded-md border px-2.5 py-2",
+        version.current
+          ? "border-primary/40 bg-primary/5"
+          : "border-transparent hover:bg-accent"
+      )}
+      title={version.id}
+    >
+      <div className="flex items-center gap-2">
+        <code className="font-mono text-xs font-medium">
+          {shortCommit(version.gitCommit)}
+        </code>
+        <span
+          className={cn(
+            "ml-auto rounded-full border px-1.5 py-0.5 text-3xs",
+            meta.tone
+          )}
+        >
+          {meta.label}
+        </span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-2xs text-muted-foreground">
+        {version.summary}
+      </p>
+      <div className="mt-1 flex items-center gap-2 text-3xs text-muted-foreground/70">
+        <span>{formatClock(version.createdAt)}</span>
+        {version.current ? (
+          <Badge variant="secondary" className="h-4 px-1.5 text-3xs">
+            当前
+          </Badge>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/** 加载 / 失败的共用行；两者都没有时返回 null */
+function StateRow({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="flex items-center justify-between gap-2 px-1 py-2 text-2xs text-destructive">
+        <span className="min-w-0 truncate">加载失败：{error}</span>
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          重试
+        </Button>
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 px-1 py-2 text-2xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" />
+        加载中…
+      </div>
+    );
+  }
+  return null;
 }
