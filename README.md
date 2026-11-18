@@ -5,6 +5,7 @@
 当前状态：**PoC 阶段完成，尚未开始产品实现**。
 
 - 系统架构：`docs/architecture/system-architecture.md`
+- 数据模型：`docs/architecture/data-model.md`
 - 验证记录：`docs/poc/`
 - 实现决策：`docs/decisions/`（与设计文档冲突时以此为准）
 

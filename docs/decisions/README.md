@@ -9,6 +9,7 @@
 ## 架构
 
 - [system-architecture](../architecture/system-architecture.md)：系统架构图、组件图、Agent 架构图
+- [data-model](../architecture/data-model.md)：数据分层、表结构、字段说明、保留与 GC
 
 ## 索引
 
