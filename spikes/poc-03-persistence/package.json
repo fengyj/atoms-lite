@@ -1,0 +1,11 @@
+{
+  "name": "poc-03-persistence",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8797"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  }
+}

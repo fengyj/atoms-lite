@@ -52,7 +52,7 @@
 | POC-00 | 本地容器闸门（Podman/Docker） | 30m | — | 02/03/04 | [poc-00](poc-00-container-gate.md) | ✅ |
 | POC-01 | UI 基座：token + 版面 + 组件 gallery | 2-3h | — | 08 | [poc-01](poc-01-ui-foundation.md) | 🔶 待视觉确认 |
 | POC-02 | 预览链路：HTTP / WS / base 前缀 | 1.5h | 00 | 03/04 | [poc-02](poc-02-preview.md) | ✅ |
-| POC-03 | 沙箱持久化与恢复 | 1.5h | 02 | 04 | [poc-03](poc-03-persistence.md) | ⬜ |
+| POC-03 | 沙箱持久化与恢复 | 1.5h | 02 | 04 | [poc-03](poc-03-persistence.md) | ✅ |
 | POC-04 | 版本与回滚 | 2h | 03 | — | [poc-04](poc-04-versions.md) | ⬜ |
 | POC-05 | 模型基线 | 1.5h | — | 演示脚本 | [poc-05](poc-05-model.md) | ⬜ |
 | POC-06 | Agents SDK 能力审计 | 1.5h | — | 08 | [poc-06](poc-06-sdk-audit.md) | ⬜ |

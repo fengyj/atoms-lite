@@ -73,4 +73,67 @@
 
 ## 结论
 
-（待填写：采用 A/B/C 哪个方案 + 三个数字）
+**通过。本地快照可用，且能跨 Worker 重启恢复。**
+
+### 核心验证（2026-11-18）
+
+```
+1. /snapshot   → 写入 state.txt + SQLite(2 行) → snapshotContainer()
+                 存 snapshotId 到 DO storage
+2. 杀掉 wrangler + docker rm -f 容器（模拟实例回收）
+3. 重启 wrangler
+4. /restore    → 从 DO storage 读 snapshotId → start({ containerSnapshot })
+```
+
+结果：
+
+```json
+{
+  "ok": true,
+  "snapshotId": "c0aa7310-...",
+  "state": "tok-1795001083713",   // 与快照前一致
+  "db": "rows=4",                 // 与快照前一致
+  "ms": 1617
+}
+```
+
+| 指标 | 数值 |
+|---|---|
+| 快照大小（仅 node 基础镜像，无 node_modules） | **79.9 MB** |
+| 快照耗时（热） | 1.36s |
+| 快照耗时（冷，含建容器） | 3.23s |
+| 恢复耗时（含容器启动） | 1.6s |
+| 销毁耗时 | 135ms |
+| SQLite（WAL checkpoint 后） | ✅ 行数一致 |
+
+### 四个结论
+
+1. **本地快照是真的。** `snapshotContainer()` + `start({ containerSnapshot: { id } })`
+   在 `wrangler dev` 下可用，不需要远端服务。
+
+2. **快照是整个 rootfs，不是单个目录。** 一个裸 node 镜像就 80 MB；
+   带 `node_modules` 的真实项目会到数百 MB 甚至 GB。
+   → 这直接支撑了之前的决策：**快照只用于"停机/恢复"，不能按版本存**；
+   版本仍然是 git commit。
+
+3. **snapshotId 必须落在 DO storage（或 D1）里。**
+   存在内存里的话，Worker 一重启就丢了——这是最容易写错的地方。
+
+4. **恢复成本可接受（1.6s）**，但恢复后预览进程需要重新拉起
+   （POC-02 的 `ensureRunning` 逻辑），这部分要串进恢复流程。
+
+### 尚未验证 / 已知风险
+
+- 快照在本地由 Docker 管理；`docker system prune` 会清掉。
+  线上由平台管理，行为不同，需在真机验证一次。
+- 带 `node_modules` 的快照体积/耗时尚未测。按 80 MB 基线推算，
+  500 MB 的项目快照可能在 5-10s，需要在 POC-04 里量。
+- 多版本并发快照未测（Phase 1 单项目，可接受）。
+
+### Plan B（未触发）
+
+| 失败点 | 降级 |
+|---|---|
+| 线上快照不可用 | 用 `tar` 打包 `/workspace` → R2，恢复时解包；逻辑与快照等价，只是慢 |
+| 快照太大 | 排除 `node_modules`，恢复后跑安装；或只快照 `/workspace` 子目录 |
+| 恢复后预览起不来 | 恢复流程末尾显式调用 `ensureRunning`，UI 显示进度 |
