@@ -43,7 +43,7 @@ RUN chmod +x /usr/local/bin/sandbox-shim
 
 - `child.ctx.container` 存在，但 `running === false`，`exec` 直接失败。
 - 结论：**每个 DO 只看到自己的容器实例**；子代理不能操作父容器。
-- 架构含义：多角色时，沙箱工具必须由持有容器的项目 DO 执行；子角色只能通过父级代理（RPC / tool 调用）获得结果。
+- 架构含义：多角色时，沙箱工具必须由持有容器的项目 DO 执行；子角色通过独立的 `WorkspaceDO` 的 RPC（`WorkspaceTools`）获得结果。
   这也正好符合"写锁由父级持有"的设计。
 
 ### 3.4 SDK 没有新增的能力
@@ -63,7 +63,7 @@ RUN chmod +x /usr/local/bin/sandbox-shim
 | 执行命令 | `ctx.container.exec` |
 | 预览 | `ctx.container.getTcpPort` |
 | 快照 | `ctx.container.snapshotContainer` |
-| 子代理访问沙箱 | **不允许**，由项目 DO 代理 |
+| 子代理访问沙箱 | **不允许**，由 `WorkspaceDO` 提供 |
 
 代价：镜像 +3.7MB（shim），依赖 +1。
 Plan B（已可用）：全部走 `exec`（`cat`/`tee`/`find`），不引入 SDK。

@@ -90,9 +90,15 @@ POC-10 结论：
 - `stat().size` 是 `bigint`，出网前要转 `number`。
 - 预览与快照仍用 `ctx.container`，SDK 不参与。
 - `DirectoryBackup` / `S3Mount` 暂不引入。
-- **子代理不能访问父容器**：所有沙箱操作由项目 DO 执行，子角色通过父级代理拿结果。
+- **子代理不能访问父容器**：所有沙箱操作由独立的 `WorkspaceDO` 执行，角色通过 `WorkspaceTools` RPC 调用。
 
-## 7. 待定 / 风险
+## 7. 所有权（2026-11-19）
+
+- `WorkspaceDO` 每项目一个，唯一持有 container、写锁、git 仓库、快照与版本元数据。
+- 角色 DO 不持有容器；工具通过 `WorkspaceTools` 访问。
+- 这样既不依赖"父对象代理"，也让写锁有唯一归属。
+
+## 8. 待定 / 风险
 
 - **生产 Containers 与本地差异**（最高风险）：镜像分发、冷启动、快照 beta、egress、实例规格。
 - `@cloudflare/sandbox` 与原始 `ctx.container` 的取舍；需在 wrangler 下对比验证。

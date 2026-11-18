@@ -14,19 +14,27 @@
 | 项目概念 | **引入**（长期容器、沙箱、版本、产物的归属） |
 | 部署 | Cloudflare Workers + Containers；本地用 Docker |
 
-## 2. 项目 / 会话 / 沙箱
+## 2. 运行时拓扑（2026-11-19 更新）
 
 ```
-Project
-  ├─ Sandbox / Workspace（一套，项目级）
-  ├─ Sessions（v1 只有一个，未来做分支）
-  ├─ Versions（git commit + 元数据行）
-  └─ Artifacts（R2 引用）
+Project（D1 元数据）
+  ├─ WorkspaceDO（每项目一个）
+  │    ├─ container（唯一持有者）
+  │    ├─ 文件 / exec / 预览 / 快照
+  │    ├─ 项目级写锁
+  │    ├─ git 仓库 + 版本元数据
+  │    └─ WorkspaceTools RPC
+  ├─ ChatAgent DO（会话；v1 一个；Builder）
+  └─ Verifier DO（后续）
 ```
 
 - **沙箱跟项目，不跟会话**：否则每开一个会话就多一套容器与快照。
-- 会话是"同一工作区上的对话与版本分支"，版本记录带 `session_id`。
-- 未来多会话时，写操作仍由项目级锁串行化。
+- **角色不拥有容器**。所有沙箱操作由 `WorkspaceDO` 执行，角色通过 RPC 调用。
+- v1 只有 `WorkspaceDO` + `ChatAgent` 两个 DO；Verifier 后加。
+- 多会话 = 多个 ChatAgent DO 共享同一个 WorkspaceDO，写操作由 WorkspaceDO 的锁串行化。
+
+原因：POC-10 验证了**子代理无法访问父对象的运行中容器**（`running: false`）。
+把沙箱所有权收敛到独立 DO，比"父级代理"更干净，也不会让某个角色变成瓶颈。
 
 ## 3. 技术栈（锁定版本）
 

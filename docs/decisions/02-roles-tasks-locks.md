@@ -51,7 +51,27 @@ task 无 target ─────→ supervisor 角色（模型）决定
 - `@` 不改变工具权限，不绕过写锁。
 - 单角色模式下映射到唯一角色，或直接禁用并提示。
 
-## 6. 写冲突：方案暂缓，原则先定
+## 6. 沙箱所有权（2026-11-19）
+
+- **`WorkspaceDO` 是容器的唯一持有者**（每项目一个）。
+- 角色（Builder / Verifier / Visual）各自是独立 DO，**不持有容器**。
+- 所有沙箱操作通过 `WorkspaceTools` 接口调用：
+
+```ts
+interface WorkspaceTools {
+  readFile(path: string): Promise<{ content: string }>;
+  writeFile(path: string, content: string): Promise<{ bytes: number }>;
+  exec(cmd: string[], opts?: { cwd?: string }): Promise<{ stdout: string; exitCode: number }>;
+  listFiles(path: string): Promise<Entry[]>;
+  createVersion(summary: string): Promise<{ versionId: string }>;
+}
+```
+
+- v1：`ChatAgent` 与 `WorkspaceDO` 本地调用；多角色时同签名换 RPC。
+- **代理执行不增加 token**：它是函数调用，不是模型转述。结果本来就要进入角色上下文，
+  多出来的只有一次 DO 往返的延迟。
+
+## 7. 写冲突：方案暂缓，原则先定
 
 v1 串行执行，**不实现并行写**。未来方案：
 
@@ -80,7 +100,7 @@ v1 串行执行，**不实现并行写**。未来方案：
 
 工具权限保留为**第二道防线**：Verifier 不提供 `write_file`；`exec` 默认视为写，除非命中只读白名单（`ls`/`cat`/`grep`/`git status`/`git diff`/`wc`）。
 
-## 7. 待定
+## 8. 待定
 
 - 角色清单与各自职责（v1 只需要 builder / verifier）。
 - `workspace:config`（package.json 等）是否只允许 builder 写。
