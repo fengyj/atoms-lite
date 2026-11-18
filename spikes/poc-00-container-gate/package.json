@@ -1,0 +1,11 @@
+{
+  "name": "poc-00-container-gate",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8799"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  }
+}

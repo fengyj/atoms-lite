@@ -51,4 +51,55 @@
 
 ## 结论
 
-（待填写：通过 / 降级 / 不通过）
+**不通过（环境限制），Plan B 已明确。**
+
+### 实施记录（2026-11-18）
+
+Podman rootless 下无法跑通 `wrangler dev` 的 Containers。逐项结果：
+
+| 环节 | 结果 |
+|---|---|
+| Podman 5.7 + Docker socket | ✅ 可用 |
+| `WRANGLER_DOCKER_BIN=podman` + `DOCKER_HOST=<podman.sock>` | ✅ wrangler 接受 |
+| 镜像构建（Dockerfile） | ✅ 成功（需 shim 过滤 `--provenance`、把 `-f -` 转为临时文件） |
+| 拉取 Docker Hub 镜像 | ⚠️ 直连超时，走 `docker.m.daocloud.io` 镜像站成功 |
+| egress sidecar（`cloudflare/proxy-everything`） | ❌ 启动 1 秒后退出 |
+| `ctx.container.start()` | ❌ `running` 始终为 false，无容器被创建 |
+
+关键错误链：
+
+1. crun + cgroup v2：`cannot set memory swappiness` → 换 runc 解决
+2. sidecar 缺权限：`setsockoptint: operation not permitted` → 手动加 `NET_ADMIN`/`NET_RAW` 可启动
+3. 但在 wrangler 下 sidecar 仍启动即退出，主容器从未创建 → 无日志可查（容器被自动删除）
+
+判断：**rootless Podman 缺少 wrangler 本地容器网络所需的权限/接口**，继续调参收益很低。
+
+### 本机环境副作用（可回滚）
+
+为这次验证改了三个用户级配置，若要还原：
+
+```bash
+rm -f ~/.config/containers/registries.conf.d/dockerhub-mirror.conf
+rm -f ~/.config/containers/containers.conf
+rm -f ~/.local/bin/runc
+```
+
+- `registries.conf.d/dockerhub-mirror.conf`：Docker Hub → daocloud 镜像（**建议保留**，本机直连不通）
+- `containers.conf`：`runtime = runc`（技术栈）与 `default_capabilities` 追加 `NET_ADMIN`/`NET_RAW`
+- `~/.local/bin/runc`：从 Ubuntu 包中解出的 runc 1.4.0（无 sudo 安装）
+
+### Plan B
+
+| 方案 | 代价 | 建议 |
+|---|---|---|
+| 安装 Docker Engine（`sudo apt install docker.io`，加入 docker 组） | 需要 sudo，5 分钟 | **推荐** |
+| Colima / Docker Desktop | 需要先装 brew/VM，几十 MB~GB | 次选 |
+| rootful Podman（`sudo podman` + rootful socket） | 需要 sudo；配置更绕 | 不推荐 |
+| 放弃本地容器，直接用远端预览 | 每次改动都要部署，迭代极慢 | 不可接受 |
+
+注意：即使换 Docker，**Docker Hub 直连仍然不通**，镜像站配置需要保留（或打开 VPN）。
+
+### 对后续 PoC 的影响
+
+- POC-02 / 03 / 04 全部阻塞，直到容器可用。
+- POC-01（UI）、POC-05（模型）、POC-06（SDK 审计）、POC-07（可观测性）不受影响，继续推进。

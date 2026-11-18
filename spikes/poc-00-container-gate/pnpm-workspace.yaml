@@ -1,0 +1,7 @@
+packages:
+  - "."
+
+# 独立于仓库根的 workspace，保证 spike 可整目录删除
+allowBuilds:
+  esbuild: true
+  workerd: true

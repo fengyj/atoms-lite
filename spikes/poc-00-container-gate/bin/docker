@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# wrangler 用 Docker CLI 做两件 Podman 不兼容的事：
+#   1. build 时传 --provenance / --sbom
+#   2. 用 `-f -` 把 Dockerfile 从 stdin 传进来
+# 这里做最小兼容：过滤参数，并把 stdin 落到临时文件。
+# 仅用于 POC-00，不进入产品代码。
+
+LOG="${DOCKER_SHIM_LOG:-/tmp/opencode/docker-shim.log}"
+printf '%s\n' "$*" >> "$LOG" 2>/dev/null
+
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --provenance|--provenance=*|--sbom|--sbom=*)
+      shift
+      continue
+      ;;
+    -f)
+      if [ "$2" = "-" ]; then
+        tmp="$(mktemp /tmp/wrangler-Dockerfile.XXXXXX)"
+        cat >"$tmp"
+        args+=("-f" "$tmp")
+        shift 2
+        continue
+      fi
+      ;;
+  esac
+  args+=("$1")
+  shift
+done
+
+exec /usr/bin/podman "${args[@]}"

@@ -113,8 +113,8 @@ spikes/
 
 | 条件 | 状态 | 说明 |
 |---|---|---|
-| Docker 兼容引擎 | ❌ 未安装 | 文档只承诺 Docker Desktop / Colima；Podman 待 POC-00 验证 |
-| Workers Paid | ⏸ 稍后 | 本地 `wrangler dev` 大概率不需要；POC-00 一并确认 |
+| Docker 兼容引擎 | ❌ 未解决 | Podman rootless 不满足 wrangler 的 sidecar 权限要求，见 POC-00 结论 |
+| Workers Paid | ⏸ 稍后 | 本地 `wrangler dev` 不需要；POC-00 已确认不涉及账号 |
 
 POC-00 不通过时：POC-02/03/04 全部暂停，先解决环境；POC-01/05/06/07 不受影响，继续。
 

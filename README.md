@@ -75,7 +75,9 @@ pnpm build
 
 ## 已知约束
 
-- 本机**没有安装 Docker**。`@cloudflare/sandbox` 本地运行需要 Docker 兼容引擎，Sandbox 相关 PoC 前必须先装。
+- 本机**没有 Docker**。Podman rootless 已实测**无法**满足 wrangler 本地容器的 sidecar 权限要求
+  （详见 `docs/poc/poc-00-container-gate.md`），Sandbox 相关 PoC 需要先安装 Docker Engine 或 Colima。
+- Docker Hub 直连不通，已在 `~/.config/containers/registries.conf.d/` 配置镜像站。
 - Containers（Sandbox）需要 Workers Paid（$5/月）。纯本地开发不受影响。
 - `apps/web/AGENTS.md` 是 Next 16 自动生成的，可用 `agentRules: false` 关闭。
 - 契约包通过 `exports` 直接暴露 `.ts` 源码，不设构建步骤。
