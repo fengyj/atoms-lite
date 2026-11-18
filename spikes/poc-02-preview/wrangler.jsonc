@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "poc-02-preview",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": { "dockerfile": "./Dockerfile" }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "Sandbox", "name": "SANDBOX" }]
+  },
+  "exports": {
+    "Sandbox": { "type": "durable-object", "storage": "sqlite" }
+  }
+}
