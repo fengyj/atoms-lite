@@ -1,6 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { Files } from "@cloudflare/sandbox";
-import { SANDBOX_INACTIVITY_TIMEOUT_MS } from "@atoms-lite/contracts";
+import {
+  EXEC_MAX_OUTPUT_BYTES,
+  EXEC_TIMEOUT_MS,
+  SANDBOX_INACTIVITY_TIMEOUT_MS,
+} from "@atoms-lite/contracts";
 import type { Env } from "../env";
 import type { ExecResult, FileEntry, VersionRow } from "./client";
 
@@ -9,14 +13,11 @@ const WORKSPACE = "/workspace";
 const ALLOWED_PROGRAMS = new Set([
   "ls",
   "cat",
-  "find",
   "grep",
   "git",
-  "node",
   "wc",
   "head",
   "tail",
-  "sed",
   "mkdir",
   "cp",
   "mv",
@@ -27,13 +28,36 @@ const dec = (b?: ArrayBuffer | null) =>
   new TextDecoder().decode(b ?? new ArrayBuffer(0));
 
 function safePath(path: string): string {
-  if (!path.startsWith(`${WORKSPACE}/`) || path.includes("..")) {
-    throw new Error(`path escape: ${path}`);
+  if (
+    !path.startsWith(`${WORKSPACE}/`) ||
+    path.includes("..") ||
+    path.includes("/.git/")
+  ) {
+    throw new Error(`path not allowed: ${path}`);
   }
   return path;
 }
 
+function safeCwd(cwd: string | undefined): string {
+  if (!cwd) return WORKSPACE;
+  if (cwd === WORKSPACE) return cwd;
+  if (cwd.startsWith(`${WORKSPACE}/`) && !cwd.includes("..")) return cwd;
+  return WORKSPACE;
+}
+
+type VersionDbRow = {
+  id: string;
+  git_commit: string;
+  parent_id: string | null;
+  summary: string;
+  status: string;
+  created_at: number;
+};
+
 export class Workspace extends DurableObject<Env> {
+  private ensurePromise: Promise<void> | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.storage.sql.exec(`
@@ -53,6 +77,15 @@ export class Workspace extends DurableObject<Env> {
         created_at INTEGER NOT NULL
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_workspace (
+        id TEXT PRIMARY KEY,
+        current_version_id TEXT
+      )
+    `);
+    ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES ('demo', NULL)`,
+    );
   }
 
   private get container(): Container {
@@ -61,14 +94,34 @@ export class Workspace extends DurableObject<Env> {
     return container;
   }
 
+  /** 串行化版本/checkout，避免 .git/index.lock 竞态。 */
+  private exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(operation);
+    this.queue = result.catch(() => {});
+    return result;
+  }
+
   private async run(cmd: string[], cwd = WORKSPACE): Promise<ExecResult> {
     const proc = await this.container.exec(cmd, { cwd });
-    const out = await proc.output();
-    return {
-      stdout: dec(out.stdout),
-      stderr: dec(out.stderr),
-      exitCode: out.exitCode,
-    };
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        proc.kill(9);
+        reject(new Error(`command timeout: ${cmd.join(" ").slice(0, 80)}`));
+      }, EXEC_TIMEOUT_MS);
+    });
+
+    try {
+      const out = await Promise.race([proc.output(), timeout]);
+      return {
+        stdout: dec(out.stdout),
+        stderr: dec(out.stderr),
+        exitCode: out.exitCode,
+      };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async sh(script: string): Promise<ExecResult> {
@@ -84,6 +137,28 @@ export class Workspace extends DurableObject<Env> {
     return rows[0]?.snapshot_id ?? null;
   }
 
+  private versionCount(): number {
+    return this.ctx.storage.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM atoms_versions")
+      .one().n;
+  }
+
+  private currentVersionId(): string | null {
+    const rows = this.ctx.storage.sql
+      .exec<{ current_version_id: string | null }>(
+        "SELECT current_version_id FROM atoms_workspace WHERE id = 'demo'",
+      )
+      .toArray();
+    return rows[0]?.current_version_id ?? null;
+  }
+
+  private setCurrentVersion(id: string | null): void {
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_workspace SET current_version_id = ? WHERE id = 'demo'",
+      id,
+    );
+  }
+
   private async waitRunning(deadlineMs = 60_000): Promise<void> {
     const deadline = Date.now() + deadlineMs;
     while (!this.container.running && Date.now() < deadline) {
@@ -92,25 +167,38 @@ export class Workspace extends DurableObject<Env> {
     if (!this.container.running) throw new Error("container did not start");
   }
 
+  /**
+   * 只在「从未生成过任何内容」时铺模板。
+   * .git 存在说明已经有工作区历史，绝不覆盖。
+   */
   private async seed(): Promise<void> {
-    const hasIndex = await this.run(["test", "-f", `${WORKSPACE}/index.html`]);
-    if (hasIndex.exitCode === 0) return;
-
-    await this.sh(`mkdir -p ${WORKSPACE} && cp -r /opt/template/. ${WORKSPACE}/`);
     const hasGit = await this.run(["test", "-d", `${WORKSPACE}/.git`]);
-    if (hasGit.exitCode !== 0) {
-      await this.sh(
-        `cd ${WORKSPACE} && git init -q && git config user.email atoms@local && git config user.name atoms-lite && git add -A && git commit -q -m template`,
+    if (hasGit.exitCode === 0) return;
+
+    if (this.versionCount() > 0) {
+      throw new Error(
+        "workspace lost: versions exist but .git is missing (snapshot restore failed); refusing to overwrite",
       );
     }
+
+    await this.sh(`mkdir -p ${WORKSPACE} && cp -r /opt/template/. ${WORKSPACE}/`);
+    await this.sh(
+      `cd ${WORKSPACE} && git init -q && git config user.email atoms@local && git config user.name atoms-lite && git add -A && git commit -q -m template`,
+    );
   }
 
   private async checkPreview(): Promise<boolean> {
     try {
       const res = await this.container
         .getTcpPort(PREVIEW_PORT)
+        .fetch(new Request("http://preview/healthz"));
+      if (res.status < 500) return true;
+
+      // 兼容旧快照（没有 /healthz）：404 也说明服务是活的
+      const root = await this.container
+        .getTcpPort(PREVIEW_PORT)
         .fetch(new Request("http://preview/"));
-      return res.ok;
+      return root.status < 500;
     } catch {
       return false;
     }
@@ -132,11 +220,22 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async ensure(): Promise<void> {
+    if (!this.container.running) this.ensurePromise = null;
+
+    this.ensurePromise ??= this.doEnsure().catch((error) => {
+      this.ensurePromise = null;
+      throw error;
+    });
+
+    return this.ensurePromise;
+  }
+
+  private async doEnsure(): Promise<void> {
     const container = this.container;
 
     if (!container.running) {
       const snap = this.snapshotId();
-      let started = false;
+      const hasVersions = this.versionCount() > 0;
 
       if (snap) {
         try {
@@ -145,13 +244,25 @@ export class Workspace extends DurableObject<Env> {
             entrypoint: ["node", "/opt/preview/server.mjs"],
             enableInternet: false,
           });
-          started = true;
-        } catch {
-          started = false;
+        } catch (error) {
+          console.error("[workspace] snapshot restore failed", error);
+          if (hasVersions) {
+            throw new Error(
+              "snapshot restore failed and versions exist; refusing to start an empty workspace",
+            );
+          }
+          container.start({
+            image: container.images["base"],
+            entrypoint: ["node", "/opt/preview/server.mjs"],
+            enableInternet: false,
+          });
         }
-      }
-
-      if (!started) {
+      } else {
+        if (hasVersions) {
+          throw new Error(
+            "no snapshot but versions exist; refusing to start an empty workspace",
+          );
+        }
         container.start({
           image: container.images["base"],
           entrypoint: ["node", "/opt/preview/server.mjs"],
@@ -176,21 +287,20 @@ export class Workspace extends DurableObject<Env> {
         snap.id,
         Date.now(),
       );
-    } catch {
-      // 快照失败不影响主流程；下次会重新尝试
+    } catch (error) {
+      console.error("[workspace] snapshot failed", error);
     }
   }
 
   private latestVersion(): VersionRow | null {
+    const current = this.currentVersionId();
     const rows = this.ctx.storage.sql
-      .exec<{
-        id: string;
-        git_commit: string;
-        parent_id: string | null;
-        summary: string;
-        status: string;
-        created_at: number;
-      }>("SELECT * FROM atoms_versions ORDER BY created_at DESC LIMIT 1")
+      .exec<VersionDbRow>(
+        current
+          ? "SELECT * FROM atoms_versions WHERE id = ?"
+          : "SELECT * FROM atoms_versions ORDER BY created_at DESC LIMIT 1",
+        ...(current ? [current] : []),
+      )
       .toArray();
     const row = rows[0];
     if (!row) return null;
@@ -207,16 +317,9 @@ export class Workspace extends DurableObject<Env> {
 
   private listVersions(): VersionRow[] {
     const rows = this.ctx.storage.sql
-      .exec<{
-        id: string;
-        git_commit: string;
-        parent_id: string | null;
-        summary: string;
-        status: string;
-        created_at: number;
-      }>("SELECT * FROM atoms_versions ORDER BY created_at ASC")
+      .exec<VersionDbRow>("SELECT * FROM atoms_versions ORDER BY created_at ASC")
       .toArray();
-    const latest = rows[rows.length - 1]?.id;
+    const current = this.currentVersionId() ?? rows[rows.length - 1]?.id;
     return rows.map((r) => ({
       id: r.id,
       gitCommit: r.git_commit,
@@ -224,55 +327,85 @@ export class Workspace extends DurableObject<Env> {
       summary: r.summary,
       status: r.status,
       createdAt: r.created_at,
-      current: r.id === latest,
+      current: r.id === current,
     }));
   }
 
   private async createVersion(summary: string) {
-    const files = new Files(this.container);
-    await files.writeFile("/tmp/commit-msg", summary || "update");
+    return this.exclusive(async () => {
+      await this.ensure();
 
-    const out = await this.sh(
-      `cd ${WORKSPACE} && git add -A && (git diff --cached --quiet || git commit -q -F /tmp/commit-msg) && git rev-parse HEAD`,
-    );
-    if (out.exitCode !== 0) {
-      throw new Error(out.stderr || "git commit failed");
-    }
+      // 清理上次超时 kill 留下的锁
+      await this.sh(`cd ${WORKSPACE} && rm -f .git/index.lock`);
 
-    const gitCommit = out.stdout.trim();
-    const parent = this.latestVersion();
-    const id = `ver_${crypto.randomUUID()}`;
+      const files = new Files(this.container);
+      await files.writeFile("/tmp/commit-msg", summary || "update");
 
-    this.ctx.storage.sql.exec(
-      "INSERT INTO atoms_versions (id, git_commit, parent_id, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      id,
-      gitCommit,
-      parent?.id ?? null,
-      summary,
-      "draft",
-      Date.now(),
-    );
+      await this.sh(`cd ${WORKSPACE} && git add -A`);
+      const diff = await this.run(["git", "diff", "--cached", "--quiet"], WORKSPACE);
 
-    await this.takeSnapshot();
-    return { versionId: id, gitCommit };
+      if (diff.exitCode === 0) {
+        const existing = this.latestVersion();
+        if (existing) {
+          return {
+            versionId: existing.id,
+            gitCommit: existing.gitCommit,
+            skipped: true,
+          };
+        }
+      }
+
+      const out = await this.sh(
+        `cd ${WORKSPACE} && git commit -q -F /tmp/commit-msg && git rev-parse HEAD`,
+      );
+      if (out.exitCode !== 0) {
+        throw new Error(out.stderr || "git commit failed");
+      }
+
+      const gitCommit = out.stdout.trim();
+      const parent = this.latestVersion();
+      const id = `ver_${crypto.randomUUID()}`;
+
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_versions (id, git_commit, parent_id, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        id,
+        gitCommit,
+        parent?.id ?? null,
+        summary,
+        "draft",
+        Date.now(),
+      );
+      this.setCurrentVersion(id);
+
+      await this.takeSnapshot();
+      return { versionId: id, gitCommit, skipped: false };
+    });
   }
 
   private async checkout(versionId: string) {
-    const rows = this.ctx.storage.sql
-      .exec<{ git_commit: string }>(
-        "SELECT git_commit FROM atoms_versions WHERE id = ?",
-        versionId,
-      )
-      .toArray();
-    const target = rows[0];
-    if (!target) throw new Error(`version not found: ${versionId}`);
+    return this.exclusive(async () => {
+      await this.ensure();
 
-    const out = await this.sh(
-      `cd ${WORKSPACE} && git checkout ${target.git_commit} -- .`,
-    );
-    if (out.exitCode !== 0) throw new Error(out.stderr || "checkout failed");
+      const rows = this.ctx.storage.sql
+        .exec<{ git_commit: string }>(
+          "SELECT git_commit FROM atoms_versions WHERE id = ?",
+          versionId,
+        )
+        .toArray();
+      const target = rows[0];
+      if (!target) throw new Error(`version not found: ${versionId}`);
 
-    return { ok: true, gitCommit: target.git_commit };
+      await this.sh(`cd ${WORKSPACE} && rm -f .git/index.lock`);
+      const out = await this.sh(
+        `cd ${WORKSPACE} && git reset --hard ${target.git_commit} && git clean -fd`,
+      );
+      if (out.exitCode !== 0) throw new Error(out.stderr || "checkout failed");
+
+      this.setCurrentVersion(versionId);
+      await this.takeSnapshot();
+
+      return { ok: true, gitCommit: target.git_commit };
+    });
   }
 
   private async handleFiles(): Promise<FileEntry[]> {
@@ -356,6 +489,7 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/tools/write") {
         const body = (await request.json()) as { path: string; content: string };
+        await this.ensure();
         const target = safePath(body.path);
         const dir = target.slice(0, target.lastIndexOf("/")) || WORKSPACE;
         await this.sh(`mkdir -p ${dir}`);
@@ -366,6 +500,7 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/tools/read") {
         const body = (await request.json()) as { path: string };
+        await this.ensure();
         const target = safePath(body.path);
         const files = new Files(this.container);
         const res = await files.readFile(target);
@@ -379,31 +514,43 @@ export class Workspace extends DurableObject<Env> {
           args?: string[];
           cwd?: string;
         };
+        await this.ensure();
+
         if (!ALLOWED_PROGRAMS.has(body.program)) {
           return Response.json(
             { error: `command not allowed: ${body.program}` },
             { status: 400 },
           );
         }
-        const cwd =
-          body.cwd && body.cwd.startsWith(WORKSPACE) ? body.cwd : WORKSPACE;
-        const proc = await this.container.exec([body.program, ...(body.args ?? [])], {
-          cwd,
-        });
 
-        const timer = new Promise<never>((_, reject) =>
-          setTimeout(() => {
-            proc.kill(9);
-            reject(new Error("command timeout"));
-          }, 60_000),
+        const cwd = safeCwd(body.cwd);
+        const proc = await this.container.exec(
+          [body.program, ...(body.args ?? [])],
+          { cwd },
         );
 
-        const out = await Promise.race([proc.output(), timer]);
-        return Response.json({
-          exitCode: out.exitCode,
-          stdout: dec(out.stdout).slice(0, 128 * 1024),
-          stderr: dec(out.stderr).slice(0, 32 * 1024),
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            proc.kill(9);
+            reject(new Error("command timeout"));
+          }, EXEC_TIMEOUT_MS);
         });
+
+        try {
+          const out = await Promise.race([proc.output(), timeout]);
+          const stdout = dec(out.stdout);
+          const stderr = dec(out.stderr);
+          return Response.json({
+            exitCode: out.exitCode,
+            stdout: stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
+            stderr: stderr.slice(0, 32 * 1024),
+            truncated:
+              stdout.length > EXEC_MAX_OUTPUT_BYTES || stderr.length > 32 * 1024,
+          });
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       }
 
       if (path === "/preview/start") {
@@ -418,7 +565,10 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/preview/stop") {
-        return Response.json({ status: "stopped" });
+        return Response.json(
+          { error: "preview runs as the container entrypoint; stop the container instead" },
+          { status: 400 },
+        );
       }
 
       if (path === "/versions" && request.method === "POST") {
@@ -440,6 +590,7 @@ export class Workspace extends DurableObject<Env> {
 
       return Response.json({ error: "not found" }, { status: 404 });
     } catch (error) {
+      console.error("[workspace] request failed", path, error);
       return Response.json(
         { error: String(error).slice(0, 500) },
         { status: 500 },

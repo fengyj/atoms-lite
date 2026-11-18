@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 export const WORKER_HOST =
-  process.env.NEXT_PUBLIC_WORKER_HOST ?? "http://localhost:8787";
+  process.env.NEXT_PUBLIC_WORKER_HOST ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:8787" : "");
 
 export const AGENT_CLASS = "ChatAgent";
 export const AGENT_SESSION = "demo";

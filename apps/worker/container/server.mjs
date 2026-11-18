@@ -115,6 +115,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/healthz") {
+      send(res, 200, "ok\n", { "Content-Type": "text/plain; charset=utf-8" });
+      return;
+    }
+
     const filePath = toPath(pathname);
     if (!filePath) {
       send(res, 400, "400 Bad Request\n");

@@ -104,7 +104,10 @@ export function ChatPanel({
                 </div>
                 <button
                   type="button"
-                  onClick={() => onSubmitText(SAMPLE_PROMPT)}
+                  disabled={busy}
+                  onClick={() => {
+                    if (!busy) onSubmitText(SAMPLE_PROMPT);
+                  }}
                   className="max-w-sm rounded-lg border border-border bg-muted/50 px-3 py-2.5 text-left text-xs leading-5 text-foreground transition-colors hover:bg-accent"
                 >
                   {SAMPLE_PROMPT}

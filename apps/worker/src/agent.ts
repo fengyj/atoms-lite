@@ -1,6 +1,7 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { MAX_AGENT_STEPS } from "@atoms-lite/contracts";
 import { z } from "zod";
 import type { Env } from "./env";
 import { SYSTEM_PROMPT } from "./prompt";
@@ -51,6 +52,7 @@ export class ChatAgent extends AIChatAgent<Env> {
 
             return { entries };
           } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -65,6 +67,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           try {
             return await ws.readFile(path);
           } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -80,6 +83,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           try {
             return await ws.writeFile(path, content);
           } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -96,6 +100,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           try {
             return await ws.exec({ program, args, cwd });
           } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -108,18 +113,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           try {
             return await ws.startPreview();
           } catch (error) {
-            return { error: String(error) };
-          }
-        },
-      }),
-
-      stop_preview: tool({
-        description: "停止预览服务（一般不需要）",
-        inputSchema: z.object({}),
-        execute: async () => {
-          try {
-            return await ws.stopPreview();
-          } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -134,6 +128,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           try {
             return await ws.createVersion(summary);
           } catch (error) {
+            console.error("[tool] error", error);
             return { error: String(error) };
           }
         },
@@ -160,7 +155,7 @@ export class ChatAgent extends AIChatAgent<Env> {
       system: SYSTEM_PROMPT,
       messages: await convertToModelMessages(this.messages),
       tools,
-      stopWhen: stepCountIs(16),
+      stopWhen: stepCountIs(MAX_AGENT_STEPS),
       onFinish: async () => {
         try {
           await ws.snapshot();
