@@ -143,9 +143,41 @@ type VersionVM  = { id, commit, summary, status, createdAt, sourceMessageId };
 
 待人工确认：
 
-- 三档断点截图（本机无浏览器自动化）
-- 窄屏下 AI Elements 的密度是否可读
-- 深色主题对比度实测
+- ~~三档断点截图（本机无浏览器自动化）~~ → 已用 Playwright 补齐，见下
+- 窄屏下 AI Elements 的密度是否可读 → 已确认可读
+- 深色主题对比度实测 → 目测可读，未做自动化对比度检查
+
+### 视觉验证（Playwright，2026-11-18）
+
+`playwright@1.63`（复用本机缓存的 chromium-1243）+ `scripts/poc01-shots.mjs`：
+
+| 页面 | 1440 | 1024 | 390 |
+|---|---|---|---|
+| `/` | ✅ | ✅ | ✅ |
+| `/design` | ✅ | ✅ | ✅ |
+
+- 三档断点横向溢出均为 **0px**
+- 控制台错误仅剩 Next dev 的 HMR WebSocket 握手失败（生产构建不存在）
+- 截图见 `docs/poc/assets/`
+
+### 视觉走查发现并修复的问题
+
+1. **预览 iframe 内的示例应用被压扁**：三栏棋盘在 560px 宽度下每列只剩 80px。
+   修复：`demo-preview.html` 增加容器宽度断点（≤900px 隐藏侧栏、两列；≤620px 单列）。
+2. **AI Elements 内置文案是英文**（Pending / Completed / Thought for a few seconds / Parameters / Result）。
+   修复：直接在 vendored 组件里本地化（组件源码在仓库内，属于可改范围）。
+3. **移动端顶栏换行**：`atoms-lite` 折成两行、项目名被挤成「任务…」。
+   修复：窄屏隐藏品牌文字与状态徽标，保留项目名 + 版本 + 面板按钮。
+4. **移动端审批卡片被输入框截断**：
+   修复：窄屏隐藏执行计划列表（次要信息），保证审批按钮可见。
+5. **CodeBlock 在 shiki 完成前是空白**，且原实现的 `mounted` 逻辑导致高亮永远不会更新。
+   修复：先渲染纯文本兜底，高亮完成后再替换；失败时保留纯文本。
+   （副作用：目前 shiki 在 dev 下未成功出颜色，但内容始终可见。）
+
+### 已知限制
+
+- 预览 iframe 使用 `sandbox="allow-scripts allow-same-origin"`，浏览器会警告可逃逸沙箱。
+  演示阶段接受；生产必须给预览独立子域。
 
 ### 与预期的偏差
 

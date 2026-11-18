@@ -18,7 +18,7 @@ export function TopBar({
         <span className="grid size-5 place-items-center rounded-md bg-primary text-primary-foreground">
           <Sparkles className="size-3" />
         </span>
-        <span className="text-sm font-semibold tracking-tight">
+        <span className="hidden text-sm font-semibold tracking-tight whitespace-nowrap sm:inline">
           atoms-lite
         </span>
       </div>
@@ -26,13 +26,18 @@ export function TopBar({
       <span className="text-border">/</span>
 
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm text-foreground">任务看板</span>
-        <span className="hidden text-2xs text-muted-foreground sm:inline">
+        <span className="truncate text-sm whitespace-nowrap text-foreground">
+          任务看板
+        </span>
+        <span className="hidden text-2xs whitespace-nowrap text-muted-foreground sm:inline">
           ses_8f21
         </span>
       </div>
 
-      <Badge variant="secondary" className="gap-1.5 rounded-full font-normal">
+      <Badge
+        variant="secondary"
+        className="hidden gap-1.5 rounded-full font-normal whitespace-nowrap sm:inline-flex"
+      >
         <span className="size-1.5 animate-pulse rounded-full bg-warning" />
         生成中 · 3/5
       </Badge>

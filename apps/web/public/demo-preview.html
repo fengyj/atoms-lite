@@ -64,6 +64,19 @@
       .bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
       .bar > i { display: block; height: 100%; width: 62%; background: var(--primary); }
       .empty { border: 1px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); font-size: 12px; }
+
+      /* 预览面板宽度有限，按容器宽度降级 */
+      @media (max-width: 900px) {
+        main { grid-template-columns: 1fr; }
+        aside { display: none; }
+        .board { grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 620px) {
+        .board { grid-template-columns: 1fr; }
+        header { padding: 10px 12px; gap: 8px; }
+        .sub { display: none; }
+        .btn { padding: 5px 9px; font-size: 11px; }
+      }
     </style>
   </head>
   <body>

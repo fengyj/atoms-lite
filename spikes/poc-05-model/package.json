@@ -1,0 +1,13 @@
+{
+  "name": "poc-05-model",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node run.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.93",
+    "ai": "7.0.176",
+    "zod": "^4.6.7"
+  }
+}

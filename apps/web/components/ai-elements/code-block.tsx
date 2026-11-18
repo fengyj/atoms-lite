@@ -9,7 +9,6 @@ import {
   type HTMLAttributes,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
@@ -72,6 +71,15 @@ export async function highlightCode(
   ]);
 }
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const plainHtml = (value: string) =>
+  `<pre class="m-0 bg-background p-4 text-sm"><code class="font-mono text-sm">${escapeHtml(value)}</code></pre>`;
+
 export const CodeBlock = ({
   code,
   language,
@@ -80,21 +88,26 @@ export const CodeBlock = ({
   children,
   ...props
 }: CodeBlockProps) => {
-  const [html, setHtml] = useState<string>("");
-  const [darkHtml, setDarkHtml] = useState<string>("");
-  const mounted = useRef(false);
+  // 先渲染纯文本，shiki 就绪后替换为高亮版本。
+  // 这样即使高亮失败（如 WASM 加载被拦），代码仍然可见。
+  const [html, setHtml] = useState<string>(() => plainHtml(code));
+  const [darkHtml, setDarkHtml] = useState<string>(() => plainHtml(code));
 
   useEffect(() => {
-    highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
-      if (!mounted.current) {
+    let cancelled = false;
+
+    highlightCode(code, language, showLineNumbers)
+      .then(([light, dark]) => {
+        if (cancelled) return;
         setHtml(light);
         setDarkHtml(dark);
-        mounted.current = true;
-      }
-    });
+      })
+      .catch(() => {
+        // 高亮失败时保留纯文本
+      });
 
     return () => {
-      mounted.current = false;
+      cancelled = true;
     };
   }, [code, language, showLineNumbers]);
 

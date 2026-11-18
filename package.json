@@ -14,5 +14,8 @@
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "clean": "rm -rf apps/*/.next apps/*/.wrangler apps/*/dist node_modules/.cache"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

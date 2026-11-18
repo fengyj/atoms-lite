@@ -43,7 +43,6 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
-import { Loader } from "@/components/ai-elements/loader";
 import { Badge } from "@/components/ui/badge";
 import { Panel } from "@/components/workspace/panel";
 import { planSteps } from "@/lib/fixtures";
@@ -97,25 +96,27 @@ export function ChatPanel({ className }: { className?: string }) {
                   我先看一下现有结构，然后实现数据层和页面，最后跑一次构建。
                 </MessageResponse>
 
-                <Task defaultOpen>
-                  <TaskTrigger title={`执行计划 · 2/5`} />
-                  <TaskContent>
-                    {planSteps.map((step) => (
-                      <TaskItem key={step.id} className="flex items-center gap-2 text-xs">
-                        <StepIcon status={step.status} />
-                        <span
-                          className={cn(
-                            step.status === "done" && "text-muted-foreground line-through",
-                            step.status === "active" && "text-foreground",
-                            step.status === "todo" && "text-muted-foreground"
-                          )}
-                        >
-                          {step.title}
-                        </span>
-                      </TaskItem>
-                    ))}
-                  </TaskContent>
-                </Task>
+                <div className="hidden sm:block">
+                  <Task defaultOpen>
+                    <TaskTrigger title={`执行计划 · 2/5`} />
+                    <TaskContent>
+                      {planSteps.map((step) => (
+                        <TaskItem key={step.id} className="flex items-center gap-2 text-xs">
+                          <StepIcon status={step.status} />
+                          <span
+                            className={cn(
+                              step.status === "done" && "text-muted-foreground line-through",
+                              step.status === "active" && "text-foreground",
+                              step.status === "todo" && "text-muted-foreground"
+                            )}
+                          >
+                            {step.title}
+                          </span>
+                        </TaskItem>
+                      ))}
+                    </TaskContent>
+                  </Task>
+                </div>
 
                 <Tool defaultOpen={false}>
                   <ToolHeader type="tool-write_file" state="output-available" />
@@ -127,13 +128,6 @@ export function ChatPanel({ className }: { className?: string }) {
                       }}
                     />
                     <ToolOutput output="已写入 1 个文件" errorText={undefined} />
-                  </ToolContent>
-                </Tool>
-
-                <Tool defaultOpen={false}>
-                  <ToolHeader type="tool-exec" state="input-available" />
-                  <ToolContent>
-                    <ToolInput input={{ program: "pnpm", args: ["build"] }} />
                   </ToolContent>
                 </Tool>
 
@@ -150,21 +144,6 @@ export function ChatPanel({ className }: { className?: string }) {
                     <ConfirmationAction size="sm">批准</ConfirmationAction>
                   </ConfirmationActions>
                 </Confirmation>
-              </MessageContent>
-            </Message>
-
-            <Message from="user">
-              <MessageContent>
-                <MessageResponse>批准，继续。</MessageResponse>
-              </MessageContent>
-            </Message>
-
-            <Message from="assistant">
-              <MessageContent>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader size={14} />
-                  正在运行构建…
-                </div>
               </MessageContent>
             </Message>
           </ConversationContent>

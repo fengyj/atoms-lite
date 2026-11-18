@@ -1,0 +1,28 @@
+[
+  {
+    "index": 1,
+    "ok": true,
+    "ms": 105355,
+    "steps": 3,
+    "finishReason": "stop",
+    "toolCalls": 2,
+    "toolSequence": "write_file,finish",
+    "repeatedWrites": 1,
+    "inputTokens": 21022,
+    "outputTokens": 9658,
+    "totalTokens": 30680,
+    "files": [
+      "index.html"
+    ],
+    "bytes": 18601,
+    "checks": {
+      "hasHtml": true,
+      "hasLocalStorage": true,
+      "hasAdd": true,
+      "hasDelete": true,
+      "jsSyntaxOk": true,
+      "jsError": null
+    },
+    "textTail": "已完成任务看板的实现。"
+  }
+]
