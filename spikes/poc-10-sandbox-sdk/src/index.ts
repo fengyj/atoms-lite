@@ -32,7 +32,7 @@ export class Parent extends Agent<Env> {
         entrypoint: ["sleep", "infinity"],
         enableInternet: false,
       });
-      await container.setInactivityTimeout(10 * 60_000);
+      await container.setInactivityTimeout(5 * 60_000);
     }
     const deadline = Date.now() + 30_000;
     while (!container.running && Date.now() < deadline) {

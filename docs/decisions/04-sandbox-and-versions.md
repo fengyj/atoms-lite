@@ -34,7 +34,7 @@ if (!container.running) {
     entrypoint: ["sleep", "infinity"],
     enableInternet: false,
   });
-  await container.setInactivityTimeout(10 * 60_000);
+  await container.setInactivityTimeout(5 * 60_000); // 演示环境：5 分钟
 }
 ```
 
