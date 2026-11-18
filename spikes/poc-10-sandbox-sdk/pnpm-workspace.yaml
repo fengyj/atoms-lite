@@ -1,0 +1,9 @@
+packages:
+  - "."
+
+allowBuilds:
+  core-js-pure: false
+  esbuild: true
+  workerd: true
+
+minimumReleaseAge: 0

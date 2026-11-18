@@ -92,6 +92,10 @@ cf_agents_session_attachment_refs
 
 如果只解决"聊天里显示附件"而拿不到字节流，就只用它做 UI，存储走自研 `artifacts` + R2。
 
+**POC-10 结论**：`agents` 的类型里没有公开的附件读写 API，只有内部表
+`cf_agents_session_attachment_*`。因此**存储与读取走自研 `artifacts` + R2**，
+框架只负责把消息里的 file part 持久化。
+
 ## 7. 待定
 
 - 附件是否允许出现在导出的源码包里（当前：默认排除）。

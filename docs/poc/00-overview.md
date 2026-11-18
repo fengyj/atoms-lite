@@ -59,6 +59,7 @@
 | POC-07 | 可观测性 | 1h | 06 | — | [poc-07](poc-07-observability.md) | ✅ |
 | POC-08 | Agent ↔ UI 接线 | 2h | 01, 06 | — | [poc-08](poc-08-wiring.md) | ✅ |
 | POC-09 | shiki 按需加载（语法高亮） | 0.75h | 01 | — | [poc-09](poc-09-shiki.md) | ✅ |
+| POC-10 | sandbox SDK / 子代理作用域 / 附件 API | 2h | 00,03,06 | — | [poc-10](poc-10-sandbox-sdk.md) | ✅ |
 
 并行建议：
 

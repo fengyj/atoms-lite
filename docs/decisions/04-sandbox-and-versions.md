@@ -82,7 +82,17 @@ versions 行  → id / git_commit / parent_id / session_id / message_id / status
 | 自建 tar→R2 作为唯一恢复 | 冷恢复 10-40s，体验差 |
 | 快照丢失时回退到空镜像 | 用户会以为工作区还在，实际已空 |
 
-## 6. 待定 / 风险
+## 6. 沙箱 API：采用 `@cloudflare/sandbox` 的 `Files`
+
+POC-10 结论：
+
+- `Files` 可用于读写/列目录/stat/rename/remove；镜像必须包含 `sandbox-shim`（多阶段从 `cloudflare/sandbox:1.0.3` COPY）。
+- `stat().size` 是 `bigint`，出网前要转 `number`。
+- 预览与快照仍用 `ctx.container`，SDK 不参与。
+- `DirectoryBackup` / `S3Mount` 暂不引入。
+- **子代理不能访问父容器**：所有沙箱操作由项目 DO 执行，子角色通过父级代理拿结果。
+
+## 7. 待定 / 风险
 
 - **生产 Containers 与本地差异**（最高风险）：镜像分发、冷启动、快照 beta、egress、实例规格。
 - `@cloudflare/sandbox` 与原始 `ctx.container` 的取舍；需在 wrangler 下对比验证。
