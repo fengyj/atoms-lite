@@ -1,0 +1,11 @@
+{
+  "name": "poc-04-versions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8795"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  }
+}

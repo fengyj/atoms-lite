@@ -82,4 +82,66 @@ git tag 可选，**不作为主键**，也不作为对外承诺。
 
 ## 结论
 
-（待填写：通过 / 降级 / 部分实现）
+**通过。** 版本列表、代码回滚、数据不回滚、从旧版本分叉，全部符合预期。
+
+### 实测结果（2026-11-18）
+
+| 验证项 | 结果 |
+|---|---|
+| 版本产生 | ✅ `git commit` 与元数据行一一对应（`ver_1`→`ver_2`→`ver_3`） |
+| 容器停止时列表可渲染 | ✅ `containerRunning: false`，查询 0ms，总耗时 33ms，**未唤醒容器** |
+| 回滚只回代码 | ✅ 文件 `hello v2` → `hello v1`；`data/state.txt` 内容不变 |
+| 回滚不改写历史 | ✅ 历史从 2 条变 3 条，新增 `rollback to ver_1` 提交 |
+| 从旧版本继续 | ✅ 新提交 parent 指向 `ver_2`，`parentCommitMatches: true`，4 条历史全部保留 |
+
+版本链：
+
+```
+ver_1 (parent=null)
+  └─ ver_2 (parent=ver_1)
+       ├─ ver_3 (parent=ver_2)  回滚到 ver_1，但作为新提交
+       └─ ver_4 (parent=ver_2)  从 ver_2 分叉
+```
+
+### 快照体积与耗时（补测）
+
+| 工作区 | 快照大小 | 耗时 |
+|---|---|---|
+| 空（alpine/git 基础镜像） | 36 MB | 468ms |
+| + 200 MB 数据 | 236 MB | 4.9s |
+
+结论：**快照速度约 40 MB/s**。按此推算：
+
+| node_modules 规模 | 预计快照耗时 |
+|---|---|
+| 300 MB | ~7s |
+| 500 MB | ~12s |
+| 1 GB | ~25s |
+
+这决定了快照只能发生在**空闲停止 / 显式停止 / 高风险操作前**，并且 UI 必须给进度提示。
+
+### 四个实现坑（已踩）
+
+1. **`commit` 是 SQLite 保留字**，建表直接报 `near "commit": syntax error`。
+   列名要写 `git_commit`（`order`、`group` 同理）。
+2. **`alpine/git` 的 ENTRYPOINT 是 `git`**，`CMD ["sleep","infinity"]` 会被拼成
+   `git sleep infinity`，容器进入重启循环。必须在 Dockerfile 里写 `ENTRYPOINT []`。
+3. **`git checkout <commit> -- .` 只恢复已跟踪文件**，不会删除"后来新增"的文件。
+   要彻底回滚需配合 `git clean`，但它会连未跟踪的应用数据一起删——必须按路径白名单清理。
+4. **分叉默认是 detached HEAD**，提交不在任何分支上。
+   产品实现应改为 `git switch -c fork/<versionId> <commit>`，否则依赖 reflog 才找得回来。
+
+### 对主设计的影响
+
+- 版本元数据表结构确认：`id / git_commit / parent_id / summary / status / created_at`。
+- 「容器睡着时渲染版本列表」成立，且成本可忽略（33ms）。
+- 回滚 = 新提交，`reset --hard` 永远不出现。
+- 快照要按体积做预算，基础镜像越小越好（36MB vs 80MB 的差距会翻倍到快照耗时上）。
+
+### Plan B（未触发）
+
+| 失败点 | 降级 |
+|---|---|
+| 容器内 git 不稳定 | 版本改为「文件树归档 + 内容哈希」，git 只做辅助 |
+| checkout 残留文件 | 按白名单 `git clean -fd <paths>`，绝不整目录清理 |
+| 分叉丢失 | 全部改为创建命名分支 |
