@@ -320,7 +320,7 @@ export function Dashboard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">自动选型</SelectItem>
+                  <SelectItem value="auto">自动（先确认）</SelectItem>
                   <SelectItem value="static">Static</SelectItem>
                   <SelectItem value="react-vite">React</SelectItem>
                   <SelectItem value="fullstack-hono">全栈</SelectItem>
@@ -582,10 +582,9 @@ function ProjectCard({
                 {project.templateSource === "model" ? (
                   <Sparkles className="size-2.5" />
                 ) : null}
-                {templateLabel(project.template)}
-              </Badge>
-              <Badge variant="outline" className="text-3xs font-normal">
-                {project.runtime === "browser" ? "Browser" : "Container"}
+                {project.configured
+                  ? templateLabel(project.template)
+                  : "待确认"}
               </Badge>
             </div>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">

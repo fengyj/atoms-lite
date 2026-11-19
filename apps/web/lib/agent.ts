@@ -52,6 +52,7 @@ export type ProjectSummary = {
   runtime: RuntimeKind;
   templateSource: TemplateSource;
   planReason: string;
+  configured: boolean;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -62,6 +63,7 @@ export type ProjectSummary = {
 export type WorkspaceVersion = ProjectVersion & {
   parentId: string | null;
   status: string;
+  archived?: boolean;
   current: boolean;
 };
 
@@ -77,14 +79,27 @@ export type WorkspaceFileListing = {
   entries: WorkspaceFileEntry[];
   running: boolean;
   cachedAt: number;
+  configured?: boolean;
 };
 
-export type PreviewStatus = { running: boolean; ready: boolean };
+export type PreviewStatus = {
+  running: boolean;
+  ready: boolean;
+  configured?: boolean;
+};
 
 export type WorkspaceMeta = {
   template: TemplateId;
   runtime: RuntimeKind;
+  configured: boolean;
   instanceTier: string;
+  migration: {
+    active: boolean;
+    sourceTemplate?: string;
+    targetTemplate?: string;
+    files?: number;
+    bytes?: number;
+  } | null;
   snapshotError: string | null;
   snapshotAt: number | null;
   versionCount: number;
@@ -142,6 +157,38 @@ export async function deleteProject(
     signal,
   });
   if (!res.ok) throw new Error(`delete project HTTP ${res.status}`);
+}
+
+export async function switchRuntime(
+  projectId: string,
+  template: TemplateId,
+  signal?: AbortSignal
+): Promise<ProjectSummary> {
+  const res = await fetch(projectApiUrl(projectId, "/runtime/switch"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template }),
+    signal,
+  });
+  const project = (await json<ProjectResponse>(res, "switch runtime")).project;
+  if (!project) throw new Error("runtime was not switched");
+  return project;
+}
+
+export async function configureProject(
+  projectId: string,
+  template: TemplateId,
+  signal?: AbortSignal
+): Promise<ProjectSummary> {
+  const res = await fetch(projectApiUrl(projectId, "/configure"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template }),
+    signal,
+  });
+  const project = (await json<ProjectResponse>(res, "configure project")).project;
+  if (!project) throw new Error("project was not configured");
+  return project;
 }
 
 export async function createProject(
@@ -259,7 +306,9 @@ export async function fetchWorkspaceMeta(
   return {
     template: (data.template ?? "static") as TemplateId,
     runtime: data.runtime === "browser" ? "browser" : "container",
+    configured: data.configured !== false,
     instanceTier: data.instanceTier ?? "basic",
+    migration: data.migration ?? null,
     snapshotError: data.snapshotError ?? null,
     snapshotAt: data.snapshotAt ?? null,
     versionCount: Number(data.versionCount ?? 0),

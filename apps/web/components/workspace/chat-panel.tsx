@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
-import { MessageSquare, Sparkles } from "lucide-react";
+import { Loader2, MessageSquare, Sparkles } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -41,6 +41,12 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
 import { Panel } from "@/components/workspace/panel";
+import {
+  AskUserCard,
+  type AskUserInput,
+  type AskUserPayload,
+} from "@/components/workspace/ask-user-card";
+import { SwitchRuntimeCard } from "@/components/workspace/switch-runtime-card";
 
 /** 空态示例需求：五子棋 */
 const SAMPLE_PROMPT =
@@ -54,6 +60,9 @@ export function ChatPanel({
   onSubmitText,
   onStop,
   onApproval,
+  onAskUser,
+  onSwitchRuntime,
+  fallbackTemplate,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -65,6 +74,17 @@ export function ChatPanel({
   onStop: () => void;
   /** 工具审批（approval-requested）的回应 */
   onApproval: (id: string, approved: boolean) => void;
+  onAskUser: (
+    id: string,
+    input: AskUserInput,
+    payload: AskUserPayload
+  ) => Promise<void>;
+  onSwitchRuntime: (
+    id: string,
+    input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
+    confirmed: boolean
+  ) => Promise<void>;
+  fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -122,7 +142,14 @@ export function ChatPanel({
               <Message key={message.id} from={message.role}>
                 <MessageContent className="space-y-3">
                   {message.parts.map((part, index) =>
-                    renderPart(part, index, onApproval)
+                    renderPart(
+                      part,
+                      index,
+                      onApproval,
+                      onAskUser,
+                      onSwitchRuntime,
+                      fallbackTemplate
+                    )
                   )}
                 </MessageContent>
               </Message>
@@ -196,7 +223,18 @@ function displayOutput(tool: ToolUIPart): unknown {
 function renderPart(
   part: UIMessage["parts"][number],
   index: number,
-  onApproval: (id: string, approved: boolean) => void
+  onApproval: (id: string, approved: boolean) => void,
+  onAskUser: (
+    id: string,
+    input: AskUserInput,
+    payload: AskUserPayload
+  ) => Promise<void>,
+  onSwitchRuntime: (
+    id: string,
+    input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
+    confirmed: boolean
+  ) => Promise<void>,
+  fallbackTemplate?: "static" | "react-vite" | "fullstack-hono"
 ) {
   if (part.type === "text") {
     return <MessageResponse key={index}>{part.text}</MessageResponse>;
@@ -212,6 +250,49 @@ function renderPart(
         <ReasoningTrigger />
         <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
+    );
+  }
+
+  if (part.type === "tool-ask_user") {
+    const tool = part as ToolUIPart;
+    const input = tool.input as AskUserInput | undefined;
+    if (tool.state === "output-available" || tool.state === "output-error") {
+      return <AskUserResult key={index} tool={tool} />;
+    }
+    if (!input?.questions?.length) {
+      return <ToolPending key={index} label="正在整理问题…" />;
+    }
+    return (
+      <AskUserCard
+        key={index}
+        toolCallId={tool.toolCallId}
+        input={input}
+        fallbackTemplate={fallbackTemplate}
+        onSubmit={(payload) => onAskUser(tool.toolCallId, input, payload)}
+      />
+    );
+  }
+
+  if (part.type === "tool-switch_runtime") {
+    const tool = part as ToolUIPart;
+    const input = tool.input as
+      | { template: "static" | "react-vite" | "fullstack-hono"; reason: string }
+      | undefined;
+    if (tool.state === "output-available" || tool.state === "output-error") {
+      return <SwitchRuntimeResult key={index} tool={tool} />;
+    }
+    if (!input?.template) {
+      return <ToolPending key={index} label="正在准备切换环境…" />;
+    }
+    return (
+      <SwitchRuntimeCard
+        key={index}
+        template={input.template}
+        currentTemplate={fallbackTemplate}
+        reason={input.reason}
+        onConfirm={() => onSwitchRuntime(tool.toolCallId, input, true)}
+        onCancel={() => void onSwitchRuntime(tool.toolCallId, input, false)}
+      />
     );
   }
 
@@ -255,4 +336,56 @@ function renderPart(
   }
 
   return null;
+}
+
+
+function ToolPending({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-2xs text-muted-foreground">
+      <Loader2 className="size-3.5 animate-spin" />
+      {label}
+    </div>
+  );
+}
+
+function AskUserResult({ tool }: { tool: ToolUIPart }) {
+  if (tool.state === "output-error") {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+        问卷失败：{tool.errorText ?? "未知错误"}
+      </div>
+    );
+  }
+  const output = (tool.output ?? {}) as {
+    skipped?: boolean;
+    template?: string;
+  };
+  return (
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
+      {output.skipped ? "已跳过，使用推荐项开始。" : "需求已确认。"}
+      {output.template ? ` 环境：${output.template}` : ""}
+    </div>
+  );
+}
+
+function SwitchRuntimeResult({ tool }: { tool: ToolUIPart }) {
+  if (tool.state === "output-error") {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+        切换失败：{tool.errorText ?? "未知错误"}
+      </div>
+    );
+  }
+  const output = (tool.output ?? {}) as {
+    cancelled?: boolean;
+    prepared?: boolean;
+    template?: string;
+  };
+  return (
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
+      {output.cancelled
+        ? "已取消环境切换。"
+        : `已切换并准备迁移${output.template ? `：${output.template}` : ""}。`}
+    </div>
+  );
 }

@@ -8,11 +8,21 @@ import {
 } from "@atoms-lite/contracts";
 import type { Env } from "../env";
 import { BROWSER_STATIC_FILES } from "../browser-template";
-import { normalizeRuntime, type RuntimeKind } from "../templates";
+import {
+  normalizeRuntime,
+  normalizeTemplate,
+  runtimeForTemplate,
+  type RuntimeKind,
+  type TemplateId,
+} from "../templates";
 import type { ExecResult, FileEntry, VersionRow } from "./client";
 
 const PREVIEW_PORT = 8080;
 const WORKSPACE = "/workspace";
+const MIGRATION_DIR = "_sandbox_migration";
+const MIGRATION_MAX_BYTES = 30 * 1024 * 1024;
+const MIGRATION_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MIGRATION_MAX_FILES = 500;
 
 // boot.sh 是新镜像的 supervisor；旧快照没有该文件时回退到静态服务器。
 const ENTRYPOINT = [
@@ -20,8 +30,6 @@ const ENTRYPOINT = [
   "-c",
   "if [ -f /opt/preview/boot.sh ]; then exec sh /opt/preview/boot.sh; else exec node /opt/preview/server.mjs; fi",
 ];
-
-const TEMPLATES = new Set(["static", "react-vite", "fullstack-hono"]);
 
 type InstanceTier = "basic" | "standard-1" | "standard-2";
 const INSTANCE_TIERS: InstanceTier[] = ["basic", "standard-1", "standard-2"];
@@ -48,11 +56,43 @@ const dec = (b?: ArrayBuffer | null) =>
   new TextDecoder().decode(b ?? new ArrayBuffer(0));
 
 /** 平台内部目录：不暴露给文件浏览、Agent 工具与预览。 */
-const INTERNAL_DIRS = [".git", ".atoms", ".atoms-lite"] as const;
+const INTERNAL_DIRS = [
+  ".git",
+  ".atoms",
+  ".atoms-lite",
+  MIGRATION_DIR,
+] as const;
 
 function isInternalPath(path: string): boolean {
   const padded = `/${path.replace(/^\/+/, "")}/`;
   return INTERNAL_DIRS.some((dir) => padded.includes(`/${dir}/`));
+}
+
+function capacityRank(runtime: RuntimeKind, tier: string): number {
+  if (runtime === "browser") return 0;
+  if (tier === "standard-2") return 3;
+  if (tier === "standard-1") return 2;
+  return 1;
+}
+
+function isTextPath(path: string): boolean {
+  const name = path.split("/").pop() ?? "";
+  if (/^\.(gitignore|npmrc|editorconfig|prettierrc|eslintrc)$/.test(name)) {
+    return true;
+  }
+  return /\.(md|txt|json|ya?ml|html?|css|scss|less|js|jsx|ts|tsx|mjs|cjs|vue|svelte|svg|xml|csv|sql|sh|toml|env)$/i.test(
+    path,
+  );
+}
+
+function isRestorableDependency(path: string): boolean {
+  const name = path.split("/").pop() ?? "";
+  return (
+    name === "pnpm-lock.yaml" ||
+    name === "package-lock.json" ||
+    name === "yarn.lock" ||
+    name === ".npmrc"
+  );
 }
 
 function safePath(path: string): string {
@@ -73,8 +113,6 @@ function safeCwd(cwd: string | undefined): string {
   return WORKSPACE;
 }
 
-type TemplateId = "static" | "react-vite" | "fullstack-hono";
-
 type RuntimeConfig = {
   kind?: string;
   serveDir?: string;
@@ -82,12 +120,6 @@ type RuntimeConfig = {
   startCommand?: string | null;
   port?: number;
 };
-
-function normalizeTemplate(value: unknown): TemplateId {
-  return typeof value === "string" && TEMPLATES.has(value)
-    ? (value as TemplateId)
-    : "static";
-}
 
 const PACKAGE_SPEC_RE =
   /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[A-Za-z0-9.^~+_-]+)?$/;
@@ -118,6 +150,7 @@ type VersionDbRow = {
   parent_id: string | null;
   summary: string;
   status: string;
+  archived: number;
   created_at: number;
 };
 
@@ -137,6 +170,7 @@ export class Workspace extends DurableObject<Env> {
         parent_id TEXT,
         summary TEXT NOT NULL,
         status TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )
     `);
@@ -166,6 +200,7 @@ export class Workspace extends DurableObject<Env> {
         template TEXT NOT NULL,
         runtime TEXT NOT NULL DEFAULT 'container',
         instance_tier TEXT NOT NULL DEFAULT 'basic',
+        configured INTEGER NOT NULL DEFAULT 1,
         updated_at INTEGER NOT NULL
       )
     `);
@@ -199,9 +234,36 @@ export class Workspace extends DurableObject<Env> {
         snapshot_at INTEGER
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_migration (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        source_template TEXT NOT NULL,
+        source_runtime TEXT NOT NULL,
+        source_instance TEXT NOT NULL,
+        target_template TEXT NOT NULL,
+        target_runtime TEXT NOT NULL,
+        target_instance TEXT NOT NULL,
+        snapshot_id TEXT,
+        archive_files INTEGER NOT NULL DEFAULT 0,
+        archive_bytes INTEGER NOT NULL DEFAULT 0,
+        skipped TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_migration_files (
+        path TEXT PRIMARY KEY,
+        content BLOB NOT NULL,
+        size INTEGER NOT NULL,
+        kind TEXT NOT NULL
+      )
+    `);
     for (const statement of [
       "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
+      "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     ]) {
       try {
         ctx.storage.sql.exec(statement);
@@ -228,7 +290,8 @@ export class Workspace extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_versions (
       id TEXT PRIMARY KEY, git_commit TEXT NOT NULL, parent_id TEXT,
-      summary TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+      summary TEXT NOT NULL, status TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_snapshots (
       project_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -241,7 +304,8 @@ export class Workspace extends DurableObject<Env> {
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_project_config (
       id TEXT PRIMARY KEY, template TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'container',
-      instance_tier TEXT NOT NULL DEFAULT 'basic', updated_at INTEGER NOT NULL
+      instance_tier TEXT NOT NULL DEFAULT 'basic', configured INTEGER NOT NULL DEFAULT 1,
+      updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_content (
       path TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -256,10 +320,24 @@ export class Workspace extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_runtime_status (
       id TEXT PRIMARY KEY, snapshot_error TEXT, snapshot_at INTEGER
     )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_migration (
+      id TEXT PRIMARY KEY, status TEXT NOT NULL, source_template TEXT NOT NULL,
+      source_runtime TEXT NOT NULL, source_instance TEXT NOT NULL,
+      target_template TEXT NOT NULL, target_runtime TEXT NOT NULL,
+      target_instance TEXT NOT NULL, snapshot_id TEXT,
+      archive_files INTEGER NOT NULL DEFAULT 0, archive_bytes INTEGER NOT NULL DEFAULT 0,
+      skipped TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_migration_files (
+      path TEXT PRIMARY KEY, content BLOB NOT NULL, size INTEGER NOT NULL,
+      kind TEXT NOT NULL
+    )`);
 
     for (const statement of [
       "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
+      "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     ]) {
       try {
         sql.exec(statement);
@@ -346,6 +424,20 @@ export class Workspace extends DurableObject<Env> {
     return normalizeRuntime(rows[0]?.runtime);
   }
 
+  private configured(): boolean {
+    const columns = this.ctx.storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(atoms_project_config)")
+      .toArray();
+    if (!columns.some((column) => column.name === "configured")) return true;
+    const rows = this.ctx.storage.sql
+      .exec<{ configured: number }>(
+        "SELECT configured FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray();
+    return rows[0]?.configured !== 0;
+  }
+
   private instanceTier(): InstanceTier {
     const columns = this.ctx.storage.sql
       .exec<{ name: string }>("PRAGMA table_info(atoms_project_config)")
@@ -382,14 +474,20 @@ export class Workspace extends DurableObject<Env> {
     );
   }
 
-  private setConfig(template: TemplateId, runtime: RuntimeKind): void {
+  private setConfig(
+    template: TemplateId,
+    runtime: RuntimeKind,
+    configured = true,
+  ): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, ?, ?, ?)
+      `INSERT INTO atoms_project_config (id, template, runtime, configured, updated_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET template = excluded.template,
-         runtime = excluded.runtime, updated_at = excluded.updated_at`,
+         runtime = excluded.runtime, configured = excluded.configured,
+         updated_at = excluded.updated_at`,
       this.projectId,
       template,
       runtime,
+      configured ? 1 : 0,
       Date.now(),
     );
   }
@@ -771,21 +869,496 @@ export class Workspace extends DurableObject<Env> {
     if (!this.container.running) throw new Error("container did not start");
   }
 
+  private migrationRow(): {
+    status: string;
+    source_template: string;
+    source_runtime: string;
+    source_instance: string;
+    target_template: string;
+    target_runtime: string;
+    target_instance: string;
+    snapshot_id: string | null;
+    archive_files: number;
+    archive_bytes: number;
+    skipped: string;
+    created_at: number;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec<{
+        status: string;
+        source_template: string;
+        source_runtime: string;
+        source_instance: string;
+        target_template: string;
+        target_runtime: string;
+        target_instance: string;
+        snapshot_id: string | null;
+        archive_files: number;
+        archive_bytes: number;
+        skipped: string;
+        created_at: number;
+      }>("SELECT * FROM atoms_migration WHERE id = ?", this.projectId)
+      .toArray();
+    return rows[0] ?? null;
+  }
+
+  private migrationInfo() {
+    const row = this.migrationRow();
+    if (!row || row.status !== "active") return null;
+    return {
+      active: true,
+      sourceTemplate: row.source_template,
+      sourceRuntime: row.source_runtime,
+      targetTemplate: row.target_template,
+      targetRuntime: row.target_runtime,
+      files: row.archive_files,
+      bytes: row.archive_bytes,
+    };
+  }
+
+  private migrationManifest() {
+    const migration = this.migrationRow();
+    const files = this.migrationFiles();
+    return {
+      sourceTemplate: migration?.source_template ?? "",
+      sourceRuntime: migration?.source_runtime ?? "",
+      targetTemplate: migration?.target_template ?? "",
+      targetRuntime: migration?.target_runtime ?? "",
+      createdAt: migration?.created_at ?? Date.now(),
+      files: files.map((row) => ({
+        path: row.path,
+        size: row.size,
+        kind: row.kind,
+      })),
+      excluded: [
+        "node_modules",
+        "dist",
+        ".git",
+        ".atoms-lite",
+        ".atoms",
+        "lockfiles",
+        "build caches",
+      ],
+      skipped: JSON.parse(migration?.skipped ?? "[]") as string[],
+    };
+  }
+
+  private async exportWorkspaceArchive(): Promise<{
+    files: number;
+    bytes: number;
+    skipped: string[];
+  }> {
+    this.ctx.storage.sql.exec("DELETE FROM atoms_migration_files");
+    const skipped: string[] = [];
+    let files = 0;
+    let bytes = 0;
+
+    const insert = (
+      path: string,
+      content: ArrayBuffer,
+      kind: "text" | "binary",
+    ) => {
+      if (content.byteLength > MIGRATION_MAX_FILE_BYTES) {
+        skipped.push(`${path} (${content.byteLength} bytes)`);
+        return;
+      }
+      if (bytes + content.byteLength > MIGRATION_MAX_BYTES) {
+        skipped.push(`${path} (total limit)`);
+        return;
+      }
+      if (files >= MIGRATION_MAX_FILES) {
+        skipped.push(`${path} (file limit)`);
+        return;
+      }
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_migration_files (path, content, size, kind) VALUES (?, ?, ?, ?)",
+        path,
+        content,
+        content.byteLength,
+        kind,
+      );
+      files += 1;
+      bytes += content.byteLength;
+    };
+
+    if (this.runtime() === "browser") {
+      const rows = this.ctx.storage.sql
+        .exec<{ path: string; content: string }>(
+          "SELECT path, content FROM atoms_file_content ORDER BY path",
+        )
+        .toArray();
+      const encoder = new TextEncoder();
+      for (const row of rows) {
+        if (isRestorableDependency(row.path)) continue;
+        const encoded = encoder.encode(row.content);
+        insert(row.path, encoded.buffer as ArrayBuffer, "text");
+      }
+      return { files, bytes, skipped };
+    }
+
+    await this.ensure();
+    const listed = await this.run([
+      "find",
+      WORKSPACE,
+      "-type",
+      "f",
+      "-not",
+      "-path",
+      "*/.git/*",
+      "-not",
+      "-path",
+      "*/node_modules/*",
+      "-not",
+      "-path",
+      "*/dist/*",
+      "-not",
+      "-path",
+      "*/.next/*",
+      "-not",
+      "-path",
+      "*/.cache/*",
+      "-not",
+      "-path",
+      "*/coverage/*",
+      "-not",
+      "-path",
+      `*/${MIGRATION_DIR}/*`,
+      "-not",
+      "-path",
+      "*/.atoms-lite/*",
+      "-not",
+      "-path",
+      "*/.atoms/*",
+    ]);
+    const all = listed.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(`${WORKSPACE}/`));
+    const sandbox = new Files(this.container);
+    for (const absolute of all) {
+      const rel = absolute.slice(WORKSPACE.length + 1);
+      if (isInternalPath(rel) || isRestorableDependency(rel)) continue;
+      if (files >= MIGRATION_MAX_FILES || bytes >= MIGRATION_MAX_BYTES) {
+        skipped.push(`${rel} (limit)`);
+        continue;
+      }
+      try {
+        const res = await sandbox.readFile(absolute);
+        insert(
+          rel,
+          await res.arrayBuffer(),
+          isTextPath(rel) ? "text" : "binary",
+        );
+      } catch {
+        skipped.push(`${rel} (read failed)`);
+      }
+    }
+    return { files, bytes, skipped };
+  }
+
+  private async writeMigrationArchiveToWorkspace(): Promise<void> {
+    const rows = this.ctx.storage.sql
+      .exec<{ path: string; content: ArrayBuffer; size: number; kind: string }>(
+        "SELECT path, content, size, kind FROM atoms_migration_files ORDER BY path",
+      )
+      .toArray();
+    if (rows.length === 0) return;
+    const sandbox = new Files(this.container);
+    const dirs = new Set<string>();
+    for (const row of rows) {
+      const target = `${WORKSPACE}/${MIGRATION_DIR}/files/${row.path}`;
+      const dir = target.slice(0, target.lastIndexOf("/"));
+      if (!dirs.has(dir)) {
+        dirs.add(dir);
+        await this.run(["mkdir", "-p", dir]);
+      }
+      await sandbox.writeFile(target, new Uint8Array(row.content));
+    }
+
+    const manifest = this.migrationManifest();
+    await this.run(["mkdir", "-p", `${WORKSPACE}/${MIGRATION_DIR}`]);
+    await sandbox.writeFile(
+      `${WORKSPACE}/${MIGRATION_DIR}/manifest.json`,
+      JSON.stringify(manifest, null, 2),
+    );
+    await this.sh(
+      `cd ${WORKSPACE}/${MIGRATION_DIR} && tar -czf workspace.tar.gz -C files .`,
+    ).catch(() => undefined);
+  }
+
+  private async ensureMigrationIgnored(): Promise<void> {
+    const line = `${MIGRATION_DIR}/`;
+    await this.sh(
+      `cd ${WORKSPACE} && (grep -qxF '${line}' .gitignore 2>/dev/null || printf '\n${line}\n' >> .gitignore)`,
+    );
+    await this.run(["mkdir", "-p", `${WORKSPACE}/.git/info`]);
+    await this.sh(
+      `cd ${WORKSPACE} && (grep -qxF '${line}' .git/info/exclude 2>/dev/null || printf '\n${line}\n' >> .git/info/exclude)`,
+    );
+  }
+
+  private async resetToTemplate(template: TemplateId): Promise<void> {
+    await this.sh(
+      `cd ${WORKSPACE} && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +`,
+    );
+    await this.seed(template);
+  }
+
+  private migrationFiles(prefix = "") {
+    const rows = this.ctx.storage.sql
+      .exec<{ path: string; size: number; kind: string }>(
+        "SELECT path, size, kind FROM atoms_migration_files ORDER BY path",
+      )
+      .toArray();
+    return rows.filter((row) => !prefix || row.path.startsWith(prefix));
+  }
+
+  private migrationContent(path: string): {
+    path: string;
+    content: ArrayBuffer;
+    kind: string;
+  } {
+    const cleaned = path
+      .replace(/^\/+/, "")
+      .replace(/^workspace\//, "")
+      .replace(new RegExp(`^${MIGRATION_DIR}/`), "")
+      .replace(/^files\//, "");
+    if (!cleaned || cleaned.includes("..")) {
+      throw new Error(`invalid migration path: ${path}`);
+    }
+    const rows = this.ctx.storage.sql
+      .exec<{ path: string; content: ArrayBuffer; kind: string }>(
+        "SELECT path, content, kind FROM atoms_migration_files WHERE path = ?",
+        cleaned,
+      )
+      .toArray();
+    const row = rows[0];
+    if (!row) throw new Error(`migration file not found: ${cleaned}`);
+    return row;
+  }
+
+  private async readMigrationFile(
+    path: string,
+    offset = 0,
+    limit = 400,
+  ): Promise<{
+    path: string;
+    content: string;
+    truncated: boolean;
+    kind: string;
+  }> {
+    const cleanedManifest = path
+      .replace(/^\/+/, "")
+      .replace(/^workspace\//, "")
+      .replace(new RegExp(`^${MIGRATION_DIR}/`), "")
+      .replace(/^files\//, "");
+    if (cleanedManifest === "manifest.json") {
+      return {
+        path: "manifest.json",
+        content: JSON.stringify(this.migrationManifest(), null, 2),
+        truncated: false,
+        kind: "text",
+      };
+    }
+    const row = this.migrationContent(path);
+    if (row.kind !== "text") {
+      throw new Error(
+        "this is a binary file; use copy_migration_file instead of reading it",
+      );
+    }
+    const text = new TextDecoder().decode(row.content);
+    const lines = text.split("\n");
+    const start = Math.max(0, offset);
+    const end = start + Math.max(1, Math.min(limit, 2000));
+    return {
+      path: row.path,
+      content: lines.slice(start, end).join("\n"),
+      truncated: end < lines.length,
+      kind: row.kind,
+    };
+  }
+
+  private async copyMigrationFile(from: string, to: string): Promise<{
+    ok: true;
+    from: string;
+    to: string;
+    bytes: number;
+  }> {
+    const row = this.migrationContent(from);
+    const target = to.startsWith("/") ? to : `${WORKSPACE}/${to}`;
+    if (this.runtime() === "browser") {
+      const text = new TextDecoder().decode(row.content);
+      const rel = this.relativePath(target);
+      this.browserWrite(rel, text);
+      return { ok: true, from: row.path, to: rel, bytes: row.content.byteLength };
+    }
+    const rel = this.relativePath(target);
+    const sandbox = new Files(this.container);
+    const dir = target.slice(0, target.lastIndexOf("/"));
+    if (dir && dir !== WORKSPACE) await this.run(["mkdir", "-p", dir]);
+    await sandbox.writeFile(target, new Uint8Array(row.content));
+    this.upsertFilesCache(target, row.content.byteLength);
+    return { ok: true, from: row.path, to: rel, bytes: row.content.byteLength };
+  }
+
+  private async finishMigration(): Promise<{ ok: true; files: number }> {
+    const migration = this.migrationRow();
+    if (!migration || migration.status !== "active") {
+      throw new Error("no active migration");
+    }
+    if (this.runtime() === "container") {
+      await this.sh(`rm -rf ${WORKSPACE}/${MIGRATION_DIR}`);
+    }
+    const count = this.ctx.storage.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM atoms_migration_files")
+      .one().n;
+    this.ctx.storage.sql.exec("DELETE FROM atoms_migration_files");
+    if (migration.source_runtime === "browser") {
+      this.ctx.storage.sql.exec("DELETE FROM atoms_file_content");
+    }
+    this.ctx.storage.sql.exec("DELETE FROM atoms_migration WHERE id = ?", this.projectId);
+    await this.syncFilesCacheSafe();
+    return { ok: true, files: count };
+  }
+
+  /**
+   * 切换 runtime/模板。只允许切到容量不低于当前的 runtime。
+   * 旧文件先导出到 atoms_migration_files，再重置到目标模板；
+   * 模型通过迁移工具选择要复制/改写的文件。
+   */
+  private async switchRuntime(targetInput: TemplateId): Promise<{
+    ok: true;
+    migration: boolean;
+    targetTemplate: TemplateId;
+    targetRuntime: RuntimeKind;
+  }> {
+    if (!this.configured()) throw new Error("project is not configured");
+    const targetTemplate = targetInput;
+    const targetRuntime = runtimeForTemplate(targetTemplate);
+    const sourceTemplate = this.template();
+    const sourceRuntime = this.runtime();
+    const sourceTier = this.instanceTier();
+
+    if (targetTemplate === sourceTemplate && targetRuntime === sourceRuntime) {
+      return {
+        ok: true,
+        migration: false,
+        targetTemplate,
+        targetRuntime,
+      };
+    }
+
+    const targetTier: InstanceTier =
+      targetRuntime === "browser"
+        ? "basic"
+        : sourceRuntime === "container"
+          ? sourceTier
+          : "basic";
+    if (
+      capacityRank(targetRuntime, targetTier) <
+      capacityRank(sourceRuntime, sourceTier)
+    ) {
+      throw new Error(
+        `不支持从 ${sourceRuntime}/${sourceTier} 切换到更小的 ${targetRuntime}/${targetTier}`,
+      );
+    }
+
+    if (sourceRuntime === "container") {
+      await this.ensure();
+      await this.takeSnapshot();
+    }
+    const snapshotId = sourceRuntime === "container" ? this.snapshotId() : null;
+    const archive = await this.exportWorkspaceArchive();
+    const now = Date.now();
+
+    this.ctx.storage.sql.exec(
+      "DELETE FROM atoms_migration WHERE id = ?",
+      this.projectId,
+    );
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_migration
+        (id, status, source_template, source_runtime, source_instance,
+         target_template, target_runtime, target_instance, snapshot_id,
+         archive_files, archive_bytes, skipped, created_at)
+       VALUES (?, 'preparing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      this.projectId,
+      sourceTemplate,
+      sourceRuntime,
+      sourceTier,
+      targetTemplate,
+      targetRuntime,
+      targetTier,
+      snapshotId,
+      archive.files,
+      archive.bytes,
+      JSON.stringify(archive.skipped),
+      now,
+    );
+
+    this.setConfig(targetTemplate, targetRuntime);
+    if (targetRuntime === "container") {
+      this.setInstanceTier(targetTier);
+    }
+
+    if (targetRuntime === "container") {
+      if (sourceRuntime === "browser") {
+        this.container.start({
+          image: this.container.images["base"],
+          entrypoint: ENTRYPOINT,
+          enableInternet: true,
+          instance: targetTier,
+        });
+        await this.waitRunning();
+        await this.container.setInactivityTimeout(
+          SANDBOX_INACTIVITY_TIMEOUT_MS,
+        );
+      }
+      await this.resetToTemplate(targetTemplate);
+      await this.ensureMigrationIgnored();
+      await this.writeMigrationArchiveToWorkspace();
+      await this.ensurePreview();
+      await this.restartPreview();
+      // 目标环境已经可用；把快照指向目标，避免 worker 重启后从旧模板快照恢复。
+      await this.takeSnapshot();
+    } else {
+      // 单向规则：容量不低于当前。browser 只可能是 source=browser 且 target 相同，
+      // 上面已经 no-op；保留显式错误，避免未来悄悄破坏这个规则。
+      throw new Error("browser runtime switch is not supported");
+    }
+
+    this.ctx.storage.sql.exec("DELETE FROM atoms_files");
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_versions SET archived = 1",
+    );
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_workspace SET current_version_id = NULL WHERE id = ?",
+      this.projectId,
+    );
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_migration SET status = 'active' WHERE id = ?",
+      this.projectId,
+    );
+    this.ensurePromise = null;
+    await this.syncFilesCacheSafe();
+    return { ok: true, migration: true, targetTemplate, targetRuntime };
+  }
+
   /**
    * 只在「从未生成过任何内容」时铺模板。
    * .git 存在说明已经有工作区历史，绝不覆盖。
    */
-  private async seed(): Promise<void> {
+  private async seed(forceTemplate?: TemplateId): Promise<void> {
+    const forced = !!forceTemplate;
     const hasGit = await this.run(["test", "-d", `${WORKSPACE}/.git`]);
-    if (hasGit.exitCode === 0) return;
+    if (hasGit.exitCode === 0 && !forced) return;
 
-    if (this.versionCount() > 0) {
+    if (!forced && this.versionCount() > 0) {
       throw new Error(
         "workspace lost: versions exist but .git is missing (snapshot restore failed); refusing to overwrite",
       );
     }
 
-    const template = this.template();
+    const template = forceTemplate ?? this.template();
     let dir = `/opt/templates/${template}`;
     const exists = await this.run(["test", "-d", dir]);
     if (exists.exitCode !== 0) {
@@ -952,6 +1525,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async ensure(): Promise<void> {
+    if (!this.configured()) {
+      throw new Error("project is not configured yet");
+    }
     if (this.runtime() === "browser") {
       this.ensurePromise ??= this.seedBrowser().catch((error) => {
         this.ensurePromise = null;
@@ -1137,7 +1713,7 @@ export class Workspace extends DurableObject<Env> {
       .exec<VersionDbRow>(
         current
           ? "SELECT * FROM atoms_versions WHERE id = ?"
-          : "SELECT * FROM atoms_versions ORDER BY created_at DESC LIMIT 1",
+          : "SELECT * FROM atoms_versions WHERE archived = 0 ORDER BY created_at DESC LIMIT 1",
         ...(current ? [current] : []),
       )
       .toArray();
@@ -1149,6 +1725,7 @@ export class Workspace extends DurableObject<Env> {
       parentId: row.parent_id,
       summary: row.summary,
       status: row.status,
+      archived: row.archived === 1,
       createdAt: row.created_at,
       current: true,
     };
@@ -1158,19 +1735,26 @@ export class Workspace extends DurableObject<Env> {
     const rows = this.ctx.storage.sql
       .exec<VersionDbRow>("SELECT * FROM atoms_versions ORDER BY created_at ASC")
       .toArray();
-    const current = this.currentVersionId() ?? rows[rows.length - 1]?.id;
+    const current =
+      this.currentVersionId() ??
+      rows.find((row) => row.archived === 0)?.id ??
+      null;
     return rows.map((r) => ({
       id: r.id,
       gitCommit: r.git_commit,
       parentId: r.parent_id,
       summary: r.summary,
       status: r.status,
+      archived: r.archived === 1,
       createdAt: r.created_at,
-      current: r.id === current,
+      current: current !== null && r.id === current,
     }));
   }
 
   private async createVersion(summary: string) {
+    if (this.migrationRow()?.status === "active") {
+      throw new Error("migration is active; finish_migration first");
+    }
     if (this.runtime() === "browser") {
       return this.createBrowserVersion(summary);
     }
@@ -1239,6 +1823,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async checkout(versionId: string) {
+    const archived = this.ctx.storage.sql
+      .exec<{ archived: number }>(
+        "SELECT archived FROM atoms_versions WHERE id = ?",
+        versionId,
+      )
+      .toArray()[0];
+    if (!archived) throw new Error(`version not found: ${versionId}`);
+    if (archived.archived === 1) {
+      throw new Error("this version was archived by a runtime switch");
+    }
     if (this.runtime() === "browser") {
       return this.checkoutBrowser(versionId);
     }
@@ -1319,6 +1913,9 @@ export class Workspace extends DurableObject<Env> {
       "-not",
       "-path",
       "*/.atoms/*",
+      "-not",
+      "-path",
+      "*/_sandbox_migration/*",
       "-exec",
       "wc",
       "-c",
@@ -1496,6 +2093,7 @@ export class Workspace extends DurableObject<Env> {
         const body = (await request.json()) as {
           template?: string;
           runtime?: string;
+          configured?: boolean | number;
         };
         if (this.versionCount() > 0) {
           return Response.json(
@@ -1506,12 +2104,64 @@ export class Workspace extends DurableObject<Env> {
         this.setConfig(
           normalizeTemplate(body.template),
           normalizeRuntime(body.runtime),
+          body.configured !== false && body.configured !== 0,
         );
         return Response.json({
           ok: true,
           template: this.template(),
           runtime: this.runtime(),
+          configured: this.configured(),
         });
+      }
+
+      if (path === "/runtime/switch" && request.method === "POST") {
+        const body = (await request.json()) as { template?: string };
+        const target = normalizeTemplate(body.template);
+        return Response.json(
+          await this.exclusive(() => this.switchRuntime(target)),
+        );
+      }
+
+      if (path === "/migration/list") {
+        return Response.json({
+          entries: this.migrationFiles(),
+          manifest: this.migrationManifest(),
+        });
+      }
+
+      if (path === "/migration/read" && request.method === "POST") {
+        const body = (await request.json()) as {
+          path?: string;
+          offset?: number;
+          limit?: number;
+        };
+        return Response.json(
+          await this.readMigrationFile(
+            body.path ?? "",
+            body.offset,
+            body.limit,
+          ),
+        );
+      }
+
+      if (path === "/migration/copy" && request.method === "POST") {
+        const body = (await request.json()) as {
+          from?: string;
+          to?: string;
+        };
+        if (!body.from || !body.to) {
+          return Response.json(
+            { error: "from and to are required" },
+            { status: 400 },
+          );
+        }
+        return Response.json(
+          await this.copyMigrationFile(body.from, body.to),
+        );
+      }
+
+      if (path === "/migration/finish" && request.method === "POST") {
+        return Response.json(await this.finishMigration());
       }
 
       if (path === "/meta") {
@@ -1520,6 +2170,9 @@ export class Workspace extends DurableObject<Env> {
         return Response.json({
           template: this.template(),
           runtime: this.runtime(),
+          configured: this.configured(),
+          running:
+            this.runtime() === "container" ? this.container.running : false,
           instanceTier: this.instanceTier(),
           snapshotError:
             this.ctx.storage.sql
@@ -1535,6 +2188,7 @@ export class Workspace extends DurableObject<Env> {
                 this.projectId,
               )
               .toArray()[0]?.snapshot_at ?? null,
+          migration: this.migrationInfo(),
           versionCount: this.versionCount(),
           currentVersion: current
             ? {
@@ -1548,6 +2202,14 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/files") {
+        if (!this.configured()) {
+          return Response.json({
+            entries: [],
+            running: false,
+            cachedAt: 0,
+            configured: false,
+          });
+        }
         if (this.runtime() === "browser") {
           await this.ensure();
           return Response.json({
@@ -1609,6 +2271,79 @@ export class Workspace extends DurableObject<Env> {
           new TextEncoder().encode(body.content).length,
         );
         return Response.json({ path: target, bytes: body.content.length });
+      }
+
+      if (path === "/tools/edit" && request.method === "POST") {
+        const body = (await request.json()) as {
+          path: string;
+          oldString: string;
+          newString: string;
+          replaceAll?: boolean;
+        };
+        await this.ensure();
+        if (this.runtime() === "browser") {
+          const rel = this.relativePath(body.path);
+          const content = this.browserContent(rel);
+          if (content === null) {
+            return Response.json({ error: "file not found" }, { status: 404 });
+          }
+          const first = content.indexOf(body.oldString);
+          if (first < 0) {
+            return Response.json(
+              { error: "oldString not found in file" },
+              { status: 409 },
+            );
+          }
+          if (!body.replaceAll && content.indexOf(body.oldString, first + 1) >= 0) {
+            return Response.json(
+              { error: "oldString matches multiple places; add more context or set replaceAll" },
+              { status: 409 },
+            );
+          }
+          const next = body.replaceAll
+            ? content.split(body.oldString).join(body.newString)
+            : content.slice(0, first) +
+              body.newString +
+              content.slice(first + body.oldString.length);
+          this.browserWrite(rel, next);
+          return Response.json({
+            path: body.path,
+            replaced: body.replaceAll
+              ? content.split(body.oldString).length - 1
+              : 1,
+            bytes: next.length,
+          });
+        }
+        const target = safePath(body.path);
+        const files = new Files(this.container);
+        const current = await (await files.readFile(target)).text();
+        const first = current.indexOf(body.oldString);
+        if (first < 0) {
+          return Response.json(
+            { error: "oldString not found in file" },
+            { status: 409 },
+          );
+        }
+        if (!body.replaceAll && current.indexOf(body.oldString, first + 1) >= 0) {
+          return Response.json(
+            { error: "oldString matches multiple places; add more context or set replaceAll" },
+            { status: 409 },
+          );
+        }
+        const next = body.replaceAll
+          ? current.split(body.oldString).join(body.newString)
+          : current.slice(0, first) +
+            body.newString +
+            current.slice(first + body.oldString.length);
+        await files.writeFile(target, next);
+        this.upsertFilesCache(target, new TextEncoder().encode(next).length);
+        return Response.json({
+          path: target,
+          replaced: body.replaceAll
+            ? current.split(body.oldString).length - 1
+            : 1,
+          bytes: new TextEncoder().encode(next).length,
+        });
       }
 
       if (path === "/tools/read") {
@@ -1769,6 +2504,13 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/preview/status") {
+        if (!this.configured()) {
+          return Response.json({
+            running: false,
+            ready: false,
+            configured: false,
+          });
+        }
         if (this.runtime() === "browser") {
           return Response.json({ running: false, ready: true });
         }

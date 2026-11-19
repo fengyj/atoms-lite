@@ -90,8 +90,11 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   手动指定时跳过规则与 planner。
 - **选型可观测**：项目保存 `templateSource`（rule/model/manual/fallback）与
   `planReason`；项目卡 badge 的 tooltip 显示原因，模型选择的 badge 带 Sparkles。
-- **模板配置**：项目创建时写入 WorkspaceDO 的 `atoms_project_config.template`，
-  不启动容器；首次 `ensure()` 按模板播种。
+- **pending / configured**：自动选型项目创建时 `configured=0`，只保存建议模板；
+  第一轮由 `ask_user` 确认需求和技术栈，客户端调用 `/configure` 后才挂载文件/构建工具。
+  手动选模板的项目直接 `configured=1`。
+- **模板配置**：配置写入 WorkspaceDO 的 `atoms_project_config`，不启动容器；
+  首次 `ensure()` 按模板播种。配置后、第一次写入前可以重新配置。
 - **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
   新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
 - **设计流程**：新项目/大改版先写 `DESIGN.md`（方向与布局、tokens、共享状态、媒体），
@@ -163,6 +166,13 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 版本创建与 `finish` 时自动快照，重启时从该项目的快照恢复。
 - 项目索引 `Projects` DO：保存 `id/name/prompt/createdAt`，读取时并发向各
   WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
+- **Runtime 切换**：`switch_runtime` 只允许单向升级（browser < container/basic < standard-1 < standard-2）。
+  旧文件导出到 `atoms_migration_files`，目标工作区解压到 `_sandbox_migration/`；
+  模型通过 `list/read/copy/finish_migration` 选择性迁移。该目录从 git、文件树、预览和版本排除。
+- **Agent 上下文**：每轮把 runtime/time/capabilities 等附加到最后一条用户消息的模型副本，
+  不写回消息存储；工具按 `RuntimeContext` 条件动态挂载。
+- **ask_user**：15 分钟线性倒计时卡片；提交后客户端配置项目并 `addToolOutput` 续跑。
+- **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
 - 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
 - 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
   只在启动/加载阶段短轮询，就绪后停止。

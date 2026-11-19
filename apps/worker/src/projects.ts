@@ -24,6 +24,7 @@ type ProjectRow = {
   runtime: string;
   template_source: string;
   plan_reason: string;
+  configured: number;
   created_at: number;
   updated_at: number;
 };
@@ -46,6 +47,7 @@ export type ProjectSummary = {
   runtime: RuntimeKind;
   templateSource: TemplateSource;
   planReason: string;
+  configured: boolean;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -92,6 +94,7 @@ export class Projects extends DurableObject<Env> {
         runtime TEXT NOT NULL DEFAULT 'container',
         template_source TEXT NOT NULL DEFAULT 'rule',
         plan_reason TEXT NOT NULL DEFAULT '',
+        configured INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -103,6 +106,7 @@ export class Projects extends DurableObject<Env> {
       "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
       "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE atoms_projects ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
     ]) {
       try {
         ctx.storage.sql.exec(statement);
@@ -121,6 +125,7 @@ export class Projects extends DurableObject<Env> {
       runtime TEXT NOT NULL DEFAULT 'container',
       template_source TEXT NOT NULL DEFAULT 'rule',
       plan_reason TEXT NOT NULL DEFAULT '',
+      configured INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`);
     for (const statement of [
@@ -128,6 +133,7 @@ export class Projects extends DurableObject<Env> {
       "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
       "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE atoms_projects ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
     ]) {
       try {
         sql.exec(statement);
@@ -172,8 +178,8 @@ export class Projects extends DurableObject<Env> {
     const now = demoMeta.currentVersion?.createdAt ?? Date.now();
     this.ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO atoms_projects
-         (id, name, prompt, template, runtime, template_source, plan_reason, created_at, updated_at)
-       VALUES (?, ?, ?, 'static', 'container', 'rule', 'v1 遗留静态项目', ?, ?)`,
+         (id, name, prompt, template, runtime, template_source, plan_reason, configured, created_at, updated_at)
+       VALUES (?, ?, ?, 'static', 'container', 'rule', 'v1 遗留静态项目', 1, ?, ?)`,
       DEMO_PROJECT_ID,
       DEMO_PROJECT_NAME,
       "做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始。",
@@ -192,6 +198,7 @@ export class Projects extends DurableObject<Env> {
       runtime: row.runtime === "browser" ? "browser" : "container",
       templateSource: (row.template_source as TemplateSource) || "rule",
       planReason: row.plan_reason || "",
+      configured: row.configured !== 0,
       createdAt: row.created_at,
       updatedAt: Math.max(row.updated_at, meta?.currentVersion?.createdAt ?? 0),
       versionCount: meta?.versionCount ?? 0,
@@ -249,14 +256,15 @@ export class Projects extends DurableObject<Env> {
     }
 
     const runtime = runtimeForTemplate(template);
+    const configured = manual ? 1 : 0;
     const id = newProjectId();
     const name = deriveProjectName(text);
     const now = Date.now();
 
     this.ctx.storage.sql.exec(
       `INSERT INTO atoms_projects
-         (id, name, prompt, template, runtime, template_source, plan_reason, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, prompt, template, runtime, template_source, plan_reason, configured, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       name,
       text,
@@ -264,6 +272,7 @@ export class Projects extends DurableObject<Env> {
       runtime,
       source,
       reason,
+      configured,
       now,
       now,
     );
@@ -275,7 +284,7 @@ export class Projects extends DurableObject<Env> {
       const res = await stub.fetch("https://workspace/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ template, runtime }),
+        body: JSON.stringify({ template, runtime, configured }),
       });
       if (!res.ok) throw new Error(`config HTTP ${res.status}`);
     } catch (error) {
@@ -293,11 +302,97 @@ export class Projects extends DurableObject<Env> {
       runtime,
       templateSource: source,
       planReason: reason,
+      configured: configured === 1,
       createdAt: now,
       updatedAt: now,
       versionCount: 0,
       currentVersion: null,
     };
+  }
+
+  private async configure(
+    id: string,
+    templateInput: string,
+  ): Promise<ProjectSummary> {
+    const row = this.row(id);
+    if (!row) throw new Error("project not found");
+    if (!isTemplate(templateInput)) throw new Error("invalid template");
+    const template = templateInput;
+    const runtime = runtimeForTemplate(template);
+    if (row.configured !== 0) {
+      if (row.template === template && row.runtime === runtime) {
+        return this.enrich(row);
+      }
+      throw new Error("project is already configured");
+    }
+    const now = Date.now();
+
+    const stub = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(id));
+    const res = await stub.fetch("https://workspace/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ template, runtime, configured: 1 }),
+    });
+    if (!res.ok) throw new Error(`config HTTP ${res.status}`);
+
+    this.ctx.storage.sql.exec(
+      `UPDATE atoms_projects
+       SET template = ?, runtime = ?, configured = 1, updated_at = ?
+       WHERE id = ?`,
+      template,
+      runtime,
+      now,
+      id,
+    );
+
+    return this.enrich({ ...row, template, runtime, configured: 1, updated_at: now });
+  }
+
+  private async switchRuntime(
+    id: string,
+    templateInput: string,
+  ): Promise<ProjectSummary> {
+    const row = this.row(id);
+    if (!row) throw new Error("project not found");
+    if (!isTemplate(templateInput)) throw new Error("invalid template");
+    const template = templateInput;
+    const runtime = runtimeForTemplate(template);
+
+    const stub = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(id));
+    const res = await stub.fetch("https://workspace/runtime/switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ template }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let message = text;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed.error) message = parsed.error;
+      } catch {
+        // 保留原始文本
+      }
+      throw new Error(message || `switch HTTP ${res.status}`);
+    }
+
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE atoms_projects
+       SET template = ?, runtime = ?, configured = 1, updated_at = ?
+       WHERE id = ?`,
+      template,
+      runtime,
+      now,
+      id,
+    );
+    return this.enrich({
+      ...row,
+      template,
+      runtime,
+      configured: 1,
+      updated_at: now,
+    });
   }
 
   private async rename(id: string, name: string): Promise<ProjectSummary> {
@@ -357,6 +452,29 @@ export class Projects extends DurableObject<Env> {
         };
         return Response.json({
           project: await this.create(body.prompt ?? "", body.template),
+        });
+      }
+
+      const switchMatch = url.pathname.match(
+        /^\/projects\/([^/]+)\/runtime\/switch$/,
+      );
+      if (switchMatch?.[1] && request.method === "POST") {
+        const body = (await request.json()) as { template?: string };
+        return Response.json({
+          project: await this.switchRuntime(
+            switchMatch[1],
+            body.template ?? "",
+          ),
+        });
+      }
+
+      const configureMatch = url.pathname.match(
+        /^\/projects\/([^/]+)\/configure$/,
+      );
+      if (configureMatch?.[1] && request.method === "POST") {
+        const body = (await request.json()) as { template?: string };
+        return Response.json({
+          project: await this.configure(configureMatch[1], body.template ?? ""),
         });
       }
 

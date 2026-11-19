@@ -18,7 +18,10 @@ import {
   useWorkspaceMeta,
   useWorkspaceVersions,
   upgradeInstance,
+  configureProject,
+  switchRuntime,
 } from "@/lib/agent";
+import type { AskUserInput, AskUserPayload } from "@/components/workspace/ask-user-card";
 import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "workbench";
@@ -75,6 +78,7 @@ export function Workspace({ projectId }: { projectId: string }) {
     status,
     stop,
     addToolApprovalResponse,
+    addToolOutput,
     isStreaming,
   } = useAgentChat({ agent });
 
@@ -227,6 +231,77 @@ export function Workspace({ projectId }: { projectId: string }) {
     [addToolApprovalResponse]
   );
 
+  const respondAskUser = useCallback(
+    async (id: string, input: AskUserInput, payload: AskUserPayload) => {
+      const template =
+        payload.template ??
+        input.recommendedTemplate ??
+        project.data?.template ??
+        "react-vite";
+      if (!project.data?.configured) {
+        await configureProject(projectId, template);
+      }
+      addToolOutput({
+        toolCallId: id,
+        toolName: "ask_user",
+        output: { ...payload, template },
+      });
+      project.refresh();
+      workspaceMeta.refresh();
+      files.refresh();
+      versions.refresh();
+    },
+    [
+      addToolOutput,
+      projectId,
+      project.data?.configured,
+      project.data?.template,
+      project.refresh,
+      workspaceMeta.refresh,
+      files.refresh,
+      versions.refresh,
+    ]
+  );
+
+  const respondSwitchRuntime = useCallback(
+    async (
+      id: string,
+      input: {
+        template: "static" | "react-vite" | "fullstack-hono";
+        reason: string;
+      },
+      confirmed: boolean
+    ) => {
+      if (!confirmed) {
+        addToolOutput({
+          toolCallId: id,
+          toolName: "switch_runtime",
+          output: { cancelled: true },
+        });
+        return;
+      }
+      await switchRuntime(projectId, input.template);
+      addToolOutput({
+        toolCallId: id,
+        toolName: "switch_runtime",
+        output: { prepared: true, template: input.template },
+      });
+      project.refresh();
+      workspaceMeta.refresh();
+      files.refresh();
+      versions.refresh();
+      setPreviewTick((tick) => tick + 1);
+    },
+    [
+      addToolOutput,
+      projectId,
+      project.refresh,
+      workspaceMeta.refresh,
+      files.refresh,
+      versions.refresh,
+    ]
+  );
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <TopBar
@@ -235,6 +310,8 @@ export function Workspace({ projectId }: { projectId: string }) {
         projectName={projectName}
         template={project.data?.template ?? "static"}
         runtime={project.data?.runtime ?? "container"}
+        configured={project.data?.configured ?? true}
+        migrationActive={workspaceMeta.data?.migration?.active ?? false}
         instanceTier={workspaceMeta.data?.instanceTier ?? "basic"}
         upgrading={upgrading}
         upgradeError={upgradeError}
@@ -256,6 +333,9 @@ export function Workspace({ projectId }: { projectId: string }) {
           onSubmitText={submitText}
           onStop={stop}
           onApproval={respondApproval}
+          onAskUser={respondAskUser}
+          onSwitchRuntime={respondSwitchRuntime}
+          fallbackTemplate={project.data?.template ?? "static"}
         />
         <ResizeHandle
           className="hidden md:flex"
@@ -274,6 +354,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           )}
           projectId={projectId}
           runtime={project.data?.runtime ?? "container"}
+          configured={project.data?.configured ?? true}
           previewTick={previewTick}
           versions={versions}
           files={files}

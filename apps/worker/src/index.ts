@@ -99,6 +99,31 @@ export default {
         return withCors(res, cors);
       }
 
+      if (
+        projectId &&
+        tail.length === 2 &&
+        tail[0] === "runtime" &&
+        tail[1] === "switch"
+      ) {
+        const res = await proxyTo(
+          projectsStub(env),
+          request,
+          `/projects/${projectId}/runtime/switch`,
+          url,
+        );
+        return withCors(res, cors);
+      }
+
+      if (projectId && tail.length === 1 && tail[0] === "configure") {
+        const res = await proxyTo(
+          projectsStub(env),
+          request,
+          `/projects/${projectId}/configure`,
+          url,
+        );
+        return withCors(res, cors);
+      }
+
       if (projectId && tail.length > 0) {
         const res = await proxyTo(
           workspaceStub(env, projectId),

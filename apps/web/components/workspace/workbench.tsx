@@ -42,6 +42,7 @@ export function WorkbenchPanel({
   className,
   projectId,
   runtime,
+  configured,
   previewTick,
   versions,
   files,
@@ -50,12 +51,31 @@ export function WorkbenchPanel({
   className?: string;
   projectId: string;
   runtime: string;
+  configured: boolean;
   previewTick: number;
   versions: Endpoint<WorkspaceVersion[]>;
   files: Endpoint<WorkspaceFileListing>;
   messages: UIMessage[];
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
+
+  if (!configured) {
+    return (
+      <section
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 items-center justify-center rounded-lg border border-border bg-card p-6 text-center",
+          className
+        )}
+      >
+        <div className="max-w-64">
+          <p className="text-sm font-medium">等待确认需求</p>
+          <p className="mt-1 text-2xs leading-5 text-muted-foreground">
+            在左侧回答几个问题后，我会选择合适的环境并开始生成。
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -589,6 +609,11 @@ function VersionRow({ version }: { version: WorkspaceVersion }) {
       </p>
       <div className="mt-1 flex items-center gap-2 text-3xs text-muted-foreground/70">
         <span>{formatClock(version.createdAt)}</span>
+        {version.archived ? (
+          <Badge variant="outline" className="h-4 px-1.5 text-3xs">
+            切换前
+          </Badge>
+        ) : null}
         {version.current ? (
           <Badge variant="secondary" className="h-4 px-1.5 text-3xs">
             当前

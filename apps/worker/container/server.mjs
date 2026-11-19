@@ -40,7 +40,7 @@ const MIME = {
 };
 
 // 平台内部目录：不通过预览暴露。
-const INTERNAL_DIRS = [".git", ".atoms", ".atoms-lite"];
+const INTERNAL_DIRS = [".git", ".atoms", ".atoms-lite", "_sandbox_migration"];
 
 function isInternalPath(pathname) {
   const padded = `/${pathname.replace(/^\/+/, "")}/`;

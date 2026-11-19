@@ -6,6 +6,7 @@ export type VersionRow = {
   parentId: string | null;
   summary: string;
   status: string;
+  archived?: boolean;
   createdAt: number;
   current: boolean;
 };
@@ -76,7 +77,18 @@ export class WorkspaceClient {
     return this.call<{
       template: string;
       runtime: string;
+      configured: boolean;
       instanceTier: string;
+      running?: boolean;
+      migration: {
+        active: boolean;
+        sourceTemplate: string;
+        sourceRuntime: string;
+        targetTemplate: string;
+        targetRuntime: string;
+        files: number;
+        bytes: number;
+      } | null;
       versionCount: number;
       currentVersion: {
         id: string;
@@ -85,6 +97,51 @@ export class WorkspaceClient {
         createdAt: number;
       } | null;
     }>("/meta");
+  }
+
+  switchRuntime(template: string) {
+    return this.call<{
+      ok: true;
+      migration: boolean;
+      targetTemplate: string;
+      targetRuntime: string;
+    }>("/runtime/switch", { template });
+  }
+
+  listMigrationFiles() {
+    return this.call<{
+      entries: { path: string; size: number; kind: string }[];
+      manifest: {
+        sourceTemplate: string;
+        sourceRuntime: string;
+        targetTemplate: string;
+        targetRuntime: string;
+        files: { path: string; size: number; kind: string }[];
+        skipped: string[];
+      };
+    }>("/migration/list");
+  }
+
+  readMigrationFile(path: string, offset = 0, limit = 400) {
+    return this.call<{
+      path: string;
+      content: string;
+      truncated: boolean;
+      kind: string;
+    }>("/migration/read", { path, offset, limit });
+  }
+
+  copyMigrationFile(from: string, to: string) {
+    return this.call<{
+      ok: true;
+      from: string;
+      to: string;
+      bytes: number;
+    }>("/migration/copy", { from, to });
+  }
+
+  finishMigration() {
+    return this.call<{ ok: true; files: number }>("/migration/finish", {});
   }
 
   build() {
@@ -122,6 +179,19 @@ export class WorkspaceClient {
 
   writeFile(path: string, content: string) {
     return this.call<{ path: string; bytes: number }>("/tools/write", { path, content });
+  }
+
+  editFile(
+    path: string,
+    oldString: string,
+    newString: string,
+    replaceAll = false,
+  ) {
+    return this.call<{
+      path: string;
+      replaced: number;
+      bytes: number;
+    }>("/tools/edit", { path, oldString, newString, replaceAll });
   }
 
   exec(request: { program: string; args?: string[]; cwd?: string }) {

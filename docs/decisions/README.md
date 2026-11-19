@@ -23,6 +23,7 @@
 | [06-dev-environment](06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
 | [07-instance-auto-upgrade](07-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
 | [08-iconography](08-iconography.md) | 站内品牌图标、生成项目的图标库选择与使用约定 |
+| [09-runtime-lifecycle-and-agent-tools](09-runtime-lifecycle-and-agent-tools.md) | pending/configured、动态工具、runtime 单向切换与迁移、ask_user、subagent |
 
 ## 约定
 

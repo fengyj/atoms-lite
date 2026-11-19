@@ -27,6 +27,8 @@ export function TopBar({
   projectName,
   template,
   runtime,
+  configured,
+  migrationActive,
   instanceTier,
   upgrading,
   upgradeError,
@@ -41,6 +43,8 @@ export function TopBar({
   projectName: string;
   template: string;
   runtime: string;
+  configured: boolean;
+  migrationActive: boolean;
   instanceTier: string;
   upgrading: boolean;
   upgradeError: string | null;
@@ -75,8 +79,13 @@ export function TopBar({
           {projectName}
         </span>
         <Badge variant="outline" className="hidden text-3xs font-normal sm:inline-flex">
-          {templateLabel(template)} · {runtime === "browser" ? "Browser" : "Container"}
+          {configured ? templateLabel(template) : "待确认"}
         </Badge>
+        {migrationActive ? (
+          <Badge variant="secondary" className="text-3xs">
+            迁移中
+          </Badge>
+        ) : null}
         <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground lg:inline">
           {projectId}
         </span>
@@ -91,7 +100,7 @@ export function TopBar({
       </Badge>
 
       <div className="ml-auto flex items-center gap-1.5">
-        {runtime !== "browser" ? (
+        {configured && runtime !== "browser" ? (
           <>
             <Badge
               variant="outline"

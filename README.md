@@ -21,6 +21,8 @@
 - 沙箱懒启动：打开项目只读缓存与版本；发送需求、同步文件或点击启动预览才拉起容器
 - 容器实例默认 basic，可在工作区升级到 standard-1 / standard-2（不可降级）
 - 新项目/大改版会先写 `DESIGN.md`，再实现页面；默认首页在 `src/pages/Index.tsx`
+- 自动选型项目先通过对话卡片确认需求/技术栈（runtime 对用户隐藏）；支持单向切换 runtime 并迁移旧文件
+- Agent 支持 `ask_user` 问卷卡片、只读 `subagent` / `code_review` / `design_review`
 
 - 实现记录：`docs/implementation.md`
 - 系统架构：`docs/architecture/system-architecture.md`

@@ -272,3 +272,41 @@
     animation: none;
   }
 }
+
+/* ask_user 的 15 分钟倒计时：用原生 progress，避免动态 inline style */
+.atom-ask-progress {
+  appearance: none;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--muted);
+}
+
+.atom-ask-progress::-webkit-progress-bar {
+  background: var(--muted);
+}
+
+.atom-ask-progress::-webkit-progress-value {
+  border-radius: 9999px;
+  background: var(--primary);
+  transition: width 1s linear;
+}
+
+.atom-ask-progress::-moz-progress-bar {
+  border-radius: 9999px;
+  background: var(--primary);
+}
+
+.atom-ask-progress.atom-ask-progress-warning::-webkit-progress-value {
+  background: var(--warning);
+}
+
+.atom-ask-progress.atom-ask-progress-warning::-moz-progress-bar {
+  background: var(--warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atom-ask-progress::-webkit-progress-value {
+    transition: none;
+  }
+}
