@@ -63,7 +63,6 @@ export function ChatPanel({
   onAskUser,
   onSwitchRuntime,
   fallbackTemplate,
-  configured,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -86,7 +85,6 @@ export function ChatPanel({
     confirmed: boolean
   ) => Promise<void>;
   fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
-  configured: boolean;
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -150,8 +148,7 @@ export function ChatPanel({
                       onApproval,
                       onAskUser,
                       onSwitchRuntime,
-                      fallbackTemplate,
-                      configured
+                      fallbackTemplate
                     )
                   )}
                 </MessageContent>
@@ -237,8 +234,7 @@ function renderPart(
     input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
     confirmed: boolean
   ) => Promise<void>,
-  fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined,
-  configured: boolean
+  fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined
 ) {
   if (part.type === "text") {
     return <MessageResponse key={index}>{part.text}</MessageResponse>;
@@ -272,7 +268,6 @@ function renderPart(
         toolCallId={tool.toolCallId}
         input={input}
         fallbackTemplate={fallbackTemplate}
-        allowTemplateChange={!configured}
         onSubmit={(payload) => onAskUser(tool.toolCallId, input, payload)}
       />
     );
@@ -363,12 +358,16 @@ function AskUserResult({ tool }: { tool: ToolUIPart }) {
   }
   const output = (tool.output ?? {}) as {
     skipped?: boolean;
+    cancelled?: boolean;
     template?: string;
   };
   return (
     <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
-      {output.skipped ? "已跳过，使用推荐项开始。" : "需求已确认。"}
-      {output.template ? ` 环境：${output.template}` : ""}
+      {output.cancelled
+        ? "用户取消了问卷，将按默认方案继续。"
+        : output.skipped
+          ? "已跳过，使用推荐项开始。"
+          : "需求已确认，开始生成。"}
     </div>
   );
 }

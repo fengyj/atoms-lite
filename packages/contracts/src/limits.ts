@@ -41,6 +41,7 @@ export const EXEC_ALLOWED_PROGRAMS = [
   "ls",
   "cat",
   "grep",
+  "sed",
   "git",
   "wc",
   "head",

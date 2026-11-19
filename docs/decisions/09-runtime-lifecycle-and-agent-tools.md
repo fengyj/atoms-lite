@@ -78,12 +78,14 @@ browser < container/basic < container/standard-1 < container/standard-2
 
 ## 4. ask_user 卡片
 
-- 聊天窗口内卡片，不是 modal。
-- 最多 3 个问题，单选/多选/文本；推荐技术栈可被用户覆盖。
+- 聊天窗口内向导卡片，不是 modal：一次一个问题、可前后切换、最后 summary 确认。
+- 最多 3 个问题，单选/多选/文本；每个问题都允许用户自行输入答案。
+- 不询问 runtime/技术栈；模型根据回答内部推断 `recommendedTemplate`，卡片不展示。
+- 可以分多轮 ask_user 继续澄清，不假设一次问完。
 - 超时 **15 分钟**，底部线性进度条 + `mm:ss`，最后 2 分钟 warning 色。
-- 超时自动 `addToolOutput({ skipped: true })`，使用推荐项继续。
+- 超时自动 `addToolOutput({ skipped: true })`；用户取消传 `cancelled: true`，模型使用默认方案继续。
 - 客户端工具：服务端只有 schema，没有 execute；提交后 `addToolOutput`
-  自动续跑同一回合。
+  自动续跑同一回合。配置项目使用模型内部推断的 template，用户不感知 runtime。
 - 不使用 approval（approval 只能传 approved/denied，带不了答案）。
 
 ## 5. subagent

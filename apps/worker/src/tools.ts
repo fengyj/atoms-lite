@@ -82,7 +82,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
   // 需求确认始终可用；pending 阶段它是唯一能推进流程的工具。
   tools.ask_user = tool({
     description:
-      "当需求信息不足、会显著改变页面结构/数据模型/视觉方向时，向用户展示一张可交互的问卷卡片。在 pending 阶段必须用它确认需求，并给出 recommendedTemplate 让用户确认/覆盖；不要让用户直接理解 runtime。最多 3 个问题，允许用户直接使用推荐项。",
+      "当需求信息不足、会显著改变页面结构/数据模型/视觉方向时，向用户展示向导式问卷卡片：一次一个问题，可前后切换，最后确认 summary。只问产品问题，不要问 runtime/技术栈；根据回答自行推断 recommendedTemplate（内部配置，不展示给用户）。每次最多 3 个问题，可以分多轮继续问。",
     inputSchema: z.object({
       title: z.string().max(80).optional().describe("卡片标题"),
       questions: z
@@ -108,7 +108,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
         .min(1)
         .max(3),
       recommendedTemplate: TEMPLATE_ENUM.describe(
-        "推荐技术栈；pending 阶段用于确认。configured 阶段请填当前 template（不会切换，切换用 switch_runtime）",
+        "内部推断的技术栈，不会展示给用户；pending 阶段用于配置项目。configured 阶段填当前 template（切换用 switch_runtime）",
       ),
       templateReason: z.string().max(200).optional(),
     }).superRefine((value, ctx) => {
@@ -203,7 +203,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   if (caps.shell) {
     tools.exec = tool({
-      description: `在 /workspace 执行受限命令。允许：${EXEC_ALLOWED_PROGRAMS.join("/")}。git 仅支持只读子命令（status/diff/log/show/rev-parse/ls-files/grep）。参数中的绝对路径必须在 /workspace 内；mkdir/cp/mv 会写文件，能用文件工具就不要用 exec；不支持 bash/curl/node/find。`,
+      description: `在 /workspace 执行受限命令。允许：${EXEC_ALLOWED_PROGRAMS.join("/")}。git 仅支持只读子命令（status/diff/log/show/rev-parse/ls-files/grep）；sed 固定以 --sandbox 运行且不允许 -i，就地修改请用 edit_file。参数中的绝对路径必须在 /workspace 内；mkdir/cp/mv 会写文件，能用文件工具就不要用 exec；不支持 bash/curl/node/find。`,
       inputSchema: z.object({
         program: EXEC_PROGRAM.describe("允许的命令，见 tools 描述"),
         args: z.array(z.string().max(200)).max(64).default([]),

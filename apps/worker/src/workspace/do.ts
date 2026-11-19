@@ -134,10 +134,27 @@ const SAFE_GIT_SUBCOMMANDS = new Set([
   "grep",
 ]);
 
-function assertExecArgs(args: string[]): void {
+function assertExecArgs(args: string[], allowSedScript = false): void {
   for (const arg of args) {
     if (arg.startsWith("../") || arg.includes("/../")) {
       throw new Error("path outside /workspace is not allowed");
+    }
+    if (allowSedScript) {
+      // sed 的脚本参数包含 /（s/foo/bar/），不能按路径解析；
+      // --sandbox 已禁用 e/r/w，-i 也被拒绝，这里只检查显式路径参数。
+      const candidate = arg.startsWith("/")
+        ? arg
+        : arg.startsWith("--file=")
+          ? arg.slice("--file=".length)
+          : "";
+      if (
+        candidate.startsWith("/") &&
+        candidate !== WORKSPACE &&
+        !candidate.startsWith(`${WORKSPACE}/`)
+      ) {
+        throw new Error(`path outside /workspace is not allowed: ${candidate}`);
+      }
+      continue;
     }
     for (const match of arg.matchAll(/\/[A-Za-z0-9._@%+-][^\s"'=:]*/g)) {
       const path = match[0];
@@ -2440,8 +2457,26 @@ export class Workspace extends DurableObject<Env> {
             );
           }
         }
+        let args = body.args ?? [];
+        if (body.program === "sed") {
+          if (
+            args.some(
+              (arg) =>
+                arg === "-i" ||
+                arg.startsWith("-i.") ||
+                arg === "--in-place" ||
+                arg.startsWith("--in-place="),
+            )
+          ) {
+            return Response.json(
+              { error: "sed -i is not allowed; use edit_file for in-place edits" },
+              { status: 400 },
+            );
+          }
+          if (!args.includes("--sandbox")) args = ["--sandbox", ...args];
+        }
         try {
-          assertExecArgs(body.args ?? []);
+          assertExecArgs(args, body.program === "sed");
         } catch (error) {
           return Response.json(
             { error: String(error).slice(0, 300) },
@@ -2451,7 +2486,7 @@ export class Workspace extends DurableObject<Env> {
 
         const cwd = safeCwd(body.cwd);
         const proc = await this.container.exec(
-          [body.program, ...(body.args ?? [])],
+          [body.program, ...args],
           { cwd },
         );
 
@@ -2587,10 +2622,11 @@ export class Workspace extends DurableObject<Env> {
         if (this.runtime() === "browser") {
           return Response.json({ running: false, ready: true });
         }
-        // 只探测，不主动启动：iframe 请求本身会触发 ensure()
+        // 只探测，不主动启动：iframe 请求本身会触发 ensure()。
+        // 即使 container.running 标记滞后，也用端口探测兜底。
         const running = this.container.running;
-        const ready = running ? await this.checkPreview() : false;
-        return Response.json({ running, ready });
+        const ready = await this.checkPreview();
+        return Response.json({ running: running || ready, ready });
       }
 
       if (path === "/preview/start") {

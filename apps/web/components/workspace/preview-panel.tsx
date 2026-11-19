@@ -48,14 +48,29 @@ export function PreviewPanel({
   const [active, setActive] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
   const [note, setNote] = useState<string | null>(null);
+  const [checkNonce, setCheckNonce] = useState(0);
   const startingRef = useRef(false);
+
+  // 页面重新可见 / 窗口聚焦时重新探测，避免刷新后把活着的沙箱当成休眠。
+  useEffect(() => {
+    const check = () => setCheckNonce((value) => value + 1);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // 只探测，不启动：容器在休眠时保持 iframe 不加载。
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
-    const deadline = Date.now() + 60_000;
+    let deadline: number | null = null;
 
     setPhase("probing");
 
@@ -67,12 +82,14 @@ export function PreviewPanel({
         if (status.ready) {
           setActive(true);
           setPhase("ready");
+          setNote(null);
           return;
         }
 
         if (status.running) {
           setActive(true);
           setPhase("loading");
+          deadline ??= Date.now() + 60_000;
           if (Date.now() >= deadline) {
             setPhase("error");
             setNote("预览服务在规定时间内没有就绪。");
@@ -84,10 +101,15 @@ export function PreviewPanel({
 
         setActive(false);
         setPhase("sleeping");
+        setNote(null);
+        // 沙箱可能因为文件工具/agent 操作刚启动；休眠时低频复查，不启动容器。
+        timer = setTimeout(probe, 5_000);
       } catch {
         if (cancelled || controller.signal.aborted) return;
         setActive(false);
         setPhase("sleeping");
+        // Worker 暂时不可达时也继续重试，而不是永久停在休眠。
+        timer = setTimeout(probe, 5_000);
       }
     };
 
@@ -98,7 +120,7 @@ export function PreviewPanel({
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [projectId, reloadKey]);
+  }, [projectId, reloadKey, checkNonce]);
 
   /** 冷启动：容器休眠或预览未就绪时调用 */
   const activate = useCallback(async () => {
@@ -192,6 +214,7 @@ export function PreviewPanel({
             phase={phase}
             note={note}
             onStart={() => void activate()}
+            onCheck={() => setCheckNonce((value) => value + 1)}
           />
         )}
       </WebPreview>
@@ -203,10 +226,12 @@ function PreviewPlaceholder({
   phase,
   note,
   onStart,
+  onCheck,
 }: {
   phase: PreviewPhase;
   note: string | null;
   onStart: () => void;
+  onCheck: () => void;
 }) {
   const starting = phase === "starting";
   const failed = phase === "error";
@@ -236,19 +261,26 @@ function PreviewPlaceholder({
             : "沙箱空闲 5 分钟后自动回收。点击启动会恢复沙箱并加载预览。"}
         </p>
       </div>
-      <Button
-        size="sm"
-        className="gap-1.5"
-        disabled={starting || phase === "probing"}
-        onClick={onStart}
-      >
-        {starting ? (
-          <Loader2 className="size-3.5 animate-spin" />
-        ) : (
-          <Play className="size-3.5" />
-        )}
-        {failed ? "重试" : "启动预览"}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className="gap-1.5"
+          disabled={starting || phase === "probing"}
+          onClick={onStart}
+        >
+          {starting ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Play className="size-3.5" />
+          )}
+          {failed ? "重试" : "启动预览"}
+        </Button>
+        {phase === "sleeping" || failed ? (
+          <Button size="sm" variant="ghost" onClick={onCheck}>
+            重新检查
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
