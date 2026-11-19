@@ -1,3 +1,4 @@
+import { EXEC_ALLOWED_PROGRAMS } from "@atoms-lite/contracts";
 import { tool, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
 import type { RuntimeContext } from "./context";
@@ -5,6 +6,22 @@ import { runSubagent } from "./subagent";
 import type { WorkspaceClient } from "./workspace/client";
 
 const TEMPLATE_ENUM = z.enum(["static", "react-vite", "fullstack-hono"]);
+const EXEC_PROGRAM = z.enum(EXEC_ALLOWED_PROGRAMS);
+const WORKSPACE_PATH = z
+  .string()
+  .regex(/^\/workspace\//, "must be an absolute path under /workspace");
+const FILE_PATH = z
+  .string()
+  .max(300)
+  .describe("相对路径（如 src/App.tsx）或 /workspace/... 绝对路径");
+
+function absolutePath(path: string): string {
+  if (path.startsWith("/workspace/")) return path;
+  if (path.startsWith("/")) {
+    throw new Error("path must be under /workspace");
+  }
+  return `/workspace/${path.replace(/^\/+/, "")}`;
+}
 
 type ToolFactoryOptions = {
   ws: WorkspaceClient;
@@ -31,7 +48,9 @@ function predicateList(ctx: RuntimeContext): {
       ctx.configured &&
       ctx.runtime === "container" &&
       (ctx.template === "react-vite" || ctx.template === "fullstack-hono"),
-    packages: ctx.configured,
+    packages:
+      ctx.configured &&
+      !(ctx.runtime === "container" && ctx.template === "static"),
     api: ctx.configured && ctx.template === "fullstack-hono",
     container: ctx.configured && ctx.runtime === "container",
   };
@@ -63,7 +82,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
   // 需求确认始终可用；pending 阶段它是唯一能推进流程的工具。
   tools.ask_user = tool({
     description:
-      "当需求信息不足、会显著改变页面结构/数据模型/视觉方向时，向用户展示一张可交互的问卷卡片。不要问技术栈；在 pending 阶段必须用它确认需求并给出推荐模板。最多 3 个问题，允许用户直接使用推荐项。",
+      "当需求信息不足、会显著改变页面结构/数据模型/视觉方向时，向用户展示一张可交互的问卷卡片。在 pending 阶段必须用它确认需求，并给出 recommendedTemplate 让用户确认/覆盖；不要让用户直接理解 runtime。最多 3 个问题，允许用户直接使用推荐项。",
     inputSchema: z.object({
       title: z.string().max(80).optional().describe("卡片标题"),
       questions: z
@@ -83,15 +102,28 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
               .min(2)
               .max(5)
               .optional(),
-            required: z.boolean().default(false),
+            required: z.boolean().default(false).describe("用户必须回答；UI 会校验"),
           }),
         )
         .min(1)
         .max(3),
-      recommendedTemplate: TEMPLATE_ENUM.optional().describe(
-        "给用户的推荐技术栈；pending 阶段应填写",
+      recommendedTemplate: TEMPLATE_ENUM.describe(
+        "推荐技术栈；pending 阶段用于确认。configured 阶段请填当前 template（不会切换，切换用 switch_runtime）",
       ),
       templateReason: z.string().max(200).optional(),
+    }).superRefine((value, ctx) => {
+      value.questions.forEach((question, index) => {
+        if (
+          question.type !== "text" &&
+          (!question.options || question.options.length < 2)
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["questions", index, "options"],
+            message: "single/multi 问题至少需要 2 个选项",
+          });
+        }
+      });
     }),
   });
 
@@ -99,7 +131,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.list_files = tool({
     description:
-      "列出工作区文件（不读内容）。目录可用 path 过滤；不要反复全量列目录。",
+      "列出工作区文件（不读内容），返回相对路径，可直接传给 read_file/edit_file。目录可用 path 过滤；不要反复全量列目录。",
     inputSchema: z.object({
       path: z.string().optional().describe("目录，默认 /workspace"),
     }),
@@ -120,42 +152,50 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.read_file = tool({
     description:
-      "读取一个文件的内容。修改已有文件前必须先读；只读需要的部分，不要一次读多个大文件。",
+      "读取一个文件的内容。修改已有文件前必须先读；默认最多 400 行、约 64KB，大文件用 offset/limit 分段读取，返回 truncated/nextOffset。",
     inputSchema: z.object({
-      path: z.string().describe("绝对路径，例如 /workspace/app.js"),
+      path: FILE_PATH,
+      offset: z.number().int().min(0).default(0).describe("起始行，0-based"),
+      limit: z.number().int().min(1).max(2000).default(400),
     }),
-    execute: async ({ path }) => ws.readFile(path),
+    execute: async ({ path, offset, limit }) =>
+      ws.readFile(absolutePath(path), offset, limit),
   });
 
   tools.edit_file = tool({
     description:
-      "局部修改已有文件：用 oldString 精确匹配并替换。oldString 必须唯一；多处匹配时增加上下文或设置 replaceAll。修改已有文件优先用它，避免整文件重写。",
+      "局部修改已有文件：用 oldString 精确匹配并替换，必须保持原有缩进/空白。oldString 必须唯一；多处匹配时增加上下文或设置 replaceAll。修改已有文件优先用它，避免整文件重写。",
     inputSchema: z.object({
-      path: z.string().describe("绝对路径，例如 /workspace/src/App.tsx"),
+      path: FILE_PATH,
       oldString: z.string().min(1),
       newString: z.string(),
       replaceAll: z.boolean().default(false),
     }),
     execute: async ({ path, oldString, newString, replaceAll }) =>
-      ws.editFile(path, oldString, newString, replaceAll),
+      ws.editFile(absolutePath(path), oldString, newString, replaceAll),
   });
 
   tools.write_file = tool({
     description:
-      "写入（覆盖）一个文件；内容必须是完整文件。新建文件优先用它；修改已有文件尽量只改目标区域，不要重写无关内容。",
+      "写入（覆盖）一个文件；内容必须是完整文件。仅用于新建文件或确实需要整体重写；修改已有文件优先用 edit_file。",
     inputSchema: z.object({
-      path: z.string().describe("绝对路径，例如 /workspace/index.html"),
+      path: FILE_PATH,
       content: z.string().describe("完整文件内容"),
     }),
-    execute: async ({ path, content }) => ws.writeFile(path, content),
+    execute: async ({ path, content }) =>
+      ws.writeFile(absolutePath(path), content),
   });
 
   if (caps.packages) {
     tools.install_packages = tool({
       description:
-        "安装第三方依赖。容器项目执行 pnpm add；browser-static 注册 esm.sh 包并注入 importmap。不要直接执行 pnpm/npm install。",
+        "安装第三方依赖（最多 8 个）。容器项目执行 pnpm add；browser-static 注册 esm.sh 包并注入 importmap。支持 name 或 name@version、@scope/name；不要直接执行 pnpm/npm install。",
       inputSchema: z.object({
-        packages: z.array(z.string()).min(1).max(8),
+        packages: z
+          .array(z.string().max(120))
+          .min(1)
+          .max(8)
+          .describe("包名或 name@version，例如 dayjs@1.11.13、chart.js@4；支持 @scope/name；不支持 git/url/tarball"),
       }),
       execute: async ({ packages }) => ws.installPackages(packages),
     });
@@ -163,12 +203,16 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   if (caps.shell) {
     tools.exec = tool({
-      description:
-        "在 /workspace 执行受限命令（只读为主：ls/cat/grep/git/wc/head/tail/test）。不支持 bash/curl/node/find。能用文件工具就不要用 exec。",
+      description: `在 /workspace 执行受限命令。允许：${EXEC_ALLOWED_PROGRAMS.join("/")}。git 仅支持只读子命令（status/diff/log/show/rev-parse/ls-files/grep）。参数中的绝对路径必须在 /workspace 内；mkdir/cp/mv 会写文件，能用文件工具就不要用 exec；不支持 bash/curl/node/find。`,
       inputSchema: z.object({
-        program: z.string(),
-        args: z.array(z.string()).default([]),
-        cwd: z.string().optional(),
+        program: EXEC_PROGRAM.describe("允许的命令，见 tools 描述"),
+        args: z.array(z.string().max(200)).max(64).default([]),
+        cwd: z
+          .string()
+          .max(200)
+          .regex(/^\/workspace(\/|$)/, "must be /workspace or a subdirectory")
+          .optional()
+          .describe("工作目录，默认 /workspace；只接受 /workspace 或其子目录"),
       }),
       execute: async ({ program, args, cwd }) => ws.exec({ program, args, cwd }),
     });
@@ -188,33 +232,37 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
       description:
         "容器实例不够用（构建 OOM、超时、磁盘不足）时升级：basic → standard-1 → standard-2。不可降级。",
       inputSchema: z.object({
-        reason: z.string().max(200).optional(),
+        reason: z.string().max(200).optional().describe("可选，记录为什么需要升级"),
       }),
-      execute: async () => ws.upgradeInstance(),
+      execute: async ({ reason }) => ws.upgradeInstance(reason),
     });
   }
 
   tools.start_preview = tool({
     description:
-      "启动（或确认）预览服务。构建型项目应在 build 成功后再调用。",
+      "启动（或确认）预览服务。构建型项目应在 build 成功后再调用；browser 项目为空操作，全栈项目会重启 Node 服务。",
     inputSchema: z.object({}),
     execute: async () => ws.startPreview(),
   });
 
   tools.create_version = tool({
     description:
-      "把当前工作区保存为一个版本（git commit + 快照）。完成实现后必须调用一次。",
+      "把当前工作区保存为一个版本：容器项目走 git commit + 快照，browser 项目走内容哈希；无变更时返回 skipped。完成实现后必须调用一次；迁移期间请先 finish_migration。",
     inputSchema: z.object({
       summary: z.string().min(1).max(200).describe("一句中文描述"),
     }),
     execute: async ({ summary }) => ws.createVersion(summary),
   });
 
+  const switchTemplateEnum =
+    ctx.runtime === "container"
+      ? z.enum(["react-vite", "fullstack-hono"])
+      : TEMPLATE_ENUM;
   tools.switch_runtime = tool({
     description:
-      "当用户需求发生实质变化（例如新增登录/数据库/多人协作），需要把项目切换到另一个模板/runtime 时调用。会先确认再迁移；只允许切换到容量不低于当前的 runtime。不要在没有用户明确同意时调用。",
+      "当需求发生实质变化（如新增登录/数据库/多人协作），需要切换模板/runtime 时调用。判断需要就调用；客户端会展示确认卡，只有用户确认后才执行。切换会把旧文件归档到 _sandbox_migration、重置工作区，并把旧版本标记为 archived（不可 checkout）；迁移完成后需 finish_migration → create_version。只允许切到容量不低于当前的环境：browser < container/basic < standard-1 < standard-2；不能从 container 切到 browser，container 项目不能选 static，也不能降低实例档位。",
     inputSchema: z.object({
-      template: TEMPLATE_ENUM,
+      template: switchTemplateEnum,
       reason: z.string().min(1).max(200),
     }),
   });
@@ -224,12 +272,20 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
       description:
         "列出旧环境迁移备份中的文件（只读）。先看 manifest，不要整体复制。",
       inputSchema: z.object({
-        path: z.string().optional().describe("只列出该前缀下的文件"),
+        path: z
+          .string()
+          .optional()
+          .describe("相对前缀，如 src；不要传 /workspace 或 _sandbox_migration"),
       }),
       execute: async ({ path }) => {
+        const prefix = path
+          ?.replace(/^\/+/, "")
+          .replace(/^workspace\//, "")
+          .replace(/^_sandbox_migration\//, "")
+          .replace(/^files\//, "");
         const result = await ws.listMigrationFiles();
-        const entries = path
-          ? result.entries.filter((entry) => entry.path.startsWith(path))
+        const entries = prefix
+          ? result.entries.filter((entry) => entry.path.startsWith(prefix))
           : result.entries;
         return { entries, manifest: result.manifest };
       },
@@ -237,9 +293,9 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
     tools.read_migration_file = tool({
       description:
-        "读取旧环境备份中的一个文本文件。二进制文件请用 copy_migration_file。",
+        "读取旧环境备份中的一个文本文件。默认最多 400 行，truncated 表示还有内容；二进制文件请用 copy_migration_file。",
       inputSchema: z.object({
-        path: z.string(),
+        path: z.string().max(300).describe("备份内路径，例如 src/App.tsx 或 manifest.json"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(2000).default(400),
       }),
@@ -249,17 +305,19 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
     tools.copy_migration_file = tool({
       description:
-        "把旧环境备份中的文件直接复制到新工作区，适合图片/字体等二进制或不想读入上下文的大文件。目标路径必须是 /workspace/...。",
+        "把旧环境备份中的文件直接复制到新工作区，适合图片/字体等二进制或不想读入上下文的大文件。目标路径必须是 /workspace/...；如果目标已存在会被覆盖。",
       inputSchema: z.object({
-        from: z.string().describe("备份内的相对路径"),
-        to: z.string().describe("新工作区绝对路径，例如 /workspace/public/hero.png"),
+        from: z.string().max(300).describe("备份内的相对路径，例如 src/App.tsx"),
+        to: WORKSPACE_PATH.describe(
+          "新工作区绝对路径，例如 /workspace/public/hero.png",
+        ),
       }),
       execute: async ({ from, to }) => ws.copyMigrationFile(from, to),
     });
 
     tools.finish_migration = tool({
       description:
-        "迁移完成，清理 _sandbox_migration 备份。清理后请 create_version。",
+        "迁移完成，清理 _sandbox_migration 备份（不可撤销）。清理后请 create_version。",
       inputSchema: z.object({}),
       execute: async () => ws.finishMigration(),
     });
@@ -267,11 +325,15 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.subagent = tool({
     description:
-      "召唤一个只读的子 agent 做专项评审或分析。适合代码审查、设计审查、需求分析；子 agent 不能写文件/执行命令，最多调用 2 次。",
+      "召唤一个只读的子 agent 做专项评审或分析。适合代码审查、设计审查、需求分析；子 agent 不能写文件/执行命令。本轮合计最多 2 次评审，单次 45 秒超时。",
     inputSchema: z.object({
       role: z.string().min(1).max(60).describe("角色，例如 code_reviewer / design_reviewer"),
       task: z.string().min(1).max(1000),
-      files: z.array(z.string()).max(8).optional(),
+      files: z
+        .array(z.string().max(300))
+        .max(8)
+        .optional()
+        .describe("要检查的文件，相对或 /workspace 绝对路径；省略时自动选择"),
       maxFindings: z.number().int().min(1).max(6).default(5),
     }),
     execute: async ({ role, task, files, maxFindings }) =>
@@ -280,10 +342,14 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.code_review = tool({
     description:
-      "让代码审查子 agent 检查正确性、类型、边界、API 和安全性。建议在 build 通过后、create_version 前调用一次；小修小改不要调用。",
+      "让代码审查子 agent 检查正确性、类型、边界、API 和安全性。只读，本轮与其它评审合计最多 2 次，单次 45 秒。建议在 build 通过后、create_version 前调用一次；小修小改不要调用。",
     inputSchema: z.object({
       task: z.string().min(1).max(1000).default("审查当前实现的主要风险"),
-      files: z.array(z.string()).max(8).optional(),
+      files: z
+        .array(z.string().max(300))
+        .max(8)
+        .optional()
+        .describe("要检查的文件，相对或 /workspace 绝对路径；省略时自动选择"),
       maxFindings: z.number().int().min(1).max(6).default(5),
     }),
     execute: async ({ task, files, maxFindings }) =>
@@ -292,10 +358,14 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.design_review = tool({
     description:
-      "让设计审查子 agent 检查信息层级、间距、颜色、响应式和状态设计。建议在首次预览后调用一次；小修小改不要调用。",
+      "让设计审查子 agent 检查信息层级、间距、颜色、响应式和状态设计。只读，本轮与其它评审合计最多 2 次，单次 45 秒。建议在首次预览后调用一次；小修小改不要调用。",
     inputSchema: z.object({
       task: z.string().min(1).max(1000).default("审查当前界面的设计质量"),
-      files: z.array(z.string()).max(8).optional(),
+      files: z
+        .array(z.string().max(300))
+        .max(8)
+        .optional()
+        .describe("要检查的文件，相对或 /workspace 绝对路径；省略时自动选择"),
       maxFindings: z.number().int().min(1).max(6).default(5),
     }),
     execute: async ({ task, files, maxFindings }) =>
@@ -304,9 +374,9 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.finish = tool({
     description:
-      "完成本次实现。调用前应已 build/start_preview/create_version。summary 用一句中文描述本次结果。",
+      "完成本次实现。调用前应已 build/start_preview/create_version；迁移期间先 finish_migration。summary 用一句中文描述本次结果。",
     inputSchema: z.object({
-      summary: z.string().max(500).default(""),
+      summary: z.string().min(1).max(500).describe("一句中文描述本次结果"),
     }),
     execute: async ({ summary }) => ({ ok: true, summary }),
   });

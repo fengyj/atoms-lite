@@ -58,7 +58,9 @@ export class ChatAgent extends AIChatAgent<Env> {
     const capabilities = configured
       ? [
           "files",
-          "packages",
+          ...(runtime === "browser" || template !== "static"
+            ? ["packages"]
+            : []),
           ...(runtime === "container" ? ["shell"] : []),
           ...(builds && runtime === "container" ? ["build"] : []),
           ...(template === "fullstack-hono" ? ["api"] : []),

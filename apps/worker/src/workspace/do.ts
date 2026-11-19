@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { Files } from "@cloudflare/sandbox";
 import {
   BUILD_TIMEOUT_MS,
+  EXEC_ALLOWED_PROGRAMS,
   EXEC_MAX_OUTPUT_BYTES,
   EXEC_TIMEOUT_MS,
   SANDBOX_INACTIVITY_TIMEOUT_MS,
@@ -23,6 +24,7 @@ const MIGRATION_DIR = "_sandbox_migration";
 const MIGRATION_MAX_BYTES = 30 * 1024 * 1024;
 const MIGRATION_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MIGRATION_MAX_FILES = 500;
+const READ_MAX_CHARS = 64 * 1024;
 
 // boot.sh 是新镜像的 supervisor；旧快照没有该文件时回退到静态服务器。
 const ENTRYPOINT = [
@@ -38,19 +40,7 @@ function nextInstanceTier(current: InstanceTier): InstanceTier | null {
   const index = INSTANCE_TIERS.indexOf(current);
   return index >= 0 ? (INSTANCE_TIERS[index + 1] ?? null) : null;
 }
-const ALLOWED_PROGRAMS = new Set([
-  "ls",
-  "cat",
-  "grep",
-  "git",
-  "wc",
-  "head",
-  "tail",
-  "mkdir",
-  "cp",
-  "mv",
-  "test",
-]);
+const ALLOWED_PROGRAMS = new Set<string>(EXEC_ALLOWED_PROGRAMS);
 
 const dec = (b?: ArrayBuffer | null) =>
   new TextDecoder().decode(b ?? new ArrayBuffer(0));
@@ -73,6 +63,27 @@ function capacityRank(runtime: RuntimeKind, tier: string): number {
   if (tier === "standard-2") return 3;
   if (tier === "standard-1") return 2;
   return 1;
+}
+
+function sliceText(
+  text: string,
+  offset = 0,
+  limit = 2000,
+): { content: string; truncated: boolean; nextOffset?: number } {
+  const lines = text.split("\n");
+  const start = Math.max(0, offset);
+  const end = Math.min(lines.length, start + Math.max(1, limit));
+  let content = lines.slice(start, end).join("\n");
+  let truncated = end < lines.length;
+  if (content.length > READ_MAX_CHARS) {
+    content = content.slice(0, READ_MAX_CHARS);
+    truncated = true;
+  }
+  return {
+    content,
+    truncated,
+    ...(truncated ? { nextOffset: end } : {}),
+  };
 }
 
 function isTextPath(path: string): boolean {
@@ -110,7 +121,31 @@ function safeCwd(cwd: string | undefined): string {
   if (!cwd) return WORKSPACE;
   if (cwd === WORKSPACE) return cwd;
   if (cwd.startsWith(`${WORKSPACE}/`) && !cwd.includes("..")) return cwd;
-  return WORKSPACE;
+  throw new Error("cwd must be /workspace or a subdirectory");
+}
+
+const SAFE_GIT_SUBCOMMANDS = new Set([
+  "status",
+  "diff",
+  "log",
+  "show",
+  "rev-parse",
+  "ls-files",
+  "grep",
+]);
+
+function assertExecArgs(args: string[]): void {
+  for (const arg of args) {
+    if (arg.startsWith("../") || arg.includes("/../")) {
+      throw new Error("path outside /workspace is not allowed");
+    }
+    for (const match of arg.matchAll(/\/[A-Za-z0-9._@%+-][^\s"'=:]*/g)) {
+      const path = match[0];
+      if (path !== WORKSPACE && !path.startsWith(`${WORKSPACE}/`)) {
+        throw new Error(`path outside /workspace is not allowed: ${path}`);
+      }
+    }
+  }
 }
 
 type RuntimeConfig = {
@@ -1170,10 +1205,16 @@ export class Workspace extends DurableObject<Env> {
     const lines = text.split("\n");
     const start = Math.max(0, offset);
     const end = start + Math.max(1, Math.min(limit, 2000));
+    let content = lines.slice(start, end).join("\n");
+    let truncated = end < lines.length;
+    if (content.length > READ_MAX_CHARS) {
+      content = content.slice(0, READ_MAX_CHARS);
+      truncated = true;
+    }
     return {
       path: row.path,
-      content: lines.slice(start, end).join("\n"),
-      truncated: end < lines.length,
+      content,
+      truncated,
       kind: row.kind,
     };
   }
@@ -2349,20 +2390,24 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/tools/read") {
-        const body = (await request.json()) as { path: string };
+        const body = (await request.json()) as {
+          path: string;
+          offset?: number;
+          limit?: number;
+        };
         await this.ensure();
         if (this.runtime() === "browser") {
           const content = this.browserContent(this.relativePath(body.path));
           if (content === null) {
             return Response.json({ error: "file not found" }, { status: 404 });
           }
-          return Response.json({ content, truncated: false });
+          return Response.json(sliceText(content, body.offset, body.limit));
         }
         const target = safePath(body.path);
         const files = new Files(this.container);
         const res = await files.readFile(target);
         const text = await res.text();
-        return Response.json({ content: text, truncated: false });
+        return Response.json(sliceText(text, body.offset, body.limit));
       }
 
       if (path === "/tools/exec") {
@@ -2383,6 +2428,23 @@ export class Workspace extends DurableObject<Env> {
         if (!ALLOWED_PROGRAMS.has(body.program)) {
           return Response.json(
             { error: `command not allowed: ${body.program}` },
+            { status: 400 },
+          );
+        }
+        if (body.program === "git") {
+          const sub = body.args?.[0];
+          if (!sub || !SAFE_GIT_SUBCOMMANDS.has(sub)) {
+            return Response.json(
+              { error: `git subcommand not allowed: ${sub ?? ""}` },
+              { status: 400 },
+            );
+          }
+        }
+        try {
+          assertExecArgs(body.args ?? []);
+        } catch (error) {
+          return Response.json(
+            { error: String(error).slice(0, 300) },
             { status: 400 },
           );
         }
@@ -2498,6 +2560,15 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/instance/upgrade" && request.method === "POST") {
+        const body = (await request.json().catch(() => ({}))) as {
+          reason?: string;
+        };
+        if (body.reason) {
+          console.log("[workspace] upgrade requested", {
+            projectId: this.projectId,
+            reason: body.reason.slice(0, 200),
+          });
+        }
         return Response.json(await this.upgradeInstance());
       }
 

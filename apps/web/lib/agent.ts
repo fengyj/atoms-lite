@@ -227,7 +227,7 @@ export async function fetchWorkspaceFile(
   const res = await fetch(projectApiUrl(projectId, "/tools/read"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, offset: 0, limit: 5000 }),
     signal,
   });
   return await json<{ content: string; truncated: boolean }>(res, "file");

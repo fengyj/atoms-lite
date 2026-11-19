@@ -63,6 +63,7 @@ export function ChatPanel({
   onAskUser,
   onSwitchRuntime,
   fallbackTemplate,
+  configured,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -85,6 +86,7 @@ export function ChatPanel({
     confirmed: boolean
   ) => Promise<void>;
   fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
+  configured: boolean;
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -148,7 +150,8 @@ export function ChatPanel({
                       onApproval,
                       onAskUser,
                       onSwitchRuntime,
-                      fallbackTemplate
+                      fallbackTemplate,
+                      configured
                     )
                   )}
                 </MessageContent>
@@ -234,7 +237,8 @@ function renderPart(
     input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
     confirmed: boolean
   ) => Promise<void>,
-  fallbackTemplate?: "static" | "react-vite" | "fullstack-hono"
+  fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined,
+  configured: boolean
 ) {
   if (part.type === "text") {
     return <MessageResponse key={index}>{part.text}</MessageResponse>;
@@ -268,6 +272,7 @@ function renderPart(
         toolCallId={tool.toolCallId}
         input={input}
         fallbackTemplate={fallbackTemplate}
+        allowTemplateChange={!configured}
         onSubmit={(payload) => onAskUser(tool.toolCallId, input, payload)}
       />
     );

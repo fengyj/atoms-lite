@@ -470,6 +470,7 @@ function FileViewer({
   fileListing: WorkspaceFileListing | null;
 }) {
   const [content, setContent] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -487,6 +488,7 @@ function FileViewer({
       .then((result) => {
         if (controller.signal.aborted) return;
         setContent(result.content);
+        setTruncated(result.truncated);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -517,6 +519,11 @@ function FileViewer({
             >
               读取将启动沙箱
             </span>
+          ) : null}
+          {truncated ? (
+            <Badge variant="outline" className="h-4 px-1.5 text-3xs">
+              已截断
+            </Badge>
           ) : null}
           <span className="text-3xs text-muted-foreground">
             {formatSize(size)}

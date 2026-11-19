@@ -20,11 +20,11 @@ const ROLE_PROMPTS: Record<string, string> = {
   code_reviewer: `你是资深代码审查员。只做只读审查，不要重写代码。
 重点：TypeScript 类型、React 状态与副作用、构建错误、边界条件、API 输入校验、错误/空态、安全与明显的性能问题。
 输出 JSON：{"summary":"一句话","findings":[{"severity":"P0|P1|P2","category":"...","file":"...","line":1,"issue":"...","recommendation":"..."}]}
-最多 5 条，按严重程度排序。不要把风格偏好当 P0。`,
+最多 6 条，按严重程度排序。不要把风格偏好当 P0。`,
   design_reviewer: `你是产品设计师。只做只读评审，不要重写代码。
 重点：信息层级、间距、字体、颜色对比、响应式、空态/错误态、可访问性、原创性。
 输出 JSON：{"summary":"一句话","findings":[{"severity":"P0|P1|P2","category":"...","file":"...","line":1,"issue":"...","recommendation":"..."}]}
-最多 5 条，每条建议必须可执行，不要泛泛说“可以更好看”。`,
+最多 6 条，每条建议必须可执行，不要泛泛说“可以更好看”。`,
 };
 
 const MAX_FILE_BYTES = 12 * 1024;

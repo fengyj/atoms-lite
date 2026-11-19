@@ -148,13 +148,13 @@ export class WorkspaceClient {
     return this.call<BuildResult>("/tools/build", {});
   }
 
-  upgradeInstance() {
+  upgradeInstance(reason?: string) {
     return this.call<{
       tier: string;
       upgraded: boolean;
       max?: boolean;
       error?: string;
-    }>("/instance/upgrade", {});
+    }>("/instance/upgrade", reason ? { reason } : {});
   }
 
   installPackages(packages: string[]) {
@@ -173,8 +173,12 @@ export class WorkspaceClient {
     return this.call<{ entries: FileEntry[] }>("/tools/list", {});
   }
 
-  readFile(path: string) {
-    return this.call<{ content: string; truncated: boolean }>("/tools/read", { path });
+  readFile(path: string, offset = 0, limit = 2000) {
+    return this.call<{
+      content: string;
+      truncated: boolean;
+      nextOffset?: number;
+    }>("/tools/read", { path, offset, limit });
   }
 
   writeFile(path: string, content: string) {

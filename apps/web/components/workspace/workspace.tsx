@@ -336,6 +336,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           onAskUser={respondAskUser}
           onSwitchRuntime={respondSwitchRuntime}
           fallbackTemplate={project.data?.template ?? "static"}
+          configured={project.data?.configured ?? true}
         />
         <ResizeHandle
           className="hidden md:flex"

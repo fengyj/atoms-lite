@@ -35,3 +35,20 @@ export const ALLOWED_ATTACHMENT_MIME = [
   "text/markdown",
   "application/json",
 ] as const;
+
+/** exec 工具允许的程序（容器 runtime）。只读命令为主，mkdir/cp/mv 用于受控文件操作。 */
+export const EXEC_ALLOWED_PROGRAMS = [
+  "ls",
+  "cat",
+  "grep",
+  "git",
+  "wc",
+  "head",
+  "tail",
+  "mkdir",
+  "cp",
+  "mv",
+  "test",
+] as const;
+
+export type ExecAllowedProgram = (typeof EXEC_ALLOWED_PROGRAMS)[number];

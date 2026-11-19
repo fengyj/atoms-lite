@@ -57,11 +57,13 @@ export function AskUserCard({
   toolCallId,
   input,
   fallbackTemplate,
+  allowTemplateChange = true,
   onSubmit,
 }: {
   toolCallId: string;
   input: AskUserInput;
   fallbackTemplate?: TemplateId;
+  allowTemplateChange?: boolean;
   onSubmit: (payload: AskUserPayload) => Promise<void>;
 }) {
   const storageKey = `atoms:ask:${toolCallId}`;
@@ -77,8 +79,9 @@ export function AskUserCard({
     Math.max(0, expiresAt - Date.now()),
   );
   const [answers, setAnswers] = useState(() => initialAnswers(input));
+  const recommendedTemplate = input.recommendedTemplate ?? fallbackTemplate;
   const [template, setTemplate] = useState<TemplateId>(
-    input.recommendedTemplate ?? fallbackTemplate ?? "static",
+    recommendedTemplate ?? "static",
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,17 @@ export function AskUserCard({
 
   const submit = async (skipped: boolean) => {
     if (submittedRef.current) return;
+    if (!skipped) {
+      const missing = input.questions.filter((question) => {
+        if (!question.required) return false;
+        const value = answers[question.id];
+        return Array.isArray(value) ? value.length === 0 : !String(value ?? "").trim();
+      });
+      if (missing.length > 0) {
+        setError(`请先回答：${missing.map((item) => item.label).join("、")}`);
+        return;
+      }
+    }
     submittedRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -217,7 +231,7 @@ export function AskUserCard({
         })}
       </div>
 
-      {input.recommendedTemplate ? (
+      {allowTemplateChange && recommendedTemplate ? (
         <div className="mt-3 rounded-lg border border-border bg-background/60 px-2.5 py-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-2xs text-muted-foreground">推荐技术栈</span>
