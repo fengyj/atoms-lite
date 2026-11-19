@@ -13,10 +13,11 @@
 页面：
 
 - `/` 首页工作台（需求输入、技术栈自动选型/手动覆盖、示例、项目概况、最近项目）
-- `/sessions/:projectId` 会话工作区（对话 / 预览 / Sandbox / 版本）
+- `/sessions/:projectId` 会话工作区（左侧对话；右侧工作台：预览 / 工作区 / 终端 / 版本）
 - 每个项目有独立容器、文件、git 历史、版本和 Agent 会话
-- 首页项目卡支持重命名、删除；Sandbox 面板分「工作区 / 终端」两个 tab
-- 对话栏与右侧栏可拖动调整宽度，刷新后保持
+- 首页项目卡支持重命名、删除；工作台分「预览 / 工作区 / 终端 / 版本」四个 tab
+- 工作区 tab 左侧文件树、右侧源码查看器（行号 + 语法高亮）
+- 对话栏支持拖动调整宽度，刷新后保持
 - 沙箱懒启动：打开项目只读缓存与版本；发送需求、同步文件或点击启动预览才拉起容器
 - 容器实例默认 basic，可在工作区升级到 standard-1 / standard-2（不可降级）
 - 新项目/大改版会先写 `DESIGN.md`，再实现页面；默认首页在 `src/pages/Index.tsx`
@@ -92,7 +93,7 @@ pnpm build
 
 - [x] pnpm workspace、共享 tsconfig、锁文件
 - [x] Next.js + Tailwind v4 可启动
-- [x] 设计 token + 三栏工作台 shell + 组件 gallery（`/design`）
+- [x] 设计 token + 两栏工作台 shell + 组件 gallery（`/design`）
 - [x] AI Elements 组件接入（含本地化、shiki 按需高亮）
 - [x] 容器启停、预览 HTTP/WS 代理、快照恢复、版本回滚（PoC 验证）
 - [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证）
@@ -100,7 +101,7 @@ pnpm build
 - [x] **单角色生成闭环**：需求 → 工具写文件 → 预览 → 版本
 - [x] **首页 + 会话页**：首页提交需求后进入工作区并自动发送
 - [x] **多项目**：每次需求创建独立项目，项目之间互不影响
-- [x] 项目重命名 / 删除；Sandbox 工作区 / 终端 tab；面板宽度可调
+- [x] 项目重命名 / 删除；工作台 tabs；工作区文件树 + 源码查看器；对话宽度可调
 - [x] 沙箱懒启动 + 文件列表 SQL 缓存
 - [x] browser-static 运行时（无容器静态预览、SQLite 文件/版本、esm.sh 依赖）
 - [x] 依赖安装工具（browser: importmap；container: pnpm add + 开放 egress）

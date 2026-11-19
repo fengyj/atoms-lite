@@ -5,16 +5,14 @@ import type { CSSProperties } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { ToolUIPart } from "ai";
-import { Layers, MessageSquare, Monitor } from "lucide-react";
+import { MessageSquare, Monitor } from "lucide-react";
 import { ChatPanel } from "@/components/workspace/chat-panel";
-import { PreviewPanel } from "@/components/workspace/preview-panel";
-import { SidePanel } from "@/components/workspace/side-panel";
 import { TopBar } from "@/components/workspace/top-bar";
+import { WorkbenchPanel } from "@/components/workspace/workbench";
 import type { RunState } from "@/components/workspace/top-bar";
 import {
   AGENT_CLASS,
   WORKER_HOST,
-  previewUrl,
   useProject,
   useWorkspaceFiles,
   useWorkspaceMeta,
@@ -23,16 +21,12 @@ import {
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
-type Tab = "chat" | "preview";
+type Tab = "chat" | "workbench";
 
 const CHAT_WIDTH_KEY = "atoms:chat-width";
-const SIDE_WIDTH_KEY = "atoms:side-width";
 const DEFAULT_CHAT_WIDTH = 384;
-const DEFAULT_SIDE_WIDTH = 320;
 const MIN_CHAT_WIDTH = 300;
 const MAX_CHAT_WIDTH = 560;
-const MIN_SIDE_WIDTH = 260;
-const MAX_SIDE_WIDTH = 480;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
@@ -51,27 +45,17 @@ function storedWidth(
 
 export function Workspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("chat");
-  const [sideOpen, setSideOpen] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
-  const [sideWidth, setSideWidth] = useState(() =>
-    storedWidth(SIDE_WIDTH_KEY, DEFAULT_SIDE_WIDTH, MIN_SIDE_WIDTH, MAX_SIDE_WIDTH),
-  );
-
   useEffect(() => {
     window.localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
   }, [chatWidth]);
 
-  useEffect(() => {
-    window.localStorage.setItem(SIDE_WIDTH_KEY, String(sideWidth));
-  }, [sideWidth]);
-
   const layoutStyle = {
     "--chat-width": `${chatWidth}px`,
-    "--side-width": `${sideWidth}px`,
   } as CSSProperties;
 
   // 项目元数据（名称/版本数）与当前项目专属的 Agent 会话
@@ -246,8 +230,6 @@ export function Workspace({ projectId }: { projectId: string }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <TopBar
-        sideOpen={sideOpen}
-        onToggleSide={() => setSideOpen((v) => !v)}
         runState={runState}
         projectId={projectId}
         projectName={projectName}
@@ -285,53 +267,22 @@ export function Workspace({ projectId }: { projectId: string }) {
           onWidth={setChatWidth}
           onReset={() => setChatWidth(DEFAULT_CHAT_WIDTH)}
         />
-        <PreviewPanel
+        <WorkbenchPanel
           className={cn(
             "min-w-0 flex-1",
-            tab === "preview" ? "flex" : "hidden md:flex"
+            tab === "workbench" ? "flex" : "hidden md:flex"
           )}
           projectId={projectId}
-          url={previewUrl(projectId)}
-          reloadKey={previewTick}
-        />
-        <ResizeHandle
-          className="hidden xl:flex"
-          label="调整侧栏宽度"
-          side="right"
-          width={sideWidth}
-          min={MIN_SIDE_WIDTH}
-          max={MAX_SIDE_WIDTH}
-          onWidth={setSideWidth}
-          onReset={() => setSideWidth(DEFAULT_SIDE_WIDTH)}
-        />
-        <SidePanel
-          className="hidden shrink-0 xl:flex xl:w-(--side-width)"
+          runtime={project.data?.runtime ?? "container"}
+          previewTick={previewTick}
           versions={versions}
           files={files}
           messages={messages}
         />
       </div>
 
-      {/* md–xl：侧栏以抽屉形式出现 */}
-      {sideOpen ? (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm xl:hidden"
-            onClick={() => setSideOpen(false)}
-          />
-          <div className="fixed inset-y-0 right-0 z-50 flex w-chat max-w-full p-2 xl:hidden">
-            <SidePanel
-              className="flex w-full"
-              versions={versions}
-              files={files}
-              messages={messages}
-            />
-          </div>
-        </>
-      ) : null}
-
       {/* <md：底部标签 */}
-      <nav className="grid shrink-0 grid-cols-3 border-t border-border bg-card md:hidden">
+      <nav className="grid shrink-0 grid-cols-2 border-t border-border bg-card md:hidden">
         <TabButton
           active={tab === "chat"}
           onClick={() => setTab("chat")}
@@ -339,16 +290,10 @@ export function Workspace({ projectId }: { projectId: string }) {
           label="对话"
         />
         <TabButton
-          active={tab === "preview"}
-          onClick={() => setTab("preview")}
+          active={tab === "workbench"}
+          onClick={() => setTab("workbench")}
           icon={<Monitor className="size-4" />}
-          label="预览"
-        />
-        <TabButton
-          active={sideOpen}
-          onClick={() => setSideOpen((v) => !v)}
-          icon={<Layers className="size-4" />}
-          label="更多"
+          label="工作台"
         />
       </nav>
     </div>

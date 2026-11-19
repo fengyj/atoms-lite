@@ -172,6 +172,20 @@ export async function fetchWorkspaceVersions(
   return (await json<VersionsResponse>(res, "versions")).versions ?? [];
 }
 
+export async function fetchWorkspaceFile(
+  projectId: string,
+  path: string,
+  signal?: AbortSignal
+): Promise<{ content: string; truncated: boolean }> {
+  const res = await fetch(projectApiUrl(projectId, "/tools/read"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+    signal,
+  });
+  return await json<{ content: string; truncated: boolean }>(res, "file");
+}
+
 export async function fetchWorkspaceFiles(
   projectId: string,
   signal?: AbortSignal

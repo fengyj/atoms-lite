@@ -277,10 +277,9 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 ### 交互细节（生产）
 
 - **工具卡默认折叠**：历史消息中的 `data-tool` 全部为 `closed`；点击标题可展开。
-- **Sandbox 两个 tab**：工作区显示 3 个文件；终端显示 24 条命令
-  （`$ node --check app.js`、`$ grep …`、`$ ls -la …` 及 exit code）。
-- **拖动调整宽度**：对话栏 384 → 464px，右侧栏 320 → 380px；
-  刷新后仍为 464 / 380（localStorage 记忆）。
+- **工作台 tabs**：预览 / 工作区 / 终端 / 版本；工作区文件树可选择文件并在右侧查看行号+高亮源码。
+- **终端**：五子棋项目显示 24 条命令（`$ node --check app.js`、`$ grep …` 及 exit code）。
+- **拖动调整宽度**：对话栏 384 → 464px；刷新后仍为 464（localStorage 记忆）。
 - **重命名**：首页项目卡菜单 → 重命名 → 保存，列表立即显示新名称。
 - **删除**：首页项目卡菜单 → 删除 → 二次确认；卡片消失，`GET /api/projects/:id` 返回 404。
 
@@ -289,7 +288,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 ![首页工作台](assets/v1-dashboard.png)
 
 - `/` 200，标题正确；项目卡显示真实 commit、summary、文件数与保存时间。
-- 点击项目卡 → `/sessions/demo` 200，三栏工作区正常加载。
+- 点击项目卡 → `/sessions/demo` 200，工作台正常加载。
 - 在首页输入修改需求并点「开始生成」：
   - 跳转 `/sessions/demo?prompt=...`，随后 query 被清空；
   - Agent 连接就绪后自动发送，对话中可见该需求；
@@ -324,9 +323,19 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 |---|---|
 | ![React 番茄钟](assets/v1-react.png) | ![全栈待办](assets/v1-fullstack.png) |
 
-工作区右侧 Sandbox 的「终端」tab（另一个 tab 是工作区文件树）：
+工作台「工作区」tab：左侧文件树，右侧源码查看器。
 
-![Sandbox 终端](assets/v1-workspace-terminal.png)
+![工作台 / 工作区](assets/v1-workbench-workspace.png)
+
+工作台「终端」与「版本」tab：
+
+![工作台 / 终端](assets/v1-workbench-terminal.png)
+
+![工作台 / 版本](assets/v1-workbench-versions.png)
+
+移动端：底部「对话 / 工作台」，工作台内部 tab 保留。
+
+![移动端工作区](assets/v1-workbench-mobile.png)
 
 五子棋工作区见 `assets/v1-workspace.png`。
 
@@ -334,7 +343,7 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 
 - 没有访问控制；公网 URL 可被任意人使用（演示期接受，需加预算上限）。
 - 每个项目固定一个会话。
-- Sandbox 终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
+- 工作台终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
 - 依赖可通过 `install_packages` 安装；browser runtime 走 esm.sh，container runtime 走 pnpm + egress。
 - 镜像运行期只有 pnpm；旧快照如果只有 npm，安装新包不兼容（旧项目可删除）。

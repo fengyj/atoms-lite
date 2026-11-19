@@ -64,7 +64,10 @@ export const CodeBlock = ({
       <div className="overflow-auto scrollbar-thin">
         {html ? (
           <div
-            className="[&_code]:font-mono [&_code]:text-sm [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm"
+            className={cn(
+              "[&_code]:font-mono [&_code]:text-sm [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm",
+              showLineNumbers && "code-line-numbers"
+            )}
             // shiki 生成的 HTML 由库产出，不是用户输入
             dangerouslySetInnerHTML={{ __html: html }}
           />

@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   Cpu,
   Download,
-  PanelRight,
   Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +26,6 @@ const runStateMeta: Record<RunState, { dot: string; label: string }> = {
 };
 
 export function TopBar({
-  sideOpen,
-  onToggleSide,
   runState,
   projectId,
   projectName,
@@ -42,8 +39,6 @@ export function TopBar({
   currentVersion,
   versionNote,
 }: {
-  sideOpen: boolean;
-  onToggleSide: () => void;
   /** Agent 运行状态（就绪 / 生成中 / 出错） */
   runState: RunState;
   projectId: string;
@@ -171,15 +166,6 @@ export function TopBar({
         >
           <Download className="size-3.5" />
           导出
-        </Button>
-        <Button
-          variant={sideOpen ? "secondary" : "ghost"}
-          size="icon-sm"
-          className={cn("xl:hidden")}
-          onClick={onToggleSide}
-          aria-label="切换侧栏"
-        >
-          <PanelRight className="size-3.5" />
         </Button>
       </div>
     </header>

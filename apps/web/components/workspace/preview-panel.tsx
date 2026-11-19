@@ -10,7 +10,6 @@ import {
   WebPreviewUrl,
 } from "@/components/ai-elements/web-preview";
 import { Button } from "@/components/ui/button";
-import { Panel } from "@/components/workspace/panel";
 import { fetchPreviewStatus, startPreview } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
@@ -128,46 +127,10 @@ export function PreviewPanel({
   const busy = phase === "starting" || phase === "probing";
 
   return (
-    <Panel
-      title="预览"
-      icon={<Monitor />}
-      className={className}
-      bodyClassName="overflow-hidden p-2"
-      actions={
-        <>
-          <span
-            role="status"
-            className="hidden items-center gap-1.5 text-2xs text-muted-foreground sm:inline-flex"
-          >
-            <span className={cn("size-1.5 rounded-full", meta.dot)} />
-            {meta.label}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="启动并刷新预览"
-            title="启动并刷新预览（会启动沙箱）"
-            disabled={busy}
-            onClick={() => void activate()}
-          >
-            <RotateCw
-              className={cn("size-3.5", phase === "starting" && "animate-spin")}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="新窗口打开"
-            onClick={openExternal}
-          >
-            <ExternalLink className="size-3.5" />
-          </Button>
-        </>
-      }
-    >
+    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
       <WebPreview
         defaultUrl={url}
-        className="size-full rounded-md border-border bg-background"
+        className="size-full rounded-none border-0 bg-background"
       >
         <WebPreviewNavigation className="border-b-border bg-card px-2 py-1.5">
           <WebPreviewNavigationButton
@@ -180,6 +143,13 @@ export function PreviewPanel({
             />
           </WebPreviewNavigationButton>
           <WebPreviewUrl className="h-7 font-mono text-2xs" />
+          <span
+            role="status"
+            className="ml-1 hidden items-center gap-1.5 px-1 text-2xs whitespace-nowrap text-muted-foreground sm:inline-flex"
+          >
+            <span className={cn("size-1.5 rounded-full", meta.dot)} />
+            {meta.label}
+          </span>
           <WebPreviewNavigationButton tooltip="新窗口" onClick={openExternal}>
             <ExternalLink className="size-3.5" />
           </WebPreviewNavigationButton>
@@ -195,7 +165,7 @@ export function PreviewPanel({
           />
         )}
       </WebPreview>
-    </Panel>
+    </div>
   );
 }
 

@@ -148,3 +148,24 @@
     scrollbar-color: var(--border) transparent;
   }
 }
+
+/* CodeBlock 的行号；shiki 输出 .line 结构 */
+.code-line-numbers pre code {
+  counter-reset: line;
+}
+
+.code-line-numbers pre code .line {
+  display: block;
+}
+
+.code-line-numbers pre code .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 2.25rem;
+  margin-right: 1rem;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  user-select: none;
+}
