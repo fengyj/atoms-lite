@@ -117,5 +117,7 @@ pnpm build
 - 容器实例需要显式 `setInactivityTimeout()`，否则两次请求之间会被回收（详见 POC-00 文档）。
 - `apps/web/AGENTS.md` 是 Next 16 自动生成的，可用 `agentRules: false` 关闭。
 - 契约包通过 `exports` 直接暴露 `.ts` 源码，不设构建步骤。
+- 演示版没有鉴权；预览 iframe 与主站同源，生成代码按不可信处理。
+  生产化需要独立预览域 + 访问门禁。
 - Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
 - 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。

@@ -199,15 +199,19 @@ export class Projects extends DurableObject<Env> {
     );
 
     // 只写模板配置，不启动容器；首次 ensure 时按模板播种。
+    // 配置失败必须回滚索引，否则 UI 徽标与真实工作区模板会静默错位。
     try {
       const stub = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(id));
-      await stub.fetch("https://workspace/config", {
+      const res = await stub.fetch("https://workspace/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ template }),
       });
+      if (!res.ok) throw new Error(`config HTTP ${res.status}`);
     } catch (error) {
       console.error("[projects] set template failed", id, template, error);
+      this.ctx.storage.sql.exec("DELETE FROM atoms_projects WHERE id = ?", id);
+      throw new Error("failed to initialize project template");
     }
 
     await this.ensureDemo();

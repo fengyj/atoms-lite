@@ -90,6 +90,9 @@
   - `touch /workspace/.atoms/restart` 让 supervisor 重启子进程
 - **构建**：`build` 工具读取 `buildCommand`（`npm run build`），超时 5 分钟，
   日志返回给 Agent；React/全栈模板的 build 包含 `tsc --noEmit`。
+  build 与版本/checkout 共用串行队列，避免并发写 `dist`。
+- **回滚**：checkout 先删除 `dist` 再构建；构建失败返回 `buildError` 且不重启预览。
+- **预览就绪**：`/healthz` 与根页面都返回 200 才算 ready，缺 dist 不再假装就绪。
 - **全栈数据**：SQLite 存在 `/data/app.db`，不在 `/workspace`，代码回滚不会删数据。
   用户通过预览代理写数据（POST/PATCH/DELETE）后，DO 设置 10s 延迟 alarm，
   触发一次容器快照，避免 5 分钟空闲回收丢数据。
@@ -218,6 +221,9 @@
 
 ## 4.1 代码审查
 
+A/B 模板与运行时审查见 `docs/reviews/ab-review.md`。
+
+
 详见 `docs/reviews/v1-code-review.md`。P0（快照/seed 覆盖）与关键 P1（ensure 覆盖、healthz、checkout、幂等、超时、白名单、Origin）已修复并通过生产回归；审批接线、预览错误态等列为后续。
 
 ## 4.2 页面截图
@@ -254,7 +260,10 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
 - 依赖为镜像内预装的白名单，不能在线安装新 npm 包；Next.js 未支持（Phase C）。
 - 全栈数据靠容器快照保留（写入后 10 秒内快照）；不是真正的外部数据库，
-  多实例/长期持久化应换 D1。
+  多实例/长期持久化应换 D1。快照失败目前只记日志，不自动重试。
+- **安全边界**：演示版无鉴权，预览 iframe 与主站同源（`allow-same-origin`），
+  生成代码必须视为不可信；生产化需要独立预览域 + 访问门禁。
+  当前已在 Worker 层拦截 `/previews/:id/.git/*`，并限制 Agent 的 exec 白名单。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。

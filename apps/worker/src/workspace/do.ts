@@ -353,16 +353,14 @@ export class Workspace extends DurableObject<Env> {
 
   private async checkPreview(): Promise<boolean> {
     try {
-      const res = await this.container
-        .getTcpPort(PREVIEW_PORT)
-        .fetch(new Request("http://preview/healthz"));
-      if (res.status < 500) return true;
-
-      // 兼容旧快照（没有 /healthz）：404 也说明服务是活的
-      const root = await this.container
-        .getTcpPort(PREVIEW_PORT)
-        .fetch(new Request("http://preview/"));
-      return root.status < 500;
+      const port = this.container.getTcpPort(PREVIEW_PORT);
+      const health = await port.fetch(new Request("http://preview/healthz"));
+      // 根页面必须真的可访问；缺 dist 时不再假装“就绪”。
+      const root = await port.fetch(new Request("http://preview/"));
+      if (root.status !== 200) return false;
+      if (health.status === 200) return true;
+      // 旧快照没有 /healthz：root 200 也说明静态服务是活的
+      return health.status === 404;
     } catch {
       return false;
     }
@@ -376,12 +374,12 @@ export class Workspace extends DurableObject<Env> {
     const hasBoot = await this.run(["test", "-f", "/opt/preview/boot.sh"]);
     if (hasBoot.exitCode === 0) {
       await this.sh(
-        `cd ${WORKSPACE} && (pgrep -f '/opt/preview/boot.sh' >/dev/null || nohup sh /opt/preview/boot.sh >/tmp/preview.log 2>&1 &)`,
+        `cd ${WORKSPACE} && (pgrep -f '^sh /opt/preview/boot.sh$' >/dev/null || nohup sh /opt/preview/boot.sh >/tmp/preview.log 2>&1 &)`,
       );
     } else {
       // 兼容旧快照：只有静态 server.mjs
       await this.sh(
-        `cd ${WORKSPACE} && (pgrep -f '/opt/preview/server.mjs' >/dev/null || nohup node /opt/preview/server.mjs >/tmp/preview.log 2>&1 &)`,
+        `cd ${WORKSPACE} && (pgrep -f '^node /opt/preview/server.mjs$' >/dev/null || nohup node /opt/preview/server.mjs >/tmp/preview.log 2>&1 &)`,
       );
     }
 
@@ -413,40 +411,46 @@ export class Workspace extends DurableObject<Env> {
     stderr: string;
     durationMs: number;
   }> {
-    await this.ensure();
-    const runtime = await this.runtimeConfig();
-    const command = runtime.buildCommand;
+    // 与 createVersion / checkout 共用队列，避免并发写 dist 和 git。
+    return this.exclusive(async () => {
+      await this.ensure();
+      const runtime = await this.runtimeConfig();
+      const command = runtime.buildCommand;
 
-    if (!command) {
-      return {
-        skipped: true,
-        exitCode: 0,
-        stdout: "该模板不需要构建。",
-        stderr: "",
-        durationMs: 0,
-      };
-    }
+      if (!command) {
+        return {
+          skipped: true,
+          exitCode: 0,
+          stdout: "该模板不需要构建。",
+          stderr: "",
+          durationMs: 0,
+        };
+      }
 
-    const started = Date.now();
-    try {
-      const out = await this.sh(`cd ${WORKSPACE} && ${command}`, BUILD_TIMEOUT_MS);
-      await this.syncFilesCacheSafe();
-      return {
-        skipped: false,
-        exitCode: out.exitCode,
-        stdout: out.stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
-        stderr: out.stderr.slice(0, 32 * 1024),
-        durationMs: Date.now() - started,
-      };
-    } catch (error) {
-      return {
-        skipped: false,
-        exitCode: -1,
-        stdout: "",
-        stderr: String(error).slice(0, 32 * 1024),
-        durationMs: Date.now() - started,
-      };
-    }
+      const started = Date.now();
+      try {
+        const out = await this.sh(
+          `cd ${WORKSPACE} && ${command}`,
+          BUILD_TIMEOUT_MS,
+        );
+        await this.syncFilesCacheSafe();
+        return {
+          skipped: false,
+          exitCode: out.exitCode,
+          stdout: out.stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
+          stderr: out.stderr.slice(0, 32 * 1024),
+          durationMs: Date.now() - started,
+        };
+      } catch (error) {
+        return {
+          skipped: false,
+          exitCode: -1,
+          stdout: "",
+          stderr: String(error).slice(0, 32 * 1024),
+          durationMs: Date.now() - started,
+        };
+      }
+    });
   }
 
   private async ensure(): Promise<void> {
@@ -516,8 +520,11 @@ export class Workspace extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     if (this.template() !== "fullstack-hono") return;
     if (!this.container.running) return;
-    await this.takeSnapshot();
-    console.log("[workspace] snapshot after app mutation", this.projectId);
+    await this.exclusive(async () => {
+      if (!this.container.running) return;
+      await this.takeSnapshot();
+      console.log("[workspace] snapshot after app mutation", this.projectId);
+    });
   }
 
   private async takeSnapshot(): Promise<void> {
@@ -647,20 +654,36 @@ export class Workspace extends DurableObject<Env> {
 
       this.setCurrentVersion(versionId);
 
-      // 源码回滚后重建，避免预览继续使用旧 dist。
+      // git clean 不会删除被 ignore 的 dist；先清掉再重建。
+      await this.sh(`rm -rf ${WORKSPACE}/dist`);
+      let buildError: string | null = null;
       const runtime = await this.runtimeConfig();
       if (runtime.buildCommand) {
         try {
-          await this.sh(`cd ${WORKSPACE} && ${runtime.buildCommand}`, BUILD_TIMEOUT_MS);
+          const build = await this.sh(
+            `cd ${WORKSPACE} && ${runtime.buildCommand}`,
+            BUILD_TIMEOUT_MS,
+          );
+          if (build.exitCode !== 0) {
+            buildError =
+              (build.stderr || build.stdout || "build failed").slice(0, 2000);
+          }
         } catch (error) {
-          console.error("[workspace] rebuild after checkout failed", error);
+          buildError = String(error).slice(0, 2000);
         }
       }
+
       await this.syncFilesCacheSafe();
-      await this.restartPreview();
+      if (!buildError) {
+        await this.restartPreview();
+      }
       await this.takeSnapshot();
 
-      return { ok: true, gitCommit: target.git_commit };
+      return {
+        ok: buildError === null,
+        gitCommit: target.git_commit,
+        buildError,
+      };
     });
   }
 
@@ -709,12 +732,36 @@ export class Workspace extends DurableObject<Env> {
     await this.ensure();
     const url = new URL(request.url);
 
-    if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      return this.container.getTcpPort(PREVIEW_PORT).fetch(request);
-    }
-
     const rest =
       url.pathname.slice(`/previews/${this.projectId}`.length) || "/";
+
+    // 旧快照的 server.mjs 可能没有 .git 防护；在这一层统一拦截。
+    let decodedRest = rest;
+    try {
+      decodedRest = decodeURIComponent(rest);
+    } catch {
+      // 非法转义交给容器返回 400
+    }
+    if (
+      decodedRest === "/.git" ||
+      decodedRest.startsWith("/.git/") ||
+      decodedRest.includes("/.git/")
+    ) {
+      return new Response("not found", { status: 404 });
+    }
+
+    if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const target = new URL(request.url);
+      target.protocol = "http:";
+      target.host = "preview";
+      target.pathname = rest;
+      const headers = new Headers(request.headers);
+      headers.delete("host");
+      return this.container.getTcpPort(PREVIEW_PORT).fetch(target.toString(), {
+        method: request.method,
+        headers,
+      });
+    }
     // 容器里的预览服务只支持 HTTP；生产入站是 HTTPS，必须换 scheme
     const target = new URL(request.url);
     target.protocol = "http:";
@@ -769,10 +816,19 @@ export class Workspace extends DurableObject<Env> {
         } catch (error) {
           console.error("[workspace] container destroy failed", error);
         }
-        try {
-          await this.ctx.storage.deleteAll();
-        } catch (error) {
-          console.error("[workspace] storage delete failed", error);
+        // 保留 schema，只清空数据；deleteAll 会让活跃 isolate 的后续请求撞 no such table。
+        for (const table of [
+          "atoms_versions",
+          "atoms_snapshots",
+          "atoms_files",
+          "atoms_project_config",
+          "atoms_workspace",
+        ]) {
+          try {
+            this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
+          } catch (error) {
+            console.error("[workspace] clear table failed", table, error);
+          }
         }
         this.ensurePromise = null;
         return Response.json({ ok: true });
@@ -780,6 +836,12 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/config") {
         const body = (await request.json()) as { template?: string };
+        if (this.versionCount() > 0) {
+          return Response.json(
+            { error: "template is locked after the first version" },
+            { status: 409 },
+          );
+        }
         this.setTemplate(normalizeTemplate(body.template));
         return Response.json({ ok: true, template: this.template() });
       }
@@ -831,7 +893,7 @@ export class Workspace extends DurableObject<Env> {
         await this.ensure();
         const target = safePath(body.path);
         const dir = target.slice(0, target.lastIndexOf("/")) || WORKSPACE;
-        await this.sh(`mkdir -p ${dir}`);
+        await this.run(["mkdir", "-p", dir]);
         const files = new Files(this.container);
         await files.writeFile(target, body.content);
         await this.syncFilesCacheSafe();

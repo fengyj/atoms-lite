@@ -48,6 +48,8 @@ while true; do
     if [ -f /workspace/.atoms/restart ]; then
       rm -f /workspace/.atoms/restart
       kill "$CHILD" 2>/dev/null
+      sleep 2
+      kill -9 "$CHILD" 2>/dev/null
       break
     fi
     sleep 1

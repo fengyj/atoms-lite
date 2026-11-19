@@ -148,12 +148,17 @@ export function Workspace({ projectId }: { projectId: string }) {
         completedToolsRef.current.add(tool.toolCallId);
 
         const name = tool.type.slice("tool-".length);
-        if (name === "start_preview" || name === "create_version") {
+        if (
+          name === "start_preview" ||
+          name === "create_version" ||
+          name === "build"
+        ) {
           refreshPreview();
         }
         if (
           name === "create_version" ||
           name === "write_file" ||
+          name === "build" ||
           name === "exec" ||
           name === "finish"
         ) {

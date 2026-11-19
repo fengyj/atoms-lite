@@ -170,14 +170,7 @@ export class ChatAgent extends AIChatAgent<Env> {
         inputSchema: z.object({
           summary: z.string().max(500).default(""),
         }),
-        execute: async ({ summary }) => {
-          try {
-            await ws.snapshot();
-          } catch {
-            // 快照失败不影响完成状态
-          }
-          return { ok: true, summary };
-        },
+        execute: async ({ summary }) => ({ ok: true, summary }),
       }),
     };
 

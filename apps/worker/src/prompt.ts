@@ -7,6 +7,7 @@ const COMMON = `你是 atoms-lite 的应用生成助手。当前项目是一个�
 - 用户没有指定语言时，界面文案使用中文。
 - 不要更换项目模板或技术栈；项目创建时已经选好模板。
 - 不要执行 npm install / pnpm install；依赖已经在镜像里预装。
+- exec 只提供少量只读命令（ls/cat/git/...）；不要尝试 bash、curl、node、npm，构建用 build 工具。
 - 不要修改 .atoms/runtime.json 里的 kind、buildCommand、startCommand、port。
 - 不要修改 node_modules、dist、package-lock.json。
 - 预览端口固定 8080，不要改端口，也不要在项目里再起第二个长期服务。
@@ -61,7 +62,7 @@ const FULLSTACK = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS 
 - server/index.js 必须保留 /healthz，并在 API 路由之后托管 /workspace/dist（模板已实现，沿用即可）。
 - 新增数据表时使用 CREATE TABLE IF NOT EXISTS；接口要校验输入并返回 JSON。
 - 工作流：
-  1. list_files，read_file 查看 server/index.js 与 src/App.jsx
+  1. list_files，read_file 查看 server/index.js 与 src/App.tsx
   2. 修改前端与后端文件
   3. 调用 build（npm run build）
   4. build 失败则读 stderr 修复，再 build
