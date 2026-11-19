@@ -69,7 +69,7 @@ export const CodeBlock = ({
           <div
             className={cn(
               "[&_code]:font-mono [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm",
-              compact ? "[&_pre]:leading-tight" : "[&_pre]:leading-5",
+              compact ? "[&_pre]:leading-4" : "[&_pre]:leading-5",
               showLineNumbers && "code-line-numbers"
             )}
             // shiki 生成的 HTML 由库产出，不是用户输入
@@ -79,7 +79,7 @@ export const CodeBlock = ({
           <pre
             className={cn(
               "m-0 p-4 font-mono text-sm",
-              compact ? "leading-tight" : "leading-5"
+              compact ? "leading-4" : "leading-5"
             )}
           >
             <code className="font-mono">{display}</code>
