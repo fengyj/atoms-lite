@@ -14,7 +14,9 @@
 - 项目创建时根据需求自动选择模板并持久化
 - 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
 
-不在 A/B：多角色、单项目内多会话、PPT、附件、导出、回滚 UI、Next.js、在线安装新依赖。
+A/B 完成静态、React、全栈三种模板与构建/预览闭环。
+C 完成智能选型 + 手动覆盖。C 的扩展项（Next.js、在线安装新依赖、D1/R2/真实发布）
+仍不在当前范围：它们分别需要额外运行时、依赖审批/网络策略和生产存储。
 全栈数据目前存在容器内 SQLite（快照保留），D1/R2 留到后续。
 
 ## 2. 组成
@@ -75,9 +77,15 @@
 
 ## 3. 关键行为
 
-- **模板选型**：`deriveTemplate(prompt)` 先看全栈信号（登录/数据库/API/上传…），
-  再看 React/SPA/组件/路由信号，否则静态；规则在
-  `apps/worker/src/projects.ts`，Phase C 再接模型 planner。
+- **模板选型**：先走确定性规则（`templates.ts`）：全栈信号（登录/数据库/API/上传…）
+  → fullstack；React/SPA/组件/路由 → react-vite；否则 static。
+- **模型 planner**：规则拿不准且没有显式技术栈时，调用一次短模型
+  （`planner.ts`，严格枚举，12s 超时，0 重试）选择最小模板；失败回退规则。
+  显式技术栈/后端信号、五子棋/个人主页等明确静态需求不调用模型。
+- **手动覆盖**：首页输入区可选择「自动选型 / Static / React / 全栈」；
+  手动指定时跳过规则与 planner。
+- **选型可观测**：项目保存 `templateSource`（rule/model/manual/fallback）与
+  `planReason`；项目卡 badge 的 tooltip 显示原因，模型选择的 badge 带 Sparkles。
 - **模板配置**：项目创建时写入 WorkspaceDO 的 `atoms_project_config.template`，
   不启动容器；首次 `ensure()` 按模板播种。
 - **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
@@ -147,6 +155,15 @@
 - 点击棋盘点位后手数增加、执子方切换。
 - **空闲回收恢复**：停止请求 400s 后 `preview/status` 为 `{running:false}`；再请求 `/previews/demo/` 返回 200、标题仍为「五子棋 · Gomoku」，3 个文件大小不变，版本仍为 `1d6d331`。
 - **预览状态探测**：容器运行且服务就绪时徽标为「就绪」；休眠时显示「已休眠」。
+
+### 智能选型（本地实测）
+
+- 显式 `用 React…`：0.13s，`template=react-vite`，`source=rule`
+- 手动指定 Static + React 需求：`template=static`，`source=manual`
+- 模糊需求「团队任务看板，支持拖拽卡片和状态流转」：
+  4.3s，`template=react-vite`，`source=model`，
+  原因「看板需组件化与拖拽状态管理，纯前端无后端需求，选 react-vite。」
+- 显式「带数据库的前后端」：`template=fullstack-hono`，`source=rule`
 
 ### 模板与构建（本地/生产实测）
 

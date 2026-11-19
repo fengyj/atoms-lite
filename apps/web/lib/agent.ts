@@ -40,11 +40,16 @@ export type ProjectVersion = {
 
 export type TemplateId = "static" | "react-vite" | "fullstack-hono";
 
+export type TemplateSource = "rule" | "model" | "manual" | "fallback";
+export type TemplateChoice = "auto" | TemplateId;
+
 export type ProjectSummary = {
   id: string;
   name: string;
   prompt: string;
   template: TemplateId;
+  templateSource: TemplateSource;
+  planReason: string;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -129,12 +134,13 @@ export async function deleteProject(
 
 export async function createProject(
   prompt: string,
+  template: TemplateChoice = "auto",
   signal?: AbortSignal
 ): Promise<ProjectSummary> {
   const res = await fetch(PROJECTS_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, template }),
     signal,
   });
   const project = (await json<ProjectResponse>(res, "create project")).project;

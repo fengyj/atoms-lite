@@ -1,16 +1,26 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
+import { planTemplate } from "./planner";
+import {
+  deriveTemplate,
+  isTemplate,
+  needsPlanner,
+  normalizeTemplate,
+  type TemplateId,
+} from "./templates";
 
 const DEMO_PROJECT_ID = "demo";
 const DEMO_PROJECT_NAME = "五子棋 Demo";
 
-export type TemplateId = "static" | "react-vite" | "fullstack-hono";
+export type TemplateSource = "rule" | "model" | "manual" | "fallback";
 
 type ProjectRow = {
   id: string;
   name: string;
   prompt: string;
   template: string;
+  template_source: string;
+  plan_reason: string;
   created_at: number;
   updated_at: number;
 };
@@ -30,6 +40,8 @@ export type ProjectSummary = {
   name: string;
   prompt: string;
   template: TemplateId;
+  templateSource: TemplateSource;
+  planReason: string;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -56,32 +68,6 @@ export function deriveProjectName(prompt: string): string {
   return (cleaned.trim() || "未命名应用").slice(0, 16);
 }
 
-/**
- * 只做确定性分类；模糊需求留给后续的模型 planner（Phase C）。
- * 这里只决定“用哪个模板初始化”，不决定具体功能。
- */
-export function deriveTemplate(prompt: string): TemplateId {
-  const text = prompt.replace(/\s+/g, " ").trim();
-
-  if (
-    /登录|注册|认证|权限|数据库|后端|服务端|接口|\bapi\b|上传|管理后台|持久化|sqlite|postgres|mysql/i.test(
-      text,
-    )
-  ) {
-    return "fullstack-hono";
-  }
-
-  if (
-    /react|vue|svelte|spa|组件|路由|状态管理|前端框架|vite|next\.?js/i.test(
-      text,
-    )
-  ) {
-    return "react-vite";
-  }
-
-  return "static";
-}
-
 function newProjectId(): string {
   return `prj_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
@@ -99,18 +85,24 @@ export class Projects extends DurableObject<Env> {
         name TEXT NOT NULL,
         prompt TEXT NOT NULL,
         template TEXT NOT NULL DEFAULT 'static',
+        template_source TEXT NOT NULL DEFAULT 'rule',
+        plan_reason TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
 
-    // v1 表没有 template 列
-    try {
-      ctx.storage.sql.exec(
-        "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
-      );
-    } catch {
-      // 已存在
+    // v1 表缺少后续列，逐列补齐
+    for (const statement of [
+      "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
+      "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
+      "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
+    ]) {
+      try {
+        ctx.storage.sql.exec(statement);
+      } catch {
+        // 已存在
+      }
     }
   }
 
@@ -148,8 +140,9 @@ export class Projects extends DurableObject<Env> {
 
     const now = demoMeta.currentVersion?.createdAt ?? Date.now();
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO atoms_projects (id, name, prompt, template, created_at, updated_at)
-       VALUES (?, ?, ?, 'static', ?, ?)`,
+      `INSERT OR IGNORE INTO atoms_projects
+         (id, name, prompt, template, template_source, plan_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'static', 'rule', 'v1 遗留静态项目', ?, ?)`,
       DEMO_PROJECT_ID,
       DEMO_PROJECT_NAME,
       "做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始。",
@@ -164,7 +157,9 @@ export class Projects extends DurableObject<Env> {
       id: row.id,
       name: row.name,
       prompt: row.prompt,
-      template: (row.template as TemplateId) || "static",
+      template: normalizeTemplate(row.template),
+      templateSource: (row.template_source as TemplateSource) || "rule",
+      planReason: row.plan_reason || "",
       createdAt: row.created_at,
       updatedAt: Math.max(row.updated_at, meta?.currentVersion?.createdAt ?? 0),
       versionCount: meta?.versionCount ?? 0,
@@ -178,22 +173,63 @@ export class Projects extends DurableObject<Env> {
     return projects.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  private async create(prompt: string): Promise<ProjectSummary> {
+  private async create(
+    prompt: string,
+    preferredTemplate?: string,
+  ): Promise<ProjectSummary> {
     const text = prompt.trim().slice(0, 500);
     if (!text) throw new Error("prompt is required");
 
+    let template: TemplateId;
+    let source: TemplateSource;
+    let reason: string;
+
+    const manual =
+      preferredTemplate && preferredTemplate !== "auto"
+        ? isTemplate(preferredTemplate)
+          ? preferredTemplate
+          : null
+        : null;
+
+    if (preferredTemplate && preferredTemplate !== "auto" && !manual) {
+      throw new Error("invalid template");
+    }
+
+    if (manual) {
+      template = manual;
+      source = "manual";
+      reason = "用户手动指定技术栈";
+    } else if (!needsPlanner(text)) {
+      template = deriveTemplate(text);
+      source = "rule";
+      reason = "根据需求关键词选择";
+    } else {
+      const plan = await planTemplate(this.env, text);
+      if (plan) {
+        template = plan.template;
+        source = "model";
+        reason = plan.reason;
+      } else {
+        template = deriveTemplate(text);
+        source = "fallback";
+        reason = "模型选型失败，回退到规则";
+      }
+    }
+
     const id = newProjectId();
     const name = deriveProjectName(text);
-    const template = deriveTemplate(text);
     const now = Date.now();
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO atoms_projects (id, name, prompt, template, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO atoms_projects
+         (id, name, prompt, template, template_source, plan_reason, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       name,
       text,
       template,
+      source,
+      reason,
       now,
       now,
     );
@@ -220,6 +256,8 @@ export class Projects extends DurableObject<Env> {
       name,
       prompt: text,
       template,
+      templateSource: source,
+      planReason: reason,
       createdAt: now,
       updatedAt: now,
       versionCount: 0,
@@ -277,8 +315,13 @@ export class Projects extends DurableObject<Env> {
       }
 
       if (url.pathname === "/projects" && request.method === "POST") {
-        const body = (await request.json()) as { prompt?: string };
-        return Response.json({ project: await this.create(body.prompt ?? "") });
+        const body = (await request.json()) as {
+          prompt?: string;
+          template?: string;
+        };
+        return Response.json({
+          project: await this.create(body.prompt ?? "", body.template),
+        });
       }
 
       const match = url.pathname.match(/^\/projects\/([^/]+)$/);

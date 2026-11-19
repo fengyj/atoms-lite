@@ -55,6 +55,7 @@ import {
   templateLabel,
   useProjects,
   type ProjectSummary,
+  type TemplateChoice,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +78,7 @@ export function Dashboard() {
   const projects = useProjects();
   const [prompt, setPrompt] = useState("");
   const [mode, setMode] = useState("single");
+  const [stack, setStack] = useState<TemplateChoice>("auto");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null);
@@ -149,7 +151,7 @@ export function Dashboard() {
     setCreating(true);
     setCreateError(null);
     try {
-      const project = await createProject(value);
+      const project = await createProject(value, stack);
       // 静态导出没有为动态项目 ID 预渲染 HTML，这里走整页加载
       window.location.assign(
         `/sessions/${encodeURIComponent(project.id)}?prompt=${encodeURIComponent(value)}`
@@ -266,7 +268,7 @@ export function Dashboard() {
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话。
-              技术栈会根据需求自动选择：Static、React 或全栈。
+              技术栈可以自动选型，也可以手动指定：Static、React 或全栈。
             </p>
           </div>
 
@@ -295,6 +297,20 @@ export function Dashboard() {
                   <SelectItem value="multi" disabled>
                     多角色（即将支持）
                   </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={stack}
+                onValueChange={(value) => setStack(value as TemplateChoice)}
+              >
+                <SelectTrigger size="sm" className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">自动选型</SelectItem>
+                  <SelectItem value="static">Static</SelectItem>
+                  <SelectItem value="react-vite">React</SelectItem>
+                  <SelectItem value="fullstack-hono">全栈</SelectItem>
                 </SelectContent>
               </Select>
               <Button
@@ -545,7 +561,14 @@ function ProjectCard({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3 className="truncate text-sm font-medium">{project.name}</h3>
-              <Badge variant="secondary" className="text-3xs">
+              <Badge
+                variant="secondary"
+                className="text-3xs"
+                title={project.planReason || undefined}
+              >
+                {project.templateSource === "model" ? (
+                  <Sparkles className="size-2.5" />
+                ) : null}
                 {templateLabel(project.template)}
               </Badge>
             </div>
