@@ -5,6 +5,7 @@ import {
   EXEC_ALLOWED_PROGRAMS,
   EXEC_MAX_OUTPUT_BYTES,
   EXEC_TIMEOUT_MS,
+  RUN_ACTIVE_TIMEOUT_MS,
   SANDBOX_INACTIVITY_TIMEOUT_MS,
 } from "@atoms-lite/contracts";
 import type { Env } from "../env";
@@ -283,7 +284,9 @@ export class Workspace extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS atoms_runtime_status (
         id TEXT PRIMARY KEY,
         snapshot_error TEXT,
-        snapshot_at INTEGER
+        snapshot_at INTEGER,
+        active_run INTEGER NOT NULL DEFAULT 0,
+        run_started_at INTEGER
       )
     `);
     ctx.storage.sql.exec(`
@@ -316,6 +319,8 @@ export class Workspace extends DurableObject<Env> {
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
       "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
     ]) {
       try {
         ctx.storage.sql.exec(statement);
@@ -370,7 +375,8 @@ export class Workspace extends DurableObject<Env> {
       name TEXT PRIMARY KEY, version TEXT NOT NULL, url TEXT NOT NULL, updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_runtime_status (
-      id TEXT PRIMARY KEY, snapshot_error TEXT, snapshot_at INTEGER
+      id TEXT PRIMARY KEY, snapshot_error TEXT, snapshot_at INTEGER,
+      active_run INTEGER NOT NULL DEFAULT 0, run_started_at INTEGER
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_migration (
       id TEXT PRIMARY KEY, status TEXT NOT NULL, source_template TEXT NOT NULL,
@@ -390,6 +396,8 @@ export class Workspace extends DurableObject<Env> {
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
       "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
     ]) {
       try {
         sql.exec(statement);
@@ -474,6 +482,47 @@ export class Workspace extends DurableObject<Env> {
       )
       .toArray();
     return normalizeRuntime(rows[0]?.runtime);
+  }
+
+  private runActive(): boolean {
+    const columns = this.ctx.storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(atoms_runtime_status)")
+      .toArray();
+    if (!columns.some((column) => column.name === "active_run")) return false;
+    const row = this.ctx.storage.sql
+      .exec<{ active_run: number; run_started_at: number | null }>(
+        "SELECT active_run, run_started_at FROM atoms_runtime_status WHERE id = ?",
+        this.projectId,
+      )
+      .toArray()[0];
+    if (!row || row.active_run !== 1) return false;
+    if (!row.run_started_at) return false;
+    return Date.now() - row.run_started_at < RUN_ACTIVE_TIMEOUT_MS;
+  }
+
+  private inactivityTimeout(): number {
+    return this.runActive()
+      ? RUN_ACTIVE_TIMEOUT_MS
+      : SANDBOX_INACTIVITY_TIMEOUT_MS;
+  }
+
+  private async setRunActive(active: boolean): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_runtime_status (id, active_run, run_started_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET active_run = excluded.active_run,
+         run_started_at = excluded.run_started_at`,
+      this.projectId,
+      active ? 1 : 0,
+      active ? Date.now() : null,
+    );
+    if (this.runtime() === "container" && this.container.running) {
+      await this.container
+        .setInactivityTimeout(this.inactivityTimeout())
+        .catch((error) => {
+          console.error("[workspace] set inactivity timeout failed", error);
+        });
+    }
   }
 
   private configured(): boolean {
@@ -1367,9 +1416,7 @@ export class Workspace extends DurableObject<Env> {
           instance: targetTier,
         });
         await this.waitRunning();
-        await this.container.setInactivityTimeout(
-          SANDBOX_INACTIVITY_TIMEOUT_MS,
-        );
+        await this.container.setInactivityTimeout(this.inactivityTimeout());
       }
       await this.resetToTemplate(targetTemplate);
       await this.ensureMigrationIgnored();
@@ -1414,6 +1461,16 @@ export class Workspace extends DurableObject<Env> {
       throw new Error(
         "workspace lost: versions exist but .git is missing (snapshot restore failed); refusing to overwrite",
       );
+    }
+    if (!forced && !hasGit) {
+      const cached = this.ctx.storage.sql
+        .exec<{ n: number }>("SELECT COUNT(*) AS n FROM atoms_files")
+        .one().n;
+      if (cached > 0) {
+        throw new Error(
+          "workspace lost: generated files existed but the sandbox was reset; refusing to overwrite with the template",
+        );
+      }
     }
 
     const template = forceTemplate ?? this.template();
@@ -1647,7 +1704,7 @@ export class Workspace extends DurableObject<Env> {
         });
       }
 
-      await container.setInactivityTimeout(SANDBOX_INACTIVITY_TIMEOUT_MS);
+      await container.setInactivityTimeout(this.inactivityTimeout());
       await this.waitRunning();
     }
 
@@ -2146,6 +2203,19 @@ export class Workspace extends DurableObject<Env> {
           this.projectId,
         );
         this.ensurePromise = null;
+        return Response.json({ ok: true });
+      }
+
+      if (path === "/run/start" && request.method === "POST") {
+        if (!this.configured()) {
+          return Response.json({ ok: false, error: "not configured" }, { status: 409 });
+        }
+        await this.setRunActive(true);
+        return Response.json({ ok: true });
+      }
+
+      if (path === "/run/end" && request.method === "POST") {
+        await this.setRunActive(false);
         return Response.json({ ok: true });
       }
 

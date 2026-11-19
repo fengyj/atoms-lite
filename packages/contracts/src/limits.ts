@@ -4,6 +4,9 @@
  */
 export const SANDBOX_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
+/** Agent 正在运行时延长容器存活，避免长模型调用期间被回收后回滚到旧快照。 */
+export const RUN_ACTIVE_TIMEOUT_MS = 30 * 60_000;
+
 /** 单次 Agent 运行的最大步数。 */
 export const MAX_AGENT_STEPS = 20;
 

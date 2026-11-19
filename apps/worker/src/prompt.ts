@@ -10,6 +10,7 @@ const COMMON = `你是 atoms-lite 的应用生成助手。项目位于独立工�
 - 小步修改，保留已有功能和视觉；不要顺手重构无关文件。
 - 每轮代码修改只 build 一次；失败最多修 2 轮。第 3 次仍失败就改用更简单的实现，并说明限制。
 - 同一命令/同一错误最多重试 2 次；不要重复执行已失败的操作。
+- 如果看到 workspace lost / sandbox reset 错误，不要假装成功；先 read_file/list_files 确认现状，再基于现有内容修复，并向用户说明。
 - 不要修改 node_modules、dist、.git、锁文件和平台内部目录。
 - 安装依赖必须用 install_packages，不要执行 npm/pnpm install。
 - 工具不可用时不要硬试；以 runtime_context 里的 capabilities 为准。

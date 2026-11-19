@@ -89,6 +89,11 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const model = provider(this.env.MODEL_ID ?? "deepseek-v4.1-flash");
     const tools = createTools({ ws, ctx, model });
+    if (configured) {
+      await ws.beginRun().catch((error) => {
+        console.error("[agent] begin run failed", error);
+      });
+    }
     const modelMessages = await convertToModelMessages(this.messages);
     const messages = appendRuntimeContext(
       modelMessages,
@@ -108,18 +113,35 @@ export class ChatAgent extends AIChatAgent<Env> {
             : MAX_AGENT_STEPS_BUILD,
       ),
       onFinish: async () => {
-        if (!configured || meta?.migration?.active) return;
         try {
-          const result = await ws.snapshot();
-          if (!result.ok) {
-            console.error("[agent] finish snapshot failed", result.error);
+          if (configured && !meta?.migration?.active) {
+            const result = await ws.snapshot();
+            if (!result.ok) {
+              console.error("[agent] finish snapshot failed", result.error);
+            }
           }
         } catch (error) {
           console.error("[agent] finish snapshot threw", error);
+        } finally {
+          if (configured) {
+            await ws.endRun().catch((error) => {
+              console.error("[agent] end run failed", error);
+            });
+          }
         }
       },
-      onError: ({ error }) => {
+      onAbort: async () => {
+        if (!configured) return;
+        await ws.endRun().catch((error) => {
+          console.error("[agent] end run after abort failed", error);
+        });
+      },
+      onError: async ({ error }) => {
         console.error("model error", error);
+        if (!configured) return;
+        await ws.endRun().catch((endError) => {
+          console.error("[agent] end run after error failed", endError);
+        });
       },
     });
 

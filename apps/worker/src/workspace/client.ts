@@ -73,6 +73,14 @@ export class WorkspaceClient {
     return this.call<{ ok: boolean; running: boolean }>("/ensure", {});
   }
 
+  beginRun() {
+    return this.call<{ ok: boolean }>("/run/start", {});
+  }
+
+  endRun() {
+    return this.call<{ ok: boolean }>("/run/end", {});
+  }
+
   meta() {
     return this.call<{
       template: string;
