@@ -1304,8 +1304,6 @@ export class Workspace extends DurableObject<Env> {
       return this.serveBrowserFile(rest);
     }
 
-    await this.ensure();
-
     // 旧快照的 server.mjs 可能没有 .git 防护；在这一层统一拦截。
     let decodedRest = rest;
     try {
@@ -1322,6 +1320,7 @@ export class Workspace extends DurableObject<Env> {
     }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      await this.ensure();
       const target = new URL(request.url);
       target.protocol = "http:";
       target.host = "preview";
@@ -1341,17 +1340,44 @@ export class Workspace extends DurableObject<Env> {
 
     const headers = new Headers(request.headers);
     headers.delete("host");
+    const isRead =
+      request.method === "GET" || request.method === "HEAD";
 
-    const response = await this.container
-      .getTcpPort(PREVIEW_PORT)
-      .fetch(target.toString(), {
-        method: request.method,
-        headers,
-        body:
-          request.method === "GET" || request.method === "HEAD"
-            ? undefined
-            : request.body,
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < (isRead ? 3 : 1); attempt += 1) {
+      try {
+        await this.ensure();
+        response = await this.container
+          .getTcpPort(PREVIEW_PORT)
+          .fetch(target.toString(), {
+            method: request.method,
+            headers,
+            body: isRead ? undefined : request.body,
+          });
+        break;
+      } catch (error) {
+        console.error("[workspace] preview proxy failed", {
+          projectId: this.projectId,
+          attempt,
+          error: String(error).slice(0, 200),
+        });
+        if (attempt < 2) {
+          // ensure 可能拿到一个已结束的旧 promise；重置后让下一次重新检查/启动。
+          this.ensurePromise = null;
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+      }
+    }
+
+    if (!response) {
+      return new Response("预览暂时不可用，请稍后刷新重试。", {
+        status: 503,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+        },
       });
+    }
 
     // 全栈应用的 POST/PATCH/DELETE 可能在写 SQLite；延迟快照保数据。
     if (
