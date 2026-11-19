@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
-import { Loader2, MessageSquare, Sparkles } from "lucide-react";
+import { Crosshair, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -47,6 +47,7 @@ import {
   type AskUserPayload,
 } from "@/components/workspace/ask-user-card";
 import { SwitchRuntimeCard } from "@/components/workspace/switch-runtime-card";
+import type { ElementSelection } from "@/lib/element-selection";
 
 /** 空态示例需求：五子棋 */
 const SAMPLE_PROMPT =
@@ -63,6 +64,8 @@ export function ChatPanel({
   onAskUser,
   onSwitchRuntime,
   fallbackTemplate,
+  selection,
+  onClearSelection,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -85,6 +88,8 @@ export function ChatPanel({
     confirmed: boolean
   ) => Promise<void>;
   fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
+  selection?: ElementSelection | null;
+  onClearSelection?: () => void;
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -159,9 +164,36 @@ export function ChatPanel({
         </Conversation>
 
         <div className="border-t border-border p-3">
+          {selection ? (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1.5 text-2xs">
+              <Crosshair className="size-3 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate font-mono">
+                已选中 {selection.selector}
+              </span>
+              {selection.text ? (
+                <span className="hidden min-w-0 max-w-32 truncate text-muted-foreground sm:block">
+                  {selection.text}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                aria-label="取消选中元素"
+                onClick={onClearSelection}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          ) : null}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputBody>
-              <PromptInputTextarea placeholder="描述你想做的应用，或粘贴需求…" />
+              <PromptInputTextarea
+                placeholder={
+                  selection
+                    ? "描述想怎么改选中的元素…"
+                    : "描述你想做的应用，或粘贴需求…"
+                }
+              />
             </PromptInputBody>
             <PromptInputFooter className="justify-end">
               <PromptInputSubmit status={busy ? "streaming" : status} />

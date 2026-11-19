@@ -47,6 +47,7 @@ export function WorkbenchPanel({
   versions,
   files,
   messages,
+  onSelectElement,
 }: {
   className?: string;
   projectId: string;
@@ -56,6 +57,7 @@ export function WorkbenchPanel({
   versions: Endpoint<WorkspaceVersion[]>;
   files: Endpoint<WorkspaceFileListing>;
   messages: UIMessage[];
+  onSelectElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
 
@@ -112,6 +114,7 @@ export function WorkbenchPanel({
             projectId={projectId}
             url={previewUrl(projectId)}
             reloadKey={previewTick}
+            onSelectElement={onSelectElement}
           />
         </TabsContent>
 

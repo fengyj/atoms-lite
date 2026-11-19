@@ -1,5 +1,16 @@
 import type { ModelMessage } from "ai";
 
+export type SelectionContext = {
+  selector: string;
+  tag: string;
+  id?: string | null;
+  classes?: string[];
+  text?: string;
+  outerHTML?: string;
+  styles?: Record<string, string>;
+  url?: string;
+};
+
 export type MigrationContext = {
   active: boolean;
   sourceTemplate?: string;
@@ -23,6 +34,7 @@ export type RuntimeContext = {
   instanceTier: string;
   versions: number;
   migration: MigrationContext | null;
+  selection?: SelectionContext | null;
   capabilities: string[];
 };
 
@@ -37,6 +49,7 @@ export function buildRuntimeContext(input: {
   instanceTier?: string;
   versions?: number;
   migration?: MigrationContext | null;
+  selection?: SelectionContext | null;
   capabilities: string[];
 }): RuntimeContext {
   const now = new Date();
@@ -64,6 +77,7 @@ export function buildRuntimeContext(input: {
     instanceTier: input.instanceTier ?? "basic",
     versions: input.versions ?? 0,
     migration: input.migration ?? null,
+    selection: input.selection ?? null,
     capabilities: input.capabilities,
   };
 }
@@ -109,6 +123,34 @@ export function renderRuntimeContext(ctx: RuntimeContext): string {
   }
   lines.push(`capabilities: ${ctx.capabilities.join(", ")}`);
   lines.push("</runtime_context>");
+  if (ctx.selection) {
+    const selection = ctx.selection;
+    lines.push(
+      "<selected_element>",
+      `selector: ${selection.selector}`,
+      `tag: ${selection.tag}`,
+      ...(selection.id ? [`id: ${selection.id}`] : []),
+      ...(selection.classes?.length
+        ? [`classes: ${selection.classes.join(" ")}`]
+        : []),
+      ...(selection.text
+        ? [`text: ${selection.text.slice(0, 300)}`]
+        : []),
+      ...(selection.styles
+        ? [
+            `styles: ${Object.entries(selection.styles)
+              .slice(0, 20)
+              .map(([key, value]) => `${key}=${String(value).slice(0, 100)}`)
+              .join("; ")}`,
+          ]
+        : []),
+      ...(selection.outerHTML
+        ? [`outerHTML: ${selection.outerHTML.slice(0, 3000)}`]
+        : []),
+      ...(selection.url ? [`page: ${selection.url}`] : []),
+      "</selected_element>",
+    );
+  }
   return lines.join("\n");
 }
 

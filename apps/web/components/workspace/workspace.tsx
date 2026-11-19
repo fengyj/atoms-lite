@@ -22,6 +22,7 @@ import {
   switchRuntime,
 } from "@/lib/agent";
 import type { AskUserInput, AskUserPayload } from "@/components/workspace/ask-user-card";
+import type { ElementSelection } from "@/lib/element-selection";
 import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "workbench";
@@ -50,6 +51,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("chat");
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [selection, setSelection] = useState<ElementSelection | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
@@ -192,9 +194,13 @@ export function Workspace({ projectId }: { projectId: string }) {
 
   const submitText = useCallback(
     (text: string) => {
-      sendMessage({ text });
+      sendMessage(
+        { text },
+        { body: selection ? { selection } : {} }
+      );
+      setSelection(null);
     },
-    [sendMessage]
+    [sendMessage, selection]
   );
 
   const handleUpgrade = useCallback(async () => {
@@ -336,6 +342,8 @@ export function Workspace({ projectId }: { projectId: string }) {
           onAskUser={respondAskUser}
           onSwitchRuntime={respondSwitchRuntime}
           fallbackTemplate={project.data?.template ?? "static"}
+          selection={selection}
+          onClearSelection={() => setSelection(null)}
         />
         <ResizeHandle
           className="hidden md:flex"
@@ -359,6 +367,15 @@ export function Workspace({ projectId }: { projectId: string }) {
           versions={versions}
           files={files}
           messages={messages}
+          onSelectElement={(next) => {
+            setSelection(next);
+            if (
+              typeof window !== "undefined" &&
+              window.matchMedia("(max-width: 767px)").matches
+            ) {
+              setTab("chat");
+            }
+          }}
         />
       </div>
 

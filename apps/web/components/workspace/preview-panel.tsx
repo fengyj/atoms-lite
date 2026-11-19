@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, Monitor, Play, RotateCw } from "lucide-react";
+import {
+  Crosshair,
+  ExternalLink,
+  Loader2,
+  Monitor,
+  Play,
+  RotateCw,
+} from "lucide-react";
 import {
   WebPreview,
   WebPreviewBody,
@@ -11,6 +18,10 @@ import {
 } from "@/components/ai-elements/web-preview";
 import { Button } from "@/components/ui/button";
 import { fetchPreviewStatus, startPreview } from "@/lib/agent";
+import {
+  collectElementSelection,
+  type ElementSelection,
+} from "@/lib/element-selection";
 import { cn } from "@/lib/utils";
 
 type PreviewPhase =
@@ -35,6 +46,7 @@ export function PreviewPanel({
   projectId,
   url,
   reloadKey,
+  onSelectElement,
 }: {
   className?: string;
   /** 当前项目 ID（用于健康探测） */
@@ -43,12 +55,18 @@ export function PreviewPanel({
   url: string;
   /** 变化时重新探测并重载 iframe（工具结果触发） */
   reloadKey: number;
+  /** 在预览里选中一个元素，把 DOM/样式上下文带回对话 */
+  onSelectElement?: (selection: ElementSelection) => void;
 }) {
   const [phase, setPhase] = useState<PreviewPhase>("probing");
   const [active, setActive] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [checkNonce, setCheckNonce] = useState(0);
+  const [pickerActive, setPickerActive] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [frameLoaded, setFrameLoaded] = useState(0);
+  const frameWrapRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false);
 
   // 页面重新可见 / 窗口聚焦时重新探测，避免刷新后把活着的沙箱当成休眠。
@@ -64,6 +82,76 @@ export function PreviewPanel({
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
+
+  // 预览元素选择：只在用户主动开启时给 iframe 挂事件。
+  useEffect(() => {
+    if (!pickerActive || !active) return;
+    const iframe = frameWrapRef.current?.querySelector("iframe");
+    let doc: Document | null = null;
+    try {
+      doc = iframe?.contentDocument ?? null;
+    } catch {
+      doc = null;
+    }
+    if (!doc) {
+      setPickerError("无法读取预览 DOM：本地开发时预览与主站不同源，生产环境可用。");
+      return;
+    }
+
+    setPickerError(null);
+    let highlighted: HTMLElement | null = null;
+    let previousOutline = "";
+    let previousOffset = "";
+
+    const clearHighlight = () => {
+      if (!highlighted) return;
+      highlighted.style.outline = previousOutline;
+      highlighted.style.outlineOffset = previousOffset;
+      highlighted = null;
+    };
+
+    const onOver = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof doc!.defaultView!.HTMLElement)) return;
+      if (target === highlighted) return;
+      clearHighlight();
+      highlighted = target;
+      previousOutline = target.style.outline;
+      previousOffset = target.style.outlineOffset;
+      target.style.outline = "2px solid #8f9fff";
+      target.style.outlineOffset = "2px";
+    };
+
+    const onClick = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof doc!.defaultView!.Element)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const selection = collectElementSelection(target);
+      clearHighlight();
+      setPickerActive(false);
+      onSelectElement?.(selection);
+    };
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        clearHighlight();
+        setPickerActive(false);
+      }
+    };
+
+    doc.addEventListener("mouseover", onOver, true);
+    doc.addEventListener("mouseout", clearHighlight, true);
+    doc.addEventListener("click", onClick, true);
+    doc.addEventListener("keydown", onKey, true);
+    return () => {
+      clearHighlight();
+      doc?.removeEventListener("mouseover", onOver, true);
+      doc?.removeEventListener("mouseout", clearHighlight, true);
+      doc?.removeEventListener("click", onClick, true);
+      doc?.removeEventListener("keydown", onKey, true);
+    };
+  }, [pickerActive, active, frameLoaded, onSelectElement]);
 
   // 只探测，不启动：容器在休眠时保持 iframe 不加载。
   useEffect(() => {
@@ -202,13 +290,42 @@ export function PreviewPanel({
             <span className={cn("size-1.5 rounded-full", meta.dot)} />
             {meta.label}
           </span>
+          {onSelectElement ? (
+            <WebPreviewNavigationButton
+              tooltip={pickerActive ? "取消选择元素" : "选择元素并带到对话"}
+              onClick={() => {
+                setPickerError(null);
+                setPickerActive((value) => !value);
+              }}
+            >
+              <Crosshair
+                className={cn("size-3.5", pickerActive && "text-primary")}
+              />
+            </WebPreviewNavigationButton>
+          ) : null}
           <WebPreviewNavigationButton tooltip="新窗口" onClick={openExternal}>
             <ExternalLink className="size-3.5" />
           </WebPreviewNavigationButton>
         </WebPreviewNavigation>
 
+        {pickerError ? (
+          <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-2xs text-destructive">
+            {pickerError}
+          </div>
+        ) : null}
         {active ? (
-          <WebPreviewBody key={`${reloadKey}-${frameKey}`} src={frameSrc} />
+          <div ref={frameWrapRef} className="relative flex min-h-0 flex-1">
+            <WebPreviewBody
+              key={`${reloadKey}-${frameKey}`}
+              src={frameSrc}
+              onLoad={() => setFrameLoaded((value) => value + 1)}
+            />
+            {pickerActive ? (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-primary px-3 py-1 text-center text-2xs font-medium text-primary-foreground">
+                点击预览里的元素，把它带到对话里修改
+              </div>
+            ) : null}
+          </div>
         ) : (
           <PreviewPlaceholder
             phase={phase}

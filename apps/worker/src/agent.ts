@@ -26,7 +26,10 @@ export class ChatAgent extends AIChatAgent<Env> {
     return super.onRequest(request);
   }
 
-  override async onChatMessage(): Promise<Response> {
+  override async onChatMessage(
+    _onFinish?: Parameters<AIChatAgent<Env>["onChatMessage"]>[0],
+    options?: { body?: Record<string, unknown> },
+  ): Promise<Response> {
     const baseURL = this.env.MODEL_BASE_URL;
     const apiKey = this.env.MODEL_API_KEY;
 
@@ -73,6 +76,23 @@ export class ChatAgent extends AIChatAgent<Env> {
         ]
       : ["ask_user"];
 
+    const rawSelection = options?.body?.selection;
+    const selection =
+      rawSelection &&
+      typeof rawSelection === "object" &&
+      typeof (rawSelection as { selector?: unknown }).selector === "string"
+        ? (rawSelection as {
+            selector: string;
+            tag: string;
+            id?: string | null;
+            classes?: string[];
+            text?: string;
+            outerHTML?: string;
+            styles?: Record<string, string>;
+            url?: string;
+          })
+        : null;
+
     const ctx = buildRuntimeContext({
       projectId,
       configured,
@@ -84,6 +104,7 @@ export class ChatAgent extends AIChatAgent<Env> {
       instanceTier: meta?.instanceTier,
       versions: meta?.versionCount,
       migration: meta?.migration ?? null,
+      selection,
       capabilities,
     });
 

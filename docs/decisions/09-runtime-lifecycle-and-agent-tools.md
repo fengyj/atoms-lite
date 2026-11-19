@@ -110,3 +110,15 @@ browser < container/basic < container/standard-1 < container/standard-2
 - 旧版本只保留展示，不保证可回滚到旧 runtime。
 - 迁移期间旧环境仍可能被快照；`finish_migration` 前不要创建版本。
 - 自动升级实例仍只支持手动触发（见 07）。
+
+## 7. 预览元素选择
+
+预览工具栏提供「选择元素」：
+
+- 在 same-origin 的预览 iframe 内高亮元素，点击后收集 selector、tag、class、
+  text、outerHTML、关键 computed styles、位置和页面 URL。
+- 通过 `sendMessage(..., { body: { selection } })` 作为请求上下文发送；
+  不写入消息正文，也不持久化到历史。
+- `onChatMessage` 把 `<selected_element>` 附到模型上下文，提示词要求优先局部修改。
+- 本地开发时 Web 与 Worker 不同源，选择器会提示无法读取 DOM；生产同源可用。
+- 这是 Live Mode 的轻量替代：先做「选中 + 对话修改」，不做三变体热替换。
