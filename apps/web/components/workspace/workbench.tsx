@@ -526,6 +526,7 @@ function FileViewer({
             code={content}
             language={languageForPath(path)}
             showLineNumbers
+            compact
             className="min-h-full rounded-none border-0"
           />
         )}

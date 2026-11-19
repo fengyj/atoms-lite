@@ -10,6 +10,8 @@ type CodeBlockProps = {
   code: string;
   language?: string;
   showLineNumbers?: boolean;
+  /** 更紧凑的行高，用于文件查看器等长内容场景 */
+  compact?: boolean;
   className?: string;
 };
 
@@ -21,6 +23,7 @@ export const CodeBlock = ({
   code,
   language,
   showLineNumbers = false,
+  compact = false,
   className,
 }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
@@ -65,15 +68,21 @@ export const CodeBlock = ({
         {html ? (
           <div
             className={cn(
-              "[&_code]:font-mono [&_code]:text-sm [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm",
+              "[&_code]:font-mono [&_pre]:m-0 [&_pre]:bg-transparent! [&_pre]:p-4 [&_pre]:text-sm",
+              compact ? "[&_pre]:leading-tight" : "[&_pre]:leading-5",
               showLineNumbers && "code-line-numbers"
             )}
             // shiki 生成的 HTML 由库产出，不是用户输入
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
-          <pre className="m-0 p-4 font-mono text-sm leading-6">
-            <code className="font-mono text-sm">{display}</code>
+          <pre
+            className={cn(
+              "m-0 p-4 font-mono text-sm",
+              compact ? "leading-tight" : "leading-5"
+            )}
+          >
+            <code className="font-mono">{display}</code>
           </pre>
         )}
       </div>
