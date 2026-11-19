@@ -1,15 +1,12 @@
 /**
  * 工作台与 Worker 的真实接线层。
  *
- * 接口已冻结（后端按此实现）：
- * - Agent 类名 `ChatAgent`，会话名固定 `demo`
- * - Worker host：本地开发 `NEXT_PUBLIC_WORKER_HOST ?? "http://localhost:8787"`；
- *   生产 `NEXT_PUBLIC_WORKER_HOST` 为空时用相对路径（同源）
- * - 预览地址 `${host}/previews/demo/`
- * - 版本列表 `GET ${host}/api/workspace/versions`
- * - 文件列表 `GET ${host}/api/workspace/files`
- *
- * 组件只依赖这里导出的类型与数据，不接触后端的原始 DB 结构。
+ * 接口：
+ * - Agent 类名 `ChatAgent`，实例名 = 项目 ID
+ * - 项目索引：GET/POST `${host}/api/projects`，GET `${host}/api/projects/:id`
+ * - 项目能力：`${host}/api/projects/:id/versions|files|preview/status`
+ * - 预览：`${host}/previews/:id/`
+ * - 会话页：`/sessions/:id`（静态导出只有一个 shell，Worker 复用）
  */
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,75 +15,127 @@ export const WORKER_HOST =
   (process.env.NODE_ENV === "development" ? "http://localhost:8787" : "");
 
 export const AGENT_CLASS = "ChatAgent";
-export const AGENT_SESSION = "demo";
 
 export function workerUrl(path: string): string {
   return `${WORKER_HOST}${path}`;
 }
 
+export function projectApiUrl(projectId: string, path = ""): string {
+  return workerUrl(`/api/projects/${encodeURIComponent(projectId)}${path}`);
+}
+
 /** 预览 iframe 指向的地址 */
-export const PREVIEW_URL = workerUrl("/previews/demo/");
+export function previewUrl(projectId: string): string {
+  return workerUrl(`/previews/${encodeURIComponent(projectId)}/`);
+}
 
-export const WORKSPACE_VERSIONS_URL = workerUrl("/api/workspace/versions");
-export const WORKSPACE_FILES_URL = workerUrl("/api/workspace/files");
-export const WORKSPACE_PREVIEW_STATUS_URL = workerUrl(
-  "/api/workspace/preview/status"
-);
+export const PROJECTS_URL = workerUrl("/api/projects");
 
-/** GET /api/workspace/versions 的条目（冻结接口） */
-export type WorkspaceVersion = {
+export type ProjectVersion = {
   id: string;
   gitCommit: string;
   summary: string;
-  status: string;
   createdAt: number;
+};
+
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  prompt: string;
+  createdAt: number;
+  updatedAt: number;
+  versionCount: number;
+  currentVersion: ProjectVersion | null;
+};
+
+/** GET /api/projects/:id/versions 的条目 */
+export type WorkspaceVersion = ProjectVersion & {
+  parentId: string | null;
+  status: string;
   current: boolean;
 };
 
-/** GET /api/workspace/files 的条目（冻结接口） */
+/** GET /api/projects/:id/files 的条目 */
 export type WorkspaceFileEntry = {
   path: string;
   type: string;
   size?: number;
 };
 
+export type PreviewStatus = { running: boolean; ready: boolean };
+
+type ProjectsResponse = { projects?: ProjectSummary[] };
+type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
 type FilesResponse = { entries?: WorkspaceFileEntry[] };
+
+async function json<T>(res: Response, label: string): Promise<T> {
+  if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export async function fetchProjects(
+  signal?: AbortSignal
+): Promise<ProjectSummary[]> {
+  const res = await fetch(PROJECTS_URL, { signal });
+  return (await json<ProjectsResponse>(res, "projects")).projects ?? [];
+}
+
+export async function fetchProject(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<ProjectSummary> {
+  const res = await fetch(projectApiUrl(projectId), { signal });
+  const project = (await json<ProjectResponse>(res, "project")).project;
+  if (!project) throw new Error("project not found");
+  return project;
+}
+
+export async function createProject(
+  prompt: string,
+  signal?: AbortSignal
+): Promise<ProjectSummary> {
+  const res = await fetch(PROJECTS_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt }),
+    signal,
+  });
+  const project = (await json<ProjectResponse>(res, "create project")).project;
+  if (!project) throw new Error("project was not created");
+  return project;
+}
 
 /**
  * 版本列表只读 DO 存储，容器停止时依然可用；
  * 请求失败时抛错，由调用方决定展示。
  */
 export async function fetchWorkspaceVersions(
+  projectId: string,
   signal?: AbortSignal
 ): Promise<WorkspaceVersion[]> {
-  const res = await fetch(WORKSPACE_VERSIONS_URL, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as VersionsResponse;
-  return data.versions ?? [];
+  const res = await fetch(projectApiUrl(projectId, "/versions"), { signal });
+  return (await json<VersionsResponse>(res, "versions")).versions ?? [];
 }
 
 export async function fetchWorkspaceFiles(
+  projectId: string,
   signal?: AbortSignal
 ): Promise<WorkspaceFileEntry[]> {
-  const res = await fetch(WORKSPACE_FILES_URL, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as FilesResponse;
-  return data.entries ?? [];
+  const res = await fetch(projectApiUrl(projectId, "/files"), { signal });
+  return (await json<FilesResponse>(res, "files")).entries ?? [];
 }
-
-export type PreviewStatus = { running: boolean; ready: boolean };
 
 /**
  * 预览健康探测：iframe 的 onError 对 4xx/5xx 不会触发，
  * 因此状态徽标以这个接口为准。
  */
 export async function fetchPreviewStatus(
+  projectId: string,
   signal?: AbortSignal
 ): Promise<PreviewStatus> {
-  const res = await fetch(WORKSPACE_PREVIEW_STATUS_URL, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as Partial<PreviewStatus>;
+  const res = await fetch(projectApiUrl(projectId, "/preview/status"), { signal });
+  const data = (await json<Partial<PreviewStatus>>(res, "preview status")) ?? {};
   return { running: Boolean(data.running), ready: Boolean(data.ready) };
 }
 
@@ -129,12 +178,32 @@ function useEndpoint<T>(
   return { data, loading, error, refresh };
 }
 
-export function useWorkspaceVersions(): Endpoint<WorkspaceVersion[]> {
-  return useEndpoint(fetchWorkspaceVersions);
+export function useProjects(): Endpoint<ProjectSummary[]> {
+  return useEndpoint(fetchProjects);
 }
 
-export function useWorkspaceFiles(): Endpoint<WorkspaceFileEntry[]> {
-  return useEndpoint(fetchWorkspaceFiles);
+export function useProject(projectId: string): Endpoint<ProjectSummary> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchProject(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useWorkspaceVersions(projectId: string): Endpoint<WorkspaceVersion[]> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchWorkspaceVersions(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useWorkspaceFiles(projectId: string): Endpoint<WorkspaceFileEntry[]> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchWorkspaceFiles(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
 }
 
 /* ---------------------------------------------------------------- *

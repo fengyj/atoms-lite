@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  AGENT_SESSION,
   formatClock,
   shortCommit,
   type WorkspaceVersion,
@@ -24,6 +23,8 @@ export function TopBar({
   sideOpen,
   onToggleSide,
   runState,
+  projectId,
+  projectName,
   currentVersion,
   versionNote,
 }: {
@@ -31,6 +32,8 @@ export function TopBar({
   onToggleSide: () => void;
   /** Agent 运行状态（就绪 / 生成中 / 出错） */
   runState: RunState;
+  projectId: string;
+  projectName: string;
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
@@ -57,10 +60,10 @@ export function TopBar({
 
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate text-sm whitespace-nowrap text-foreground">
-          五子棋 Demo
+          {projectName}
         </span>
-        <span className="hidden text-2xs whitespace-nowrap text-muted-foreground sm:inline">
-          session {AGENT_SESSION}
+        <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground sm:inline">
+          {projectId}
         </span>
       </div>
 

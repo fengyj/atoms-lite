@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { Workspace } from "@/components/workspace/workspace";
 
 export default function SessionPage() {
-  const [mounted, setMounted] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
+    const segment = window.location.pathname.split("/").filter(Boolean).pop();
+    setProjectId(segment || "demo");
   }, []);
 
-  if (!mounted) {
+  if (!projectId) {
     return (
       <div className="grid h-dvh place-items-center bg-background text-sm text-muted-foreground">
         加载中…
@@ -18,5 +19,5 @@ export default function SessionPage() {
     );
   }
 
-  return <Workspace />;
+  return <Workspace projectId={projectId} />;
 }

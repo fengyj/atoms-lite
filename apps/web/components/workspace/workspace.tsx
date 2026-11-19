@@ -12,9 +12,9 @@ import { TopBar } from "@/components/workspace/top-bar";
 import type { RunState } from "@/components/workspace/top-bar";
 import {
   AGENT_CLASS,
-  AGENT_SESSION,
-  PREVIEW_URL,
   WORKER_HOST,
+  previewUrl,
+  useProject,
   useWorkspaceFiles,
   useWorkspaceVersions,
 } from "@/lib/agent";
@@ -22,16 +22,16 @@ import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "preview";
 
-const SESSION_PATH = "/sessions/demo";
-
-export function Workspace() {
+export function Workspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("chat");
   const [sideOpen, setSideOpen] = useState(false);
 
-  // 对话：真实 Agent 会话（接口冻结：ChatAgent / demo）
+  // 项目元数据（名称/版本数）与当前项目专属的 Agent 会话
+  const project = useProject(projectId);
+
   const agent = useAgent({
     agent: AGENT_CLASS,
-    name: AGENT_SESSION,
+    name: projectId,
     host: WORKER_HOST,
   });
   const {
@@ -67,9 +67,9 @@ export function Workspace() {
       ?.trim();
     if (!prompt) return;
     // 清掉 query，刷新时不再重复发送
-    window.history.replaceState(null, "", SESSION_PATH);
+    window.history.replaceState(null, "", `/sessions/${projectId}`);
     setPendingPrompt(prompt);
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     if (!pendingPrompt || !agentReady) return;
@@ -79,8 +79,8 @@ export function Workspace() {
   }, [pendingPrompt, agentReady, status, isStreaming, sendMessage]);
 
   // 侧栏数据：版本（DO 存储，容器停止也能读）与文件列表
-  const versions = useWorkspaceVersions();
-  const files = useWorkspaceFiles();
+  const versions = useWorkspaceVersions(projectId);
+  const files = useWorkspaceFiles(projectId);
   const refreshVersions = versions.refresh;
   const refreshFiles = files.refresh;
 
@@ -137,6 +137,12 @@ export function Workspace() {
         ? null
         : "暂无版本";
 
+  const projectName = project.data?.name ?? "工作区";
+
+  useEffect(() => {
+    document.title = `${projectName} · atoms-lite`;
+  }, [projectName]);
+
   const submitText = useCallback(
     (text: string) => {
       sendMessage({ text });
@@ -157,6 +163,8 @@ export function Workspace() {
         sideOpen={sideOpen}
         onToggleSide={() => setSideOpen((v) => !v)}
         runState={runState}
+        projectId={projectId}
+        projectName={projectName}
         currentVersion={currentVersion}
         versionNote={versionNote}
       />
@@ -179,7 +187,8 @@ export function Workspace() {
             "min-w-0 flex-1",
             tab === "preview" ? "flex" : "hidden md:flex"
           )}
-          url={PREVIEW_URL}
+          projectId={projectId}
+          url={previewUrl(projectId)}
           reloadKey={previewTick}
           onRefresh={refreshPreview}
         />

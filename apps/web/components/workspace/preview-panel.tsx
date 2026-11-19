@@ -24,11 +24,14 @@ const phaseMeta: Record<PreviewPhase, { dot: string; label: string }> = {
 
 export function PreviewPanel({
   className,
+  projectId,
   url,
   reloadKey,
   onRefresh,
 }: {
   className?: string;
+  /** 当前项目 ID（用于健康探测） */
+  projectId: string;
   /** 预览地址（Worker 上的沙箱预览） */
   url: string;
   /** 变化时强制重载 iframe（工具结果触发） */
@@ -48,7 +51,7 @@ export function PreviewPanel({
 
     const probe = async () => {
       try {
-        const status = await fetchPreviewStatus(controller.signal);
+        const status = await fetchPreviewStatus(projectId, controller.signal);
         if (cancelled) return;
         if (status.ready) {
           setPhase("ready");
@@ -72,7 +75,7 @@ export function PreviewPanel({
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [reloadKey, url]);
+  }, [projectId, reloadKey, url]);
 
   const openExternal = () => {
     window.open(url, "_blank", "noopener,noreferrer");

@@ -29,7 +29,9 @@ export class ChatAgent extends AIChatAgent<Env> {
       headers: { "x-opencode-session": "atoms-lite" },
     });
 
-    const ws = new WorkspaceClient(this.env, "demo");
+    // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
+    const projectId = this.name;
+    const ws = new WorkspaceClient(this.env, projectId);
 
     const tools = {
       list_files: tool({

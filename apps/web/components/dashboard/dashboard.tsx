@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Clock3,
@@ -30,12 +29,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  fetchPreviewStatus,
+  createProject,
   formatClock,
   shortCommit,
-  useWorkspaceFiles,
-  useWorkspaceVersions,
-  type PreviewStatus,
+  useProjects,
+  type ProjectSummary,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
@@ -54,46 +52,42 @@ const EXAMPLES = [
   },
 ];
 
-const SESSION_PATH = "/sessions/demo";
-
 export function Dashboard() {
-  const router = useRouter();
-  const versions = useWorkspaceVersions();
-  const files = useWorkspaceFiles();
-  const [preview, setPreview] = useState<PreviewStatus | null>(null);
-
+  const projects = useProjects();
   const [prompt, setPrompt] = useState("");
   const [mode, setMode] = useState("single");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    let alive = true;
-    fetchPreviewStatus()
-      .then((next) => {
-        if (alive) setPreview(next);
-      })
-      .catch(() => {
-        if (alive) setPreview({ running: false, ready: false });
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const currentVersion =
-    versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
-  const versionCount = versions.data?.length ?? 0;
-  const projectCount = versionCount > 0 ? 1 : 0;
+  const list = projects.data ?? [];
+  const versionTotal = list.reduce((sum, item) => sum + item.versionCount, 0);
+  const lastSaved = list.reduce(
+    (latest, item) => Math.max(latest, item.currentVersion?.createdAt ?? 0),
+    0
+  );
 
   const focusComposer = () => {
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     textareaRef.current?.focus();
   };
 
-  const submit = (text: string) => {
+  const submit = async (text: string) => {
     const value = text.trim();
-    if (!value) return;
-    router.push(`${SESSION_PATH}?prompt=${encodeURIComponent(value)}`);
+    if (!value || creating) return;
+
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const project = await createProject(value);
+      // 静态导出没有为动态项目 ID 预渲染 HTML，这里走整页加载
+      window.location.assign(
+        `/sessions/${encodeURIComponent(project.id)}?prompt=${encodeURIComponent(value)}`
+      );
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : String(error));
+      setCreating(false);
+    }
   };
 
   return (
@@ -125,17 +119,20 @@ export function Dashboard() {
           最近项目
         </div>
         <div className="mt-1 space-y-0.5 px-2">
-          {versionCount > 0 ? (
-            <Link
-              href={SESSION_PATH}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            >
-              <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span className="truncate">五子棋 Demo</span>
-            </Link>
+          {list.length > 0 ? (
+            list.slice(0, 4).map((project) => (
+              <a
+                key={project.id}
+                href={`/sessions/${encodeURIComponent(project.id)}`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span className="truncate">{project.name}</span>
+              </a>
+            ))
           ) : (
             <p className="px-2 py-1.5 text-xs text-muted-foreground">
-              还没有项目
+              {projects.loading ? "加载中…" : "还没有项目"}
             </p>
           )}
         </div>
@@ -172,7 +169,15 @@ export function Dashboard() {
           </Badge>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
-              <Link href={SESSION_PATH}>打开工作区</Link>
+              <a
+                href={
+                  list[0]
+                    ? `/sessions/${encodeURIComponent(list[0].id)}`
+                    : "/sessions/demo"
+                }
+              >
+                打开工作区
+              </a>
             </Button>
             <Button size="sm" onClick={focusComposer} className="gap-1.5">
               <Plus className="size-3.5" />
@@ -190,8 +195,8 @@ export function Dashboard() {
               把一个想法变成可运行的应用
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              描述你要的网站，Agent 会在隔离沙箱里写代码、启动预览并保存版本。
-              当前支持单角色与多文件静态站点。
+              每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话，
+              修改新项目不会影响已有项目。
             </p>
           </div>
 
@@ -203,7 +208,7 @@ export function Dashboard() {
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                   event.preventDefault();
-                  submit(prompt);
+                  void submit(prompt);
                 }
               }}
               placeholder="例如：做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始"
@@ -238,14 +243,24 @@ export function Dashboard() {
               <Button
                 size="sm"
                 className="gap-1.5"
-                disabled={!prompt.trim()}
-                onClick={() => submit(prompt)}
+                disabled={!prompt.trim() || creating}
+                onClick={() => void submit(prompt)}
               >
-                <WandSparkles className="size-3.5" />
-                开始生成
+                {creating ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <WandSparkles className="size-3.5" />
+                )}
+                {creating ? "创建中…" : "开始生成"}
               </Button>
             </div>
           </div>
+
+          {createError ? (
+            <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+              创建项目失败：{createError}
+            </p>
+          ) : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="text-2xs text-muted-foreground">试试：</span>
@@ -268,41 +283,23 @@ export function Dashboard() {
             <StatCard
               icon={<FolderKanban />}
               label="项目"
-              value={projectCount > 0 ? `${projectCount}` : "0"}
+              value={projects.loading ? "…" : `${list.length}`}
             />
             <StatCard
               icon={<GitBranch />}
               label="版本"
-              value={versionCount > 0 ? `${versionCount}` : "—"}
+              value={projects.loading ? "…" : `${versionTotal}`}
             />
             <StatCard
               icon={<Clock3 />}
               label="最近保存"
-              value={
-                currentVersion ? formatClock(currentVersion.createdAt) : "—"
-              }
+              value={lastSaved > 0 ? formatClock(lastSaved) : "—"}
             />
             <StatCard
               icon={<Code2 />}
               label="沙箱"
-              value={
-                preview === null
-                  ? "检测中"
-                  : preview.ready
-                    ? "运行中"
-                    : preview.running
-                      ? "启动中"
-                      : "已休眠"
-              }
-              dot={
-                preview === null
-                  ? "bg-warning animate-pulse"
-                  : preview.ready
-                    ? "bg-success"
-                    : preview.running
-                      ? "bg-warning animate-pulse"
-                      : "bg-muted-foreground"
-              }
+              value="按需启动"
+              dot="bg-success"
             />
           </div>
 
@@ -313,7 +310,7 @@ export function Dashboard() {
                   我的项目
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  v1 只保留一个演示项目；新的需求会继续修改当前工作区。
+                  每个项目有独立的容器与版本；点击卡片进入对应工作区。
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={focusComposer}>
@@ -323,57 +320,18 @@ export function Dashboard() {
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              {versionCount > 0 && currentVersion ? (
-                <Link
-                  href={SESSION_PATH}
-                  className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/50"
-                >
-                  <div className="flex items-start gap-3 p-4">
-                    <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">
-                      <Gamepad2 className="size-6 text-primary" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-sm font-medium">
-                          五子棋 Demo
-                        </h3>
-                        <Badge variant="secondary" className="text-3xs">
-                          Web
-                        </Badge>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {currentVersion.summary}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <GitBranch className="size-3" />
-                          {shortCommit(currentVersion.gitCommit)}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Clock3 className="size-3" />
-                          {formatClock(currentVersion.createdAt)}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Code2 className="size-3" />
-                          {files.data?.length ?? 0} 个文件
-                        </span>
-                      </div>
-                    </div>
-                    <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-                  </div>
-                  <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
-                    <span className="size-1.5 rounded-full bg-success" />
-                    已保存版本 · 可继续对话修改
-                  </div>
-                </Link>
-              ) : (
+              {list.map((project) => (
+                <ProjectCard key={project.id} project={project} />
+              ))}
+
+              {list.length === 0 && !projects.loading ? (
                 <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-6 text-center">
-                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                  <FolderKanban className="size-5 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">
-                    {versions.loading ? "正在读取项目…" : "还没有项目"}
+                    还没有项目，输入一个需求创建第一个。
                   </p>
                 </div>
-              )}
+              ) : null}
 
               <button
                 type="button"
@@ -383,22 +341,80 @@ export function Dashboard() {
                 <span className="grid size-10 place-items-center rounded-full border border-border bg-card">
                   <Plus className="size-4 text-muted-foreground" />
                 </span>
-                <span className="text-sm font-medium">从新需求开始</span>
+                <span className="text-sm font-medium">新建项目</span>
                 <span className="max-w-56 text-2xs leading-5 text-muted-foreground">
-                  描述一个网站，Agent 会直接在当前演示项目中实现
+                  描述一个网站，会创建一个独立项目并进入工作区
                 </span>
               </button>
             </div>
-          </section>
 
-          {versions.error ? (
-            <p className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
-              无法读取工作区：{versions.error}
-            </p>
-          ) : null}
+            {projects.error ? (
+              <p className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+                无法读取项目：{projects.error}
+              </p>
+            ) : null}
+          </section>
         </main>
       </div>
     </div>
+  );
+}
+
+function ProjectCard({ project }: { project: ProjectSummary }) {
+  const version = project.currentVersion;
+
+  return (
+    <a
+      href={`/sessions/${encodeURIComponent(project.id)}`}
+      className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/50"
+    >
+      <div className="flex items-start gap-3 p-4">
+        <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">
+          {/棋/.test(project.name) ? (
+            <Gamepad2 className="size-6 text-primary" />
+          ) : (
+            <Code2 className="size-6 text-primary" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-sm font-medium">{project.name}</h3>
+            <Badge variant="secondary" className="text-3xs">
+              Web
+            </Badge>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+            {version?.summary || project.prompt}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <GitBranch className="size-3" />
+              {version ? shortCommit(version.gitCommit) : "未生成"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock3 className="size-3" />
+              {version ? formatClock(version.createdAt) : "刚创建"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Code2 className="size-3" />
+              {project.versionCount} 个版本
+            </span>
+          </div>
+        </div>
+        <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+      </div>
+      <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            version ? "bg-success" : "bg-warning"
+          )}
+        />
+        {version
+          ? `已保存版本 · ${project.id}`
+          : `新项目 · 打开后发送第一条需求`}
+      </div>
+    </a>
   );
 }
 

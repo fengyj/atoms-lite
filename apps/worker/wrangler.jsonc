@@ -19,11 +19,13 @@
   "durable_objects": {
     "bindings": [
       { "class_name": "ChatAgent", "name": "ChatAgent" },
-      { "class_name": "Workspace", "name": "WORKSPACE" }
+      { "class_name": "Workspace", "name": "WORKSPACE" },
+      { "class_name": "Projects", "name": "PROJECTS" }
     ]
   },
   "exports": {
     "ChatAgent": { "type": "durable-object", "storage": "sqlite" },
-    "Workspace": { "type": "durable-object", "storage": "sqlite" }
+    "Workspace": { "type": "durable-object", "storage": "sqlite" },
+    "Projects": { "type": "durable-object", "storage": "sqlite" }
   }
 }

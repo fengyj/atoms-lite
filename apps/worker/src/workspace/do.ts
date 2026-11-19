@@ -55,11 +55,14 @@ type VersionDbRow = {
 };
 
 export class Workspace extends DurableObject<Env> {
+  private readonly projectId: string;
   private ensurePromise: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // 每个项目一个 DO（idFromName(projectId)），同时也拥有自己的容器。
+    this.projectId = ctx.id.name ?? "demo";
     ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS atoms_versions (
         id TEXT PRIMARY KEY,
@@ -84,7 +87,8 @@ export class Workspace extends DurableObject<Env> {
       )
     `);
     ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES ('demo', NULL)`,
+      "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
+      this.projectId,
     );
   }
 
@@ -131,7 +135,8 @@ export class Workspace extends DurableObject<Env> {
   private snapshotId(): string | null {
     const rows = this.ctx.storage.sql
       .exec<{ snapshot_id: string }>(
-        "SELECT snapshot_id FROM atoms_snapshots WHERE project_id = 'demo'",
+        "SELECT snapshot_id FROM atoms_snapshots WHERE project_id = ?",
+        this.projectId,
       )
       .toArray();
     return rows[0]?.snapshot_id ?? null;
@@ -146,7 +151,8 @@ export class Workspace extends DurableObject<Env> {
   private currentVersionId(): string | null {
     const rows = this.ctx.storage.sql
       .exec<{ current_version_id: string | null }>(
-        "SELECT current_version_id FROM atoms_workspace WHERE id = 'demo'",
+        "SELECT current_version_id FROM atoms_workspace WHERE id = ?",
+        this.projectId,
       )
       .toArray();
     return rows[0]?.current_version_id ?? null;
@@ -154,8 +160,9 @@ export class Workspace extends DurableObject<Env> {
 
   private setCurrentVersion(id: string | null): void {
     this.ctx.storage.sql.exec(
-      "UPDATE atoms_workspace SET current_version_id = ? WHERE id = 'demo'",
+      "UPDATE atoms_workspace SET current_version_id = ? WHERE id = ?",
       id,
+      this.projectId,
     );
   }
 
@@ -282,8 +289,9 @@ export class Workspace extends DurableObject<Env> {
     try {
       const snap = await this.container.snapshotContainer({ name: "atoms-lite" });
       this.ctx.storage.sql.exec(
-        `INSERT INTO atoms_snapshots (project_id, snapshot_id, created_at) VALUES ('demo', ?, ?)
+        `INSERT INTO atoms_snapshots (project_id, snapshot_id, created_at) VALUES (?, ?, ?)
          ON CONFLICT(project_id) DO UPDATE SET snapshot_id = excluded.snapshot_id, created_at = excluded.created_at`,
+        this.projectId,
         snap.id,
         Date.now(),
       );
@@ -448,7 +456,8 @@ export class Workspace extends DurableObject<Env> {
       return this.container.getTcpPort(PREVIEW_PORT).fetch(request);
     }
 
-    const rest = url.pathname.replace(/^\/previews\/demo/, "") || "/";
+    const rest =
+      url.pathname.slice(`/previews/${this.projectId}`.length) || "/";
     // 容器里的预览服务只支持 HTTP；生产入站是 HTTPS，必须换 scheme
     const target = new URL(request.url);
     target.protocol = "http:";
@@ -473,13 +482,30 @@ export class Workspace extends DurableObject<Env> {
     const path = url.pathname;
 
     try {
-      if (path.startsWith("/previews/demo")) {
+      const previewPrefix = `/previews/${this.projectId}`;
+      if (path === previewPrefix || path.startsWith(`${previewPrefix}/`)) {
         return await this.previewProxy(request);
       }
 
       if (path === "/ensure") {
         await this.ensure();
         return Response.json({ ok: true, running: this.container.running });
+      }
+
+      if (path === "/meta") {
+        // 只读 SQL，不启动容器：首页列表用
+        const current = this.latestVersion();
+        return Response.json({
+          versionCount: this.versionCount(),
+          currentVersion: current
+            ? {
+                id: current.id,
+                gitCommit: current.gitCommit,
+                summary: current.summary,
+                createdAt: current.createdAt,
+              }
+            : null,
+        });
       }
 
       if (path === "/files") {
@@ -562,7 +588,10 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/preview/start") {
         await this.ensure();
-        return Response.json({ status: "ready", url: "/previews/demo/" });
+        return Response.json({
+          status: "ready",
+          url: `/previews/${this.projectId}/`,
+        });
       }
 
       if (path === "/snapshot") {
