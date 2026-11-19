@@ -2065,6 +2065,8 @@ export class Workspace extends DurableObject<Env> {
           "atoms_runtime_status",
           "atoms_project_config",
           "atoms_workspace",
+          "atoms_migration",
+          "atoms_migration_files",
         ]) {
           try {
             this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
