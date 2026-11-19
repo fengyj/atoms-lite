@@ -122,3 +122,11 @@ browser < container/basic < container/standard-1 < container/standard-2
 - `onChatMessage` 把 `<selected_element>` 附到模型上下文，提示词要求优先局部修改。
 - 本地开发时 Web 与 Worker 不同源，选择器会提示无法读取 DOM；生产同源可用。
 - 这是 Live Mode 的轻量替代：先做「选中 + 对话修改」，不做三变体热替换。
+
+预览工具栏另有「检查设计」：
+
+- 在预览 DOM 上运行轻量规则：小于 11px 的功能文字、低对比度、横向溢出、
+  小于 32px 的点击目标、渐变文字。
+- findings 最多 40 条，点击一条会把它对应的元素带入对话，方便直接让 Agent 修。
+- 规则方向参考 Impeccable detector，但当前不依赖它的 WASM/二进制；
+  后续可把完整 WASM detector 接到 Worker 做源码扫描。

@@ -41,7 +41,7 @@ function escapeCss(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
-function selectorFor(element: Element): string {
+export function selectorForElement(element: Element): string {
   if (element.id) return `#${escapeCss(element.id)}`;
   const doc = element.ownerDocument;
   const parts: string[] = [];
@@ -78,7 +78,7 @@ export function collectElementSelection(element: Element): ElementSelection {
   }
   const rect = element.getBoundingClientRect();
   return {
-    selector: selectorFor(element),
+    selector: selectorForElement(element),
     tag: element.tagName.toLowerCase(),
     id: element.id || null,
     classes: Array.from(element.classList).slice(0, 8),

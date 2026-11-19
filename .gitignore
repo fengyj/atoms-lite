@@ -26,3 +26,11 @@ test-results/
 *.log
 .DS_Store
 Thumbs.db
+
+# Impeccable 本地运行状态（PRODUCT.md / DESIGN.md / .impeccable/config.json 仍需提交）
+.impeccable/live/
+.impeccable/questions/
+.impeccable/mocks/
+.impeccable/screenshots/
+.impeccable/reports/
+.impeccable/cache/

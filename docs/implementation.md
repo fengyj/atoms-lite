@@ -176,6 +176,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
 - **预览元素选择**：同源 iframe 内高亮元素，收集 selector/outerHTML/关键样式，
   作为请求 body 的选择上下文发给 Agent；不写入消息历史。本地跨端口开发不可用，生产同源可用。
+- **设计检查**：预览工具栏内置轻量 DOM 检查（小字、低对比度、溢出、过小点击目标、渐变文字），
+  结果可点击并带入对话；完整 Impeccable WASM detector 作为后续候选。
 - 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
   只在启动/加载阶段短轮询，就绪后停止。
 - 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。

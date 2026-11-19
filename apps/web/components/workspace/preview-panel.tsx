@@ -8,6 +8,8 @@ import {
   Monitor,
   Play,
   RotateCw,
+  ScanSearch,
+  X,
 } from "lucide-react";
 import {
   WebPreview,
@@ -22,6 +24,7 @@ import {
   collectElementSelection,
   type ElementSelection,
 } from "@/lib/element-selection";
+import { scanDesign, type DesignFinding } from "@/lib/design-check";
 import { cn } from "@/lib/utils";
 
 type PreviewPhase =
@@ -66,6 +69,9 @@ export function PreviewPanel({
   const [pickerActive, setPickerActive] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [frameLoaded, setFrameLoaded] = useState(0);
+  const [findings, setFindings] = useState<DesignFinding[]>([]);
+  const [findingsOpen, setFindingsOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const frameWrapRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false);
 
@@ -261,6 +267,23 @@ export function PreviewPanel({
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const scan = useCallback(() => {
+    const iframe = frameWrapRef.current?.querySelector("iframe");
+    let doc: Document | null = null;
+    try {
+      doc = iframe?.contentDocument ?? null;
+    } catch {
+      doc = null;
+    }
+    if (!doc) {
+      setScanError("无法读取预览 DOM：本地开发时预览与主站不同源，生产环境可用。");
+      return;
+    }
+    setScanError(null);
+    setFindings(scanDesign(doc));
+    setFindingsOpen(true);
+  }, []);
+
   const meta = phaseMeta[phase];
   const busy = phase === "starting" || phase === "probing";
   // 每次刷新都换 URL，避免浏览器/代理把 iframe 文档当作同一次导航复用。
@@ -290,6 +313,21 @@ export function PreviewPanel({
             <span className={cn("size-1.5 rounded-full", meta.dot)} />
             {meta.label}
           </span>
+          {active ? (
+            <WebPreviewNavigationButton
+              tooltip="检查设计"
+              onClick={scan}
+            >
+              <span className="relative">
+                <ScanSearch className="size-3.5" />
+                {findings.length > 0 ? (
+                  <span className="absolute -top-1.5 -right-2 rounded-full bg-warning px-1 text-3xs text-background">
+                    {findings.length}
+                  </span>
+                ) : null}
+              </span>
+            </WebPreviewNavigationButton>
+          ) : null}
           {onSelectElement ? (
             <WebPreviewNavigationButton
               tooltip={pickerActive ? "取消选择元素" : "选择元素并带到对话"}
@@ -308,6 +346,78 @@ export function PreviewPanel({
           </WebPreviewNavigationButton>
         </WebPreviewNavigation>
 
+        {findingsOpen ? (
+          <div className="max-h-56 shrink-0 overflow-auto border-b border-border bg-card px-3 py-2 scrollbar-thin">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-2xs font-medium">
+                设计检查
+                <span className="ml-1 text-muted-foreground">
+                  {findings.length} 条
+                </span>
+              </span>
+              <span className="flex items-center gap-2 text-3xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={scan}
+                  className="hover:text-foreground"
+                >
+                  重新扫描
+                </button>
+                <button
+                  type="button"
+                  aria-label="关闭设计检查"
+                  onClick={() => setFindingsOpen(false)}
+                  className="hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            </div>
+            {findings.length === 0 ? (
+              <p className="mt-2 text-2xs text-muted-foreground">
+                未发现明显的小字、低对比度、溢出或过小点击目标。
+              </p>
+            ) : (
+              <ul className="mt-1.5 space-y-1">
+                {findings.map((finding) => (
+                  <li key={finding.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectElement?.(collectElementSelection(finding.element));
+                        setFindingsOpen(false);
+                      }}
+                      className="w-full rounded-md px-1.5 py-1 text-left text-2xs transition-colors hover:bg-accent"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            finding.severity === "warning"
+                              ? "bg-warning"
+                              : "bg-muted-foreground",
+                          )}
+                        />
+                        <span className="font-medium">{finding.rule}</span>
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {finding.message}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block truncate pl-3 font-mono text-3xs text-muted-foreground">
+                        {finding.selector}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+        {scanError ? (
+          <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-2xs text-destructive">
+            {scanError}
+          </div>
+        ) : null}
         {pickerError ? (
           <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-2xs text-destructive">
             {pickerError}
