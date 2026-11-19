@@ -47,11 +47,19 @@ const ALLOWED_PROGRAMS = new Set([
 const dec = (b?: ArrayBuffer | null) =>
   new TextDecoder().decode(b ?? new ArrayBuffer(0));
 
+/** 平台内部目录：不暴露给文件浏览、Agent 工具与预览。 */
+const INTERNAL_DIRS = [".git", ".atoms", ".atoms-lite"] as const;
+
+function isInternalPath(path: string): boolean {
+  const padded = `/${path.replace(/^\/+/, "")}/`;
+  return INTERNAL_DIRS.some((dir) => padded.includes(`/${dir}/`));
+}
+
 function safePath(path: string): string {
   if (
     !path.startsWith(`${WORKSPACE}/`) ||
     path.includes("..") ||
-    path.includes("/.git/")
+    isInternalPath(path)
   ) {
     throw new Error(`path not allowed: ${path}`);
   }
@@ -387,18 +395,43 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async runtimeConfig(): Promise<RuntimeConfig> {
-    const out = await this.run([
-      "cat",
-      `${WORKSPACE}/.atoms/runtime.json`,
+    // `.atoms-lite/` 是新路径；`.atoms/` 仅用于兼容旧快照。
+    for (const dir of [".atoms-lite", ".atoms"]) {
+      const out = await this.run([
+        "cat",
+        `${WORKSPACE}/${dir}/runtime.json`,
+      ]);
+      if (out.exitCode !== 0) continue;
+      try {
+        return JSON.parse(out.stdout) as RuntimeConfig;
+      } catch {
+        // 文件损坏时继续尝试旧路径，最终回退到静态根目录。
+      }
+    }
+    return { kind: "static", serveDir: ".", buildCommand: null };
+  }
+
+  /**
+   * 选择运行配置所在目录并发重启信号。
+   * 旧工作区继续用 `.atoms/`，新工作区用 `.atoms-lite/`，
+   * 避免在旧项目里创建未被其 .gitignore 覆盖的新目录。
+   */
+  private async signalPreviewRestart(): Promise<void> {
+    const newer = await this.run([
+      "test",
+      "-f",
+      `${WORKSPACE}/.atoms-lite/runtime.json`,
     ]);
-    if (out.exitCode !== 0) {
-      return { kind: "static", serveDir: ".", buildCommand: null };
+    let dir = ".atoms-lite";
+    if (newer.exitCode !== 0) {
+      const older = await this.run([
+        "test",
+        "-f",
+        `${WORKSPACE}/.atoms/runtime.json`,
+      ]);
+      if (older.exitCode === 0) dir = ".atoms";
     }
-    try {
-      return JSON.parse(out.stdout) as RuntimeConfig;
-    } catch {
-      return { kind: "static", serveDir: ".", buildCommand: null };
-    }
+    await this.sh(`mkdir -p ${WORKSPACE}/${dir} && touch ${WORKSPACE}/${dir}/restart`);
   }
 
   private cachedFiles(): FileEntry[] {
@@ -516,13 +549,7 @@ export class Workspace extends DurableObject<Env> {
       throw new Error(`path not allowed: ${path}`);
     }
     const rel = path.slice(WORKSPACE.length + 1);
-    if (
-      !rel ||
-      rel.includes("..") ||
-      rel === ".git" ||
-      rel.startsWith(".git/") ||
-      rel.includes("/.git/")
-    ) {
+    if (!rel || rel.includes("..") || isInternalPath(rel)) {
       throw new Error(`path not allowed: ${path}`);
     }
     return rel;
@@ -640,11 +667,7 @@ export class Workspace extends DurableObject<Env> {
     } catch {
       return new Response("bad path", { status: 400 });
     }
-    if (
-      decoded === "/.git" ||
-      decoded.startsWith("/.git/") ||
-      decoded.includes("/.git/")
-    ) {
+    if (isInternalPath(decoded)) {
       return new Response("not found", { status: 404 });
     }
 
@@ -786,7 +809,7 @@ export class Workspace extends DurableObject<Env> {
       );
     }
 
-    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
+    await this.signalPreviewRestart();
     await this.sh(
       `cd ${WORKSPACE} && git init -q && git config user.email atoms@local && git config user.name atoms-lite && git add -A && git commit -q -m template`,
     );
@@ -810,7 +833,7 @@ export class Workspace extends DurableObject<Env> {
   private async ensurePreview(): Promise<void> {
     if (await this.checkPreview()) return;
 
-    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
+    await this.signalPreviewRestart();
 
     const hasBoot = await this.run(["test", "-f", "/opt/preview/boot.sh"]);
     if (hasBoot.exitCode === 0) {
@@ -834,7 +857,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
-    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
+    await this.signalPreviewRestart();
     // supervisor 每 1s 检查一次 restart 文件；先等它真正开始重启，
     // 否则可能读到旧进程的 200 就提前返回。
     await new Promise((resolve) => setTimeout(resolve, 1_200));
@@ -1271,7 +1294,10 @@ export class Workspace extends DurableObject<Env> {
       "*/dist/*",
       "-not",
       "-path",
-      "*/.atoms/restart",
+      "*/.atoms-lite/*",
+      "-not",
+      "-path",
+      "*/.atoms/*",
       "-exec",
       "wc",
       "-c",
@@ -1311,11 +1337,7 @@ export class Workspace extends DurableObject<Env> {
     } catch {
       // 非法转义交给容器返回 400
     }
-    if (
-      decodedRest === "/.git" ||
-      decodedRest.startsWith("/.git/") ||
-      decodedRest.includes("/.git/")
-    ) {
+    if (isInternalPath(decodedRest)) {
       return new Response("not found", { status: 404 });
     }
 

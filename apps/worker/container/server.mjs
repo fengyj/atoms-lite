@@ -39,6 +39,14 @@ const MIME = {
   ".mp3": "audio/mpeg",
 };
 
+// 平台内部目录：不通过预览暴露。
+const INTERNAL_DIRS = [".git", ".atoms", ".atoms-lite"];
+
+function isInternalPath(pathname) {
+  const padded = `/${pathname.replace(/^\/+/, "")}/`;
+  return INTERNAL_DIRS.some((dir) => padded.includes(`/${dir}/`));
+}
+
 // Resolve a URL pathname inside ROOT, or null when it escapes the root.
 function toPath(pathname) {
   let decoded;
@@ -48,14 +56,13 @@ function toPath(pathname) {
     return null;
   }
   if (decoded.includes("\0")) return null;
-  // /workspace/.git 绝不通过预览暴露（含 ../.git 这类归一化后的路径）
-  if (decoded === "/.git" || decoded.includes("/.git/")) return null;
+  // 含 ../.git、../.atoms-lite 这类归一化前后的内部路径
+  if (isInternalPath(decoded)) return null;
 
   const target = resolve(ROOT, "." + decoded);
   if (target !== ROOT && !target.startsWith(ROOT + sep)) return null;
 
-  const rel = target.slice(ROOT.length);
-  if (rel === "/.git" || rel.startsWith("/.git/")) return null;
+  if (isInternalPath(target.slice(ROOT.length))) return null;
 
   return target;
 }

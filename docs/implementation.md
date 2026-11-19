@@ -103,10 +103,12 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   未使用 `capnweb` transport，也没有 `agent.stub`/`agent.call`，不会把 DO 钉在内存里。
   ChatAgent 与 WorkspaceDO 是两个 DO；后者只在工具/容器活跃时工作，容器 5 分钟空闲回收。
 - **运行时**：`boot.sh` 是 PID 1 supervisor，读取
-  `/workspace/.atoms/runtime.json`：
+  `/workspace/.atoms-lite/runtime.json`（旧快照回退 `.atoms/runtime.json`）：
   - `kind: static` → `server.mjs` 服务 `serveDir`（静态站点 / `dist`）
   - `kind: node` → 启动 `startCommand`（Hono，监听 8080）
-  - `touch /workspace/.atoms/restart` 让 supervisor 重启子进程
+  - `touch /workspace/.atoms-lite/restart` 让 supervisor 重启子进程
+- `.atoms-lite/`（以及兼容旧项目的 `.atoms/`）是平台内部目录：
+  不出现在文件树、Agent 工具与预览里，并通过模板 `.gitignore` 排除在版本之外。
 - **构建**：`build` 工具读取 `buildCommand`（`pnpm build`），超时 5 分钟，
   日志返回给 Agent；React/全栈模板的 build 包含 `tsc --noEmit`。
   build 与版本/checkout 共用串行队列，避免并发写 `dist`。

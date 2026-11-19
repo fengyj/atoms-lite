@@ -2,31 +2,50 @@
 # Preview supervisor.
 #
 # PID 1 of the sandbox. Keeps a single child process on :8080:
-# - static: /opt/preview/server.mjs (root from .atoms/runtime.json serveDir)
+# - static: /opt/preview/server.mjs (root from .atoms-lite/runtime.json serveDir)
 # - node:   project start command (e.g. `node server/index.js`)
 #
-# Reload protocol: `touch /workspace/.atoms/restart` makes the supervisor
+# Reload protocol: `touch /workspace/.atoms-lite/restart` makes the supervisor
 # stop the child and re-read runtime.json. WorkspaceDO uses this after seed,
-# build and start_preview.
+# build and start_preview. `.atoms/` is the legacy location kept for old
+# snapshots; new workspaces only use `.atoms-lite/`.
 
 cd /workspace || exit 1
-mkdir -p /workspace/.atoms
 : >/tmp/preview.log
+
+runtime_file() {
+  for file in /workspace/.atoms-lite/runtime.json /workspace/.atoms/runtime.json; do
+    if [ -f "$file" ]; then
+      echo "$file"
+      return
+    fi
+  done
+  echo /workspace/.atoms-lite/runtime.json
+}
 
 read_field() {
   node -e '
     const fs = require("node:fs");
     const key = process.argv[1];
+    const file = process.argv[2];
     try {
-      const runtime = JSON.parse(fs.readFileSync("/workspace/.atoms/runtime.json", "utf8"));
+      const runtime = JSON.parse(fs.readFileSync(file, "utf8"));
       const value = runtime[key];
       if (value !== undefined && value !== null) process.stdout.write(String(value));
     } catch {}
-  ' "$1"
+  ' "$1" "$(runtime_file)"
+}
+
+restart_requested() {
+  [ -f /workspace/.atoms-lite/restart ] || [ -f /workspace/.atoms/restart ]
+}
+
+clear_restart() {
+  rm -f /workspace/.atoms-lite/restart /workspace/.atoms/restart
 }
 
 while true; do
-  rm -f /workspace/.atoms/restart
+  clear_restart
 
   KIND="$(read_field kind)"
   [ -z "$KIND" ] && KIND="static"
@@ -45,8 +64,8 @@ while true; do
 
   # Wait for the child to exit or a restart request.
   while kill -0 "$CHILD" 2>/dev/null; do
-    if [ -f /workspace/.atoms/restart ]; then
-      rm -f /workspace/.atoms/restart
+    if restart_requested; then
+      clear_restart
       kill "$CHILD" 2>/dev/null
       sleep 2
       kill -9 "$CHILD" 2>/dev/null
