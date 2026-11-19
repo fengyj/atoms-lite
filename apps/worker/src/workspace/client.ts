@@ -65,7 +65,7 @@ export class WorkspaceClient {
   }
 
   listFiles() {
-    return this.call<{ entries: FileEntry[] }>("/files");
+    return this.call<{ entries: FileEntry[] }>("/tools/list", {});
   }
 
   readFile(path: string) {

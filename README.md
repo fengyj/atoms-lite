@@ -13,6 +13,7 @@
 - 每个项目有独立容器、文件、git 历史、版本和 Agent 会话
 - 首页项目卡支持重命名、删除；Sandbox 面板分「工作区 / 终端」两个 tab
 - 对话栏与右侧栏可拖动调整宽度，刷新后保持
+- 沙箱懒启动：打开项目只读缓存与版本；发送需求、同步文件或点击启动预览才拉起容器
 
 - 实现记录：`docs/implementation.md`
 - 系统架构：`docs/architecture/system-architecture.md`
@@ -93,6 +94,7 @@ pnpm build
 - [x] **首页 + 会话页**：首页提交需求后进入工作区并自动发送
 - [x] **多项目**：每次需求创建独立项目，项目之间互不影响
 - [x] 项目重命名 / 删除；Sandbox 工作区 / 终端 tab；面板宽度可调
+- [x] 沙箱懒启动 + 文件列表 SQL 缓存
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）

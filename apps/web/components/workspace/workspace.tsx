@@ -244,7 +244,6 @@ export function Workspace({ projectId }: { projectId: string }) {
           projectId={projectId}
           url={previewUrl(projectId)}
           reloadKey={previewTick}
-          onRefresh={refreshPreview}
         />
         <ResizeHandle
           className="hidden xl:flex"

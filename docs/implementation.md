@@ -45,7 +45,7 @@
 - 左侧边栏：品牌、工作台/我的项目/模板/设置、最近项目、当前模式
 - 主区：聚焦式需求输入（多行、模式选择、附件占位、⌘/Ctrl+Enter）
 - 示例需求：五子棋 / 待办清单 / 作品集主页
-- 概况：项目数、版本数、最近保存时间、沙箱状态（`preview/status`）
+- 概况：项目数、版本数、最近保存时间、沙箱策略（按需启动）
 - 我的项目：真实版本数据（commit、summary、文件数、保存时间）+ 打开工作区
 - 提交需求 → `POST /api/projects` 创建项目 → 跳转 `/sessions/:id?prompt=...`
 - 项目卡直接展示真实版本摘要、commit、保存时间与版本数
@@ -53,6 +53,8 @@
 **会话工作区 `/sessions/:projectId`**
 
 - 三栏：对话、预览、Sandbox/产物/版本（窄屏切换）
+- **打开项目不启动沙箱**：文件列表读 SQL 缓存，预览只探测状态
+- 预览默认显示「预览已休眠」，点击「启动预览」才恢复容器
 - 工具调用卡默认折叠，只显示工具名与状态；点击展开参数与结果
 - Sandbox 面板内分两个 tab：
   - **工作区**：`/workspace` 文件树、路径与大小
@@ -68,11 +70,23 @@
 ## 3. 关键行为
 
 - 每个项目一个 WorkspaceDO + 一个容器；沙箱空闲 **5 分钟**回收。
+- **懒启动**：只有真正需要容器时才 `ensure()`：
+  - Agent 的 `list_files` / `read_file` / `write_file` / `exec` / `start_preview` / `create_version`
+  - 用户点击「启动预览」，或在文件面板点击「同步文件」
+  - 打开工作区、首页列表、版本列表、预览状态探测都不会启动
+- 文件列表默认读 DO SQL 缓存（`atoms_files`），不读容器：
+  - `GET /files`：返回缓存 + `running` + `cachedAt`
+  - `POST /files/refresh`：启动/恢复容器后重新执行 `find` 并更新缓存
+  - Agent 的 `list_files` 走 `/tools/list`，需要真实工作区，会启动容器
+  - 缓存写入时机：冷启动 seed、write_file、exec、createVersion、checkout
+- 预览只有显式操作或生成工具结果才加载 iframe；ready 后停止轮询，
+  避免打开页面时持续刷新容器活跃时间。
 - 版本创建与 `finish` 时自动快照，重启时从该项目的快照恢复。
 - 项目索引 `Projects` DO：保存 `id/name/prompt/createdAt`，读取时并发向各
   WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
-- 预览通过 Worker 代理 `/previews/demo/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
-- 预览状态由 `GET /api/workspace/preview/status` 探测（`running` / `ready`）；前端每 1.2s 轮询，45s 未就绪显示「失败」。
+- 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
+- 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
+  只在启动/加载阶段短轮询，就绪后停止。
 - 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。
 - 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
@@ -101,7 +115,31 @@
 - 预览 200，文件列表 3 个，版本列表 1 条（commit `1d6d331`）。
 - 点击棋盘点位后手数增加、执子方切换。
 - **空闲回收恢复**：停止请求 400s 后 `preview/status` 为 `{running:false}`；再请求 `/previews/demo/` 返回 200、标题仍为「五子棋 · Gomoku」，3 个文件大小不变，版本仍为 `1d6d331`。
-- **预览状态探测**：正常时徽标 `加载中 → 就绪`；强制 `ready:false` 时 45s 后显示「失败」。
+- **预览状态探测**：容器运行且服务就绪时徽标为「就绪」；休眠时显示「已休眠」。
+
+### 懒启动（本地实测）
+
+- 新建项目：`preview/status` 为 `{running:false}`；`GET /files` 返回
+  `{ entries: [], running: false, cachedAt: 0 }`；`GET /versions`、`GET /api/projects`
+  之后状态仍为 `running:false`。
+- 打开 `/sessions/<id>`：无预览 iframe，显示「预览已休眠」+「启动预览」；
+  容器仍未启动。
+- 点击「启动预览」：容器启动，iframe 加载，文件缓存写入 3 个模板文件。
+- 首页创建需求后：Agent 首次 `list_files`（`/tools/list`）启动容器，
+  生成完成、版本创建、预览自动切换到「就绪」。
+- 工作区不再定时探测预览，因此页面开着也不会持续保活；容器按空闲 5 分钟回收。
+
+生产同样验证：
+
+- 新建项目打开 `/sessions/<id>`：`preview/status` 为 `{running:false, ready:false}`，
+  没有预览 iframe，显示「预览已休眠」。
+- 点击「同步文件」：返回 3 个模板文件，容器 `running:true`。
+- 点击「启动预览」：`ready:true`，iframe 加载 `/previews/<id>/`。
+- 首页/项目列表/版本列表不会启动容器。
+- 部署后对已有项目执行一次 `POST /files/refresh` 预热文件缓存，之后打开只读缓存。
+- **空闲后打开已验证**：等待容器回收后，`preview/status` 为 `{running:false}`；
+  打开项目后仍为 `running:false`，文件树显示缓存中的 `app.js/index.html/styles.css`，
+  预览为「已休眠」，没有创建 iframe。
 
 ### 多项目隔离（生产）
 
@@ -144,6 +182,14 @@
 | 首页（多项目） | 工作区（待办清单） |
 |---|---|
 | ![首页](assets/v1-dashboard.png) | ![工作区](assets/v1-workspace-todo.png) |
+
+打开已有项目时，预览默认不启动容器：
+
+![预览已休眠](assets/v1-preview-sleeping.png)
+
+空闲回收后打开项目：文件来自缓存，容器仍处于休眠：
+
+![空闲打开](assets/v1-lazy-idle-open.png)
 
 工作区右侧 Sandbox 的「终端」tab（另一个 tab 是工作区文件树）：
 

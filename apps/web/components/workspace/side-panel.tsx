@@ -22,6 +22,7 @@ import {
   shortCommit,
   type Endpoint,
   type WorkspaceFileEntry,
+  type WorkspaceFileListing,
   type WorkspaceVersion,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
@@ -67,8 +68,8 @@ export function SidePanel({
   className?: string;
   /** 版本列表（真实请求；DO 存储，容器停止也能读） */
   versions: Endpoint<WorkspaceVersion[]>;
-  /** 文件列表（真实请求；工具完成后由工作台触发刷新） */
-  files: Endpoint<WorkspaceFileEntry[]>;
+  /** 文件列表（默认读 DO 缓存；refreshLive 会启动容器） */
+  files: Endpoint<WorkspaceFileListing>;
   /** 会话消息：从 exec 工具调用还原终端记录 */
   messages: UIMessage[];
 }) {
@@ -135,11 +136,20 @@ export function SidePanel({
                   /workspace
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span>{files.data?.length ?? 0} 个文件</span>
+                  <span>{files.data?.entries.length ?? 0} 个文件</span>
+                  {files.data && !files.data.running ? (
+                    <span
+                      className="text-3xs text-warning"
+                      title="当前来自 SQL 缓存；刷新会启动沙箱并同步"
+                    >
+                      缓存
+                    </span>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={files.refresh}
-                    aria-label="刷新文件列表"
+                    onClick={files.refreshLive}
+                    aria-label="同步文件列表"
+                    title="同步文件（会启动沙箱）"
                     className="text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <RotateCw
@@ -156,13 +166,15 @@ export function SidePanel({
               />
 
               {files.data ? (
-                files.data.length === 0 ? (
-                  <p className="px-1 py-2 text-2xs text-muted-foreground">
-                    空工作区：还没有任何文件。
+                files.data.entries.length === 0 ? (
+                  <p className="px-1 py-2 text-2xs leading-5 text-muted-foreground">
+                    {files.data.cachedAt === 0
+                      ? "文件缓存尚未建立；点击刷新会启动沙箱并同步。"
+                      : "空工作区：还没有任何文件。"}
                   </p>
                 ) : (
                   <ul className="space-y-0.5">
-                    {files.data.map((entry) => (
+                    {files.data.entries.map((entry) => (
                       <FileRow key={entry.path} entry={entry} />
                     ))}
                   </ul>

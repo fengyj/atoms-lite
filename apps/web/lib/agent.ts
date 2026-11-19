@@ -62,12 +62,18 @@ export type WorkspaceFileEntry = {
   size?: number;
 };
 
+/** 文件列表响应：默认来自 DO 缓存，running=false 时不启动容器 */
+export type WorkspaceFileListing = {
+  entries: WorkspaceFileEntry[];
+  running: boolean;
+  cachedAt: number;
+};
+
 export type PreviewStatus = { running: boolean; ready: boolean };
 
 type ProjectsResponse = { projects?: ProjectSummary[] };
 type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
-type FilesResponse = { entries?: WorkspaceFileEntry[] };
 
 async function json<T>(res: Response, label: string): Promise<T> {
   if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
@@ -148,9 +154,43 @@ export async function fetchWorkspaceVersions(
 export async function fetchWorkspaceFiles(
   projectId: string,
   signal?: AbortSignal
-): Promise<WorkspaceFileEntry[]> {
+): Promise<WorkspaceFileListing> {
   const res = await fetch(projectApiUrl(projectId, "/files"), { signal });
-  return (await json<FilesResponse>(res, "files")).entries ?? [];
+  const data = await json<Partial<WorkspaceFileListing>>(res, "files");
+  return {
+    entries: data.entries ?? [],
+    running: Boolean(data.running),
+    cachedAt: Number(data.cachedAt ?? 0),
+  };
+}
+
+/** 显式同步：会启动（或恢复）沙箱容器 */
+export async function refreshWorkspaceFiles(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceFileListing> {
+  const res = await fetch(projectApiUrl(projectId, "/files/refresh"), {
+    method: "POST",
+    signal,
+  });
+  const data = await json<Partial<WorkspaceFileListing>>(res, "refresh files");
+  return {
+    entries: data.entries ?? [],
+    running: true,
+    cachedAt: Number(data.cachedAt ?? 0),
+  };
+}
+
+/** 启动预览（会启动容器）；幂等 */
+export async function startPreview(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(projectApiUrl(projectId, "/preview/start"), {
+    method: "POST",
+    signal,
+  });
+  if (!res.ok) throw new Error(`start preview HTTP ${res.status}`);
 }
 
 /**
@@ -172,23 +212,34 @@ export type Endpoint<T> = {
   loading: boolean;
   error: string | null;
   refresh: () => void;
+  /** 显式同步（文件列表会启动容器） */
+  refreshLive: () => void;
 };
 
 function useEndpoint<T>(
-  fetcher: (signal?: AbortSignal) => Promise<T>
+  fetcher: (signal?: AbortSignal, live?: boolean) => Promise<T>
 ): Endpoint<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [live, setLive] = useState(false);
 
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const refresh = useCallback(() => {
+    setLive(false);
+    setTick((t) => t + 1);
+  }, []);
+
+  const refreshLive = useCallback(() => {
+    setLive(true);
+    setTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetcher(controller.signal)
+    fetcher(controller.signal, live)
       .then((next) => {
         if (controller.signal.aborted) return;
         setData(next);
@@ -200,9 +251,9 @@ function useEndpoint<T>(
         setLoading(false);
       });
     return () => controller.abort();
-  }, [fetcher, tick]);
+  }, [fetcher, tick, live]);
 
-  return { data, loading, error, refresh };
+  return { data, loading, error, refresh, refreshLive };
 }
 
 export function useProjects(): Endpoint<ProjectSummary[]> {
@@ -225,9 +276,14 @@ export function useWorkspaceVersions(projectId: string): Endpoint<WorkspaceVersi
   return useEndpoint(fetcher);
 }
 
-export function useWorkspaceFiles(projectId: string): Endpoint<WorkspaceFileEntry[]> {
+export function useWorkspaceFiles(
+  projectId: string
+): Endpoint<WorkspaceFileListing> {
   const fetcher = useCallback(
-    (signal?: AbortSignal) => fetchWorkspaceFiles(projectId, signal),
+    (signal?: AbortSignal, live?: boolean) =>
+      live
+        ? refreshWorkspaceFiles(projectId, signal)
+        : fetchWorkspaceFiles(projectId, signal),
     [projectId]
   );
   return useEndpoint(fetcher);

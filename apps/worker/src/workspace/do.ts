@@ -86,6 +86,13 @@ export class Workspace extends DurableObject<Env> {
         current_version_id TEXT
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_files (
+        path TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
     ctx.storage.sql.exec(
       "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
       this.projectId,
@@ -130,6 +137,55 @@ export class Workspace extends DurableObject<Env> {
 
   private async sh(script: string): Promise<ExecResult> {
     return this.run(["sh", "-c", script]);
+  }
+
+  private cachedFiles(): FileEntry[] {
+    return this.ctx.storage.sql
+      .exec<{ path: string; size: number }>(
+        "SELECT path, size FROM atoms_files ORDER BY path",
+      )
+      .toArray()
+      .map((row) => ({ path: row.path, type: "file" as const, size: row.size }));
+  }
+
+  private filesCachedAt(): number {
+    return (
+      this.ctx.storage.sql
+        .exec<{ ts: number | null }>("SELECT MAX(updated_at) AS ts FROM atoms_files")
+        .one().ts ?? 0
+    );
+  }
+
+  private writeFilesCache(entries: FileEntry[]): number {
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("DELETE FROM atoms_files");
+      for (const entry of entries) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO atoms_files (path, size, updated_at) VALUES (?, ?, ?)",
+          entry.path,
+          entry.size ?? 0,
+          now,
+        );
+      }
+    });
+    return now;
+  }
+
+  /** 容器在运行时读取真实文件树，并写入 SQL 缓存。 */
+  private async syncFilesCache(): Promise<FileEntry[]> {
+    const entries = await this.handleFiles();
+    this.writeFilesCache(entries);
+    return entries;
+  }
+
+  /** 缓存失败不影响主流程（写文件、exec、版本操作）。 */
+  private async syncFilesCacheSafe(): Promise<void> {
+    try {
+      await this.syncFilesCache();
+    } catch (error) {
+      console.error("[workspace] file cache sync failed", error);
+    }
   }
 
   private snapshotId(): string | null {
@@ -283,6 +339,7 @@ export class Workspace extends DurableObject<Env> {
 
     await this.seed();
     await this.ensurePreview();
+    await this.syncFilesCacheSafe();
   }
 
   private async takeSnapshot(): Promise<void> {
@@ -385,6 +442,7 @@ export class Workspace extends DurableObject<Env> {
       );
       this.setCurrentVersion(id);
 
+      await this.syncFilesCacheSafe();
       await this.takeSnapshot();
       return { versionId: id, gitCommit, skipped: false };
     });
@@ -410,6 +468,7 @@ export class Workspace extends DurableObject<Env> {
       if (out.exitCode !== 0) throw new Error(out.stderr || "checkout failed");
 
       this.setCurrentVersion(versionId);
+      await this.syncFilesCacheSafe();
       await this.takeSnapshot();
 
       return { ok: true, gitCommit: target.git_commit };
@@ -524,8 +583,28 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/files") {
+        // 默认只读 SQL 缓存，不启动容器
+        return Response.json({
+          entries: this.cachedFiles(),
+          running: this.container.running,
+          cachedAt: this.filesCachedAt(),
+        });
+      }
+
+      if (path === "/files/refresh") {
         await this.ensure();
-        return Response.json({ entries: await this.handleFiles() });
+        const entries = await this.syncFilesCache();
+        return Response.json({
+          entries,
+          running: true,
+          cachedAt: this.filesCachedAt(),
+        });
+      }
+
+      // Agent 的 list_files：需要真实工作区，允许启动容器
+      if (path === "/tools/list") {
+        await this.ensure();
+        return Response.json({ entries: await this.syncFilesCache() });
       }
 
       if (path === "/tools/write") {
@@ -536,6 +615,7 @@ export class Workspace extends DurableObject<Env> {
         await this.sh(`mkdir -p ${dir}`);
         const files = new Files(this.container);
         await files.writeFile(target, body.content);
+        await this.syncFilesCacheSafe();
         return Response.json({ path: target, bytes: body.content.length });
       }
 
@@ -580,6 +660,7 @@ export class Workspace extends DurableObject<Env> {
 
         try {
           const out = await Promise.race([proc.output(), timeout]);
+          await this.syncFilesCacheSafe();
           const stdout = dec(out.stdout);
           const stderr = dec(out.stderr);
           return Response.json({
