@@ -287,6 +287,9 @@ React（番茄钟）与全栈（优先级待办）生成结果：
   当前已在 Worker 层拦截 `/previews/:id/.git/*`，并限制 Agent 的 exec 白名单。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
+- DO 管理的容器不支持 `instance_type`，默认实例较小：生产 React 模板一次
+  `pnpm build` 实测约 3 分 13 秒（本地约 5 秒），接近 5 分钟构建超时。
+  更大的 React/Next 项目需要构建服务或调整容器调度方案。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。
 - 模板依赖为白名单预装；不能在线安装新的 pnpm 包。
 - ChatAgent 的 `create_version` 可能被模型调用两次；已做幂等，不会插重复版本。
