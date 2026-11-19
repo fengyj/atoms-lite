@@ -21,6 +21,7 @@ import {
   Trash2,
   WandSparkles,
 } from "lucide-react";
+import { AtomHero } from "@/components/dashboard/atom-hero";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -259,12 +260,23 @@ export function Dashboard() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
+        <main className="relative isolate mx-auto w-full max-w-5xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
+          <AtomHero />
           <div className="max-w-2xl">
-            <p className="text-2xs font-medium tracking-widest text-primary uppercase">
-              Build with words
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="grid size-11 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
+                <BrandMark className="size-6" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold tracking-tight">
+                  atoms-lite
+                </p>
+                <p className="mt-0.5 text-2xs font-medium tracking-widest text-primary uppercase">
+                  Build with words
+                </p>
+              </div>
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               把一个想法变成可运行的应用
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
