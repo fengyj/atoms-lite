@@ -95,6 +95,10 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `pnpm install --frozen-lockfile` 安装，
   工作区用软链复用，Agent 不需要也不能执行 pnpm install。
 - 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
+- **实时连接**：前端 `useAgent` 显式使用 `cf-websocket`（Hibernation API）；
+  Agents SDK 默认用 `ctx.acceptWebSocket`，空闲时 DO 可休眠，不持续计 duration。
+  未使用 `capnweb` transport，也没有 `agent.stub`/`agent.call`，不会把 DO 钉在内存里。
+  ChatAgent 与 WorkspaceDO 是两个 DO；后者只在工具/容器活跃时工作，容器 5 分钟空闲回收。
 - **运行时**：`boot.sh` 是 PID 1 supervisor，读取
   `/workspace/.atoms/runtime.json`：
   - `kind: static` → `server.mjs` 服务 `serveDir`（静态站点 / `dist`）
@@ -115,6 +119,10 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **destroy**：清空业务表后立即写回最小默认行（workspace/config/runtime_status），
   同 ID 再次访问不会因 constructor 初始化时机 500。
 - 每个项目一个 WorkspaceDO + 一个容器；沙箱空闲 **5 分钟**回收。
+- **实时连接**：前端 `useAgent` 显式使用 `cf-websocket`（Hibernation API）；
+  Agents SDK 默认用 `ctx.acceptWebSocket`，空闲时 DO 可休眠，不持续计 duration。
+  未使用 `capnweb` transport，也没有 `agent.stub`/`agent.call`，不会把 DO 钉在内存里。
+  ChatAgent 与 WorkspaceDO 是两个 DO；后者只在工具/容器活跃时工作，容器 5 分钟空闲回收。
 - **运行时**：
   - `browser`（新 static 项目）：文件、版本、依赖都在 DO SQLite；预览由 Worker 直接服务；
     不创建容器，不做 5 分钟回收；版本用内容 SHA-256 而不是 git。

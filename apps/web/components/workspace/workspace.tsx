@@ -81,6 +81,9 @@ export function Workspace({ projectId }: { projectId: string }) {
     agent: AGENT_CLASS,
     name: projectId,
     host: WORKER_HOST,
+    // 默认就是 cf-websocket（Hibernation API）；显式固定，避免以后误用
+    // capnweb 传输导致 DO 在空闲连接期间持续计 duration。
+    transport: "cf-websocket",
   });
   const {
     messages,
