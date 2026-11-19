@@ -1,0 +1,7 @@
+{
+  "kind": "node",
+  "serveDir": "dist",
+  "buildCommand": "npm run build",
+  "startCommand": "node server/index.js",
+  "port": 8080
+}

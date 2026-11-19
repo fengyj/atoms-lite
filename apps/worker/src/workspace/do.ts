@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Files } from "@cloudflare/sandbox";
 import {
+  BUILD_TIMEOUT_MS,
   EXEC_MAX_OUTPUT_BYTES,
   EXEC_TIMEOUT_MS,
   SANDBOX_INACTIVITY_TIMEOUT_MS,
@@ -10,6 +11,15 @@ import type { ExecResult, FileEntry, VersionRow } from "./client";
 
 const PREVIEW_PORT = 8080;
 const WORKSPACE = "/workspace";
+
+// boot.sh 是新镜像的 supervisor；旧快照没有该文件时回退到静态服务器。
+const ENTRYPOINT = [
+  "sh",
+  "-c",
+  "if [ -f /opt/preview/boot.sh ]; then exec sh /opt/preview/boot.sh; else exec node /opt/preview/server.mjs; fi",
+];
+
+const TEMPLATES = new Set(["static", "react-vite", "fullstack-hono"]);
 const ALLOWED_PROGRAMS = new Set([
   "ls",
   "cat",
@@ -43,6 +53,22 @@ function safeCwd(cwd: string | undefined): string {
   if (cwd === WORKSPACE) return cwd;
   if (cwd.startsWith(`${WORKSPACE}/`) && !cwd.includes("..")) return cwd;
   return WORKSPACE;
+}
+
+type TemplateId = "static" | "react-vite" | "fullstack-hono";
+
+type RuntimeConfig = {
+  kind?: string;
+  serveDir?: string;
+  buildCommand?: string | null;
+  startCommand?: string | null;
+  port?: number;
+};
+
+function normalizeTemplate(value: unknown): TemplateId {
+  return typeof value === "string" && TEMPLATES.has(value)
+    ? (value as TemplateId)
+    : "static";
 }
 
 type VersionDbRow = {
@@ -93,8 +119,19 @@ export class Workspace extends DurableObject<Env> {
         updated_at INTEGER NOT NULL
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_project_config (
+        id TEXT PRIMARY KEY,
+        template TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
     ctx.storage.sql.exec(
       "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
+      this.projectId,
+    );
+    ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO atoms_project_config (id, template, updated_at) VALUES (?, 'static', 0)",
       this.projectId,
     );
   }
@@ -112,7 +149,11 @@ export class Workspace extends DurableObject<Env> {
     return result;
   }
 
-  private async run(cmd: string[], cwd = WORKSPACE): Promise<ExecResult> {
+  private async run(
+    cmd: string[],
+    cwd = WORKSPACE,
+    timeoutMs = EXEC_TIMEOUT_MS,
+  ): Promise<ExecResult> {
     const proc = await this.container.exec(cmd, { cwd });
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -120,7 +161,7 @@ export class Workspace extends DurableObject<Env> {
       timer = setTimeout(() => {
         proc.kill(9);
         reject(new Error(`command timeout: ${cmd.join(" ").slice(0, 80)}`));
-      }, EXEC_TIMEOUT_MS);
+      }, timeoutMs);
     });
 
     try {
@@ -135,8 +176,43 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  private async sh(script: string): Promise<ExecResult> {
-    return this.run(["sh", "-c", script]);
+  private async sh(script: string, timeoutMs = EXEC_TIMEOUT_MS): Promise<ExecResult> {
+    return this.run(["sh", "-c", script], WORKSPACE, timeoutMs);
+  }
+
+  private template(): TemplateId {
+    const rows = this.ctx.storage.sql
+      .exec<{ template: string }>(
+        "SELECT template FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray();
+    return normalizeTemplate(rows[0]?.template);
+  }
+
+  private setTemplate(template: TemplateId): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_project_config (id, template, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET template = excluded.template, updated_at = excluded.updated_at`,
+      this.projectId,
+      template,
+      Date.now(),
+    );
+  }
+
+  private async runtimeConfig(): Promise<RuntimeConfig> {
+    const out = await this.run([
+      "cat",
+      `${WORKSPACE}/.atoms/runtime.json`,
+    ]);
+    if (out.exitCode !== 0) {
+      return { kind: "static", serveDir: ".", buildCommand: null };
+    }
+    try {
+      return JSON.parse(out.stdout) as RuntimeConfig;
+    } catch {
+      return { kind: "static", serveDir: ".", buildCommand: null };
+    }
   }
 
   private cachedFiles(): FileEntry[] {
@@ -244,7 +320,32 @@ export class Workspace extends DurableObject<Env> {
       );
     }
 
-    await this.sh(`mkdir -p ${WORKSPACE} && cp -r /opt/template/. ${WORKSPACE}/`);
+    const template = this.template();
+    let dir = `/opt/templates/${template}`;
+    const exists = await this.run(["test", "-d", dir]);
+    if (exists.exitCode !== 0) {
+      console.error("[workspace] template missing, falling back to static", template);
+      dir = "/opt/templates/static";
+    }
+
+    // 复制源码（不含 node_modules），再把依赖软链到镜像里的预装目录。
+    await this.sh(
+      `mkdir -p ${WORKSPACE} && cd ${dir} && for entry in * .[!.]*; do ` +
+        `[ "$entry" = "node_modules" ] && continue; ` +
+        `[ "$entry" = ".data" ] && continue; ` +
+        `[ -e "$entry" ] || continue; ` +
+        `cp -R "$entry" ${WORKSPACE}/; ` +
+        `done`,
+    );
+
+    const hasModules = await this.run(["test", "-d", `${dir}/node_modules`]);
+    if (hasModules.exitCode === 0) {
+      await this.sh(
+        `rm -rf ${WORKSPACE}/node_modules && ln -s ${dir}/node_modules ${WORKSPACE}/node_modules`,
+      );
+    }
+
+    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
     await this.sh(
       `cd ${WORKSPACE} && git init -q && git config user.email atoms@local && git config user.name atoms-lite && git add -A && git commit -q -m template`,
     );
@@ -270,16 +371,82 @@ export class Workspace extends DurableObject<Env> {
   private async ensurePreview(): Promise<void> {
     if (await this.checkPreview()) return;
 
-    await this.sh(
-      `cd ${WORKSPACE} && (pgrep -f '/opt/preview/server.mjs' >/dev/null || nohup node /opt/preview/server.mjs >/tmp/preview.log 2>&1 &)`,
-    );
+    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
 
-    const deadline = Date.now() + 15_000;
+    const hasBoot = await this.run(["test", "-f", "/opt/preview/boot.sh"]);
+    if (hasBoot.exitCode === 0) {
+      await this.sh(
+        `cd ${WORKSPACE} && (pgrep -f '/opt/preview/boot.sh' >/dev/null || nohup sh /opt/preview/boot.sh >/tmp/preview.log 2>&1 &)`,
+      );
+    } else {
+      // 兼容旧快照：只有静态 server.mjs
+      await this.sh(
+        `cd ${WORKSPACE} && (pgrep -f '/opt/preview/server.mjs' >/dev/null || nohup node /opt/preview/server.mjs >/tmp/preview.log 2>&1 &)`,
+      );
+    }
+
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (await this.checkPreview()) return;
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 400));
     }
     throw new Error("preview server did not become ready");
+  }
+
+  /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
+  private async restartPreview(): Promise<void> {
+    await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
+
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 400));
+      if (await this.checkPreview()) return;
+    }
+
+    await this.ensurePreview();
+  }
+
+  private async build(): Promise<{
+    skipped: boolean;
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+  }> {
+    await this.ensure();
+    const runtime = await this.runtimeConfig();
+    const command = runtime.buildCommand;
+
+    if (!command) {
+      return {
+        skipped: true,
+        exitCode: 0,
+        stdout: "该模板不需要构建。",
+        stderr: "",
+        durationMs: 0,
+      };
+    }
+
+    const started = Date.now();
+    try {
+      const out = await this.sh(`cd ${WORKSPACE} && ${command}`, BUILD_TIMEOUT_MS);
+      await this.syncFilesCacheSafe();
+      return {
+        skipped: false,
+        exitCode: out.exitCode,
+        stdout: out.stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
+        stderr: out.stderr.slice(0, 32 * 1024),
+        durationMs: Date.now() - started,
+      };
+    } catch (error) {
+      return {
+        skipped: false,
+        exitCode: -1,
+        stdout: "",
+        stderr: String(error).slice(0, 32 * 1024),
+        durationMs: Date.now() - started,
+      };
+    }
   }
 
   private async ensure(): Promise<void> {
@@ -304,7 +471,7 @@ export class Workspace extends DurableObject<Env> {
         try {
           container.start({
             containerSnapshot: { id: snap },
-            entrypoint: ["node", "/opt/preview/server.mjs"],
+            entrypoint: ENTRYPOINT,
             enableInternet: false,
           });
         } catch (error) {
@@ -316,7 +483,7 @@ export class Workspace extends DurableObject<Env> {
           }
           container.start({
             image: container.images["base"],
-            entrypoint: ["node", "/opt/preview/server.mjs"],
+            entrypoint: ENTRYPOINT,
             enableInternet: false,
           });
         }
@@ -328,7 +495,7 @@ export class Workspace extends DurableObject<Env> {
         }
         container.start({
           image: container.images["base"],
-          entrypoint: ["node", "/opt/preview/server.mjs"],
+          entrypoint: ENTRYPOINT,
           enableInternet: false,
         });
       }
@@ -340,6 +507,17 @@ export class Workspace extends DurableObject<Env> {
     await this.seed();
     await this.ensurePreview();
     await this.syncFilesCacheSafe();
+  }
+
+  /**
+   * 全栈项目的 SQLite 数据在容器里；用户写入后延迟一次快照，
+   * 避免空闲回收时丢掉最后一次操作。真实生产应换 D1。
+   */
+  override async alarm(): Promise<void> {
+    if (this.template() !== "fullstack-hono") return;
+    if (!this.container.running) return;
+    await this.takeSnapshot();
+    console.log("[workspace] snapshot after app mutation", this.projectId);
   }
 
   private async takeSnapshot(): Promise<void> {
@@ -468,7 +646,18 @@ export class Workspace extends DurableObject<Env> {
       if (out.exitCode !== 0) throw new Error(out.stderr || "checkout failed");
 
       this.setCurrentVersion(versionId);
+
+      // 源码回滚后重建，避免预览继续使用旧 dist。
+      const runtime = await this.runtimeConfig();
+      if (runtime.buildCommand) {
+        try {
+          await this.sh(`cd ${WORKSPACE} && ${runtime.buildCommand}`, BUILD_TIMEOUT_MS);
+        } catch (error) {
+          console.error("[workspace] rebuild after checkout failed", error);
+        }
+      }
       await this.syncFilesCacheSafe();
+      await this.restartPreview();
       await this.takeSnapshot();
 
       return { ok: true, gitCommit: target.git_commit };
@@ -485,6 +674,15 @@ export class Workspace extends DurableObject<Env> {
       "-not",
       "-path",
       "*/.git/*",
+      "-not",
+      "-path",
+      "*/node_modules/*",
+      "-not",
+      "-path",
+      "*/dist/*",
+      "-not",
+      "-path",
+      "*/.atoms/restart",
       "-exec",
       "wc",
       "-c",
@@ -526,14 +724,28 @@ export class Workspace extends DurableObject<Env> {
     const headers = new Headers(request.headers);
     headers.delete("host");
 
-    return this.container.getTcpPort(PREVIEW_PORT).fetch(target.toString(), {
-      method: request.method,
-      headers,
-      body:
-        request.method === "GET" || request.method === "HEAD"
-          ? undefined
-          : request.body,
-    });
+    const response = await this.container
+      .getTcpPort(PREVIEW_PORT)
+      .fetch(target.toString(), {
+        method: request.method,
+        headers,
+        body:
+          request.method === "GET" || request.method === "HEAD"
+            ? undefined
+            : request.body,
+      });
+
+    // 全栈应用的 POST/PATCH/DELETE 可能在写 SQLite；延迟快照保数据。
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      response.ok &&
+      this.template() === "fullstack-hono"
+    ) {
+      await this.ctx.storage.setAlarm(Date.now() + 10_000);
+    }
+
+    return response;
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -566,10 +778,17 @@ export class Workspace extends DurableObject<Env> {
         return Response.json({ ok: true });
       }
 
+      if (path === "/config") {
+        const body = (await request.json()) as { template?: string };
+        this.setTemplate(normalizeTemplate(body.template));
+        return Response.json({ ok: true, template: this.template() });
+      }
+
       if (path === "/meta") {
         // 只读 SQL，不启动容器：首页列表用
         const current = this.latestVersion();
         return Response.json({
+          template: this.template(),
           versionCount: this.versionCount(),
           currentVersion: current
             ? {
@@ -675,6 +894,10 @@ export class Workspace extends DurableObject<Env> {
         }
       }
 
+      if (path === "/tools/build") {
+        return Response.json(await this.build());
+      }
+
       if (path === "/preview/status") {
         // 只探测，不主动启动：iframe 请求本身会触发 ensure()
         const running = this.container.running;
@@ -684,6 +907,7 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/preview/start") {
         await this.ensure();
+        await this.restartPreview();
         return Response.json({
           status: "ready",
           url: `/previews/${this.projectId}/`,

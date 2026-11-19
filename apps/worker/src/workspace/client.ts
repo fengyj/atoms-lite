@@ -22,6 +22,14 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type BuildResult = {
+  skipped: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+};
+
 /**
  * ChatAgent 访问 WorkspaceDO 的唯一入口。
  * 现在走 fetch JSON；以后换 RPC 时保持方法签名不变。
@@ -62,6 +70,23 @@ export class WorkspaceClient {
 
   ensure() {
     return this.call<{ ok: boolean; running: boolean }>("/ensure", {});
+  }
+
+  meta() {
+    return this.call<{
+      template: string;
+      versionCount: number;
+      currentVersion: {
+        id: string;
+        gitCommit: string;
+        summary: string;
+        createdAt: number;
+      } | null;
+    }>("/meta");
+  }
+
+  build() {
+    return this.call<BuildResult>("/tools/build", {});
   }
 
   listFiles() {

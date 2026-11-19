@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   formatClock,
   shortCommit,
+  templateLabel,
   type WorkspaceVersion,
 } from "@/lib/agent";
 
@@ -25,6 +26,7 @@ export function TopBar({
   runState,
   projectId,
   projectName,
+  template,
   currentVersion,
   versionNote,
 }: {
@@ -34,6 +36,7 @@ export function TopBar({
   runState: RunState;
   projectId: string;
   projectName: string;
+  template: string;
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
@@ -62,7 +65,10 @@ export function TopBar({
         <span className="truncate text-sm whitespace-nowrap text-foreground">
           {projectName}
         </span>
-        <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground sm:inline">
+        <Badge variant="outline" className="hidden text-3xs font-normal sm:inline-flex">
+          {templateLabel(template)}
+        </Badge>
+        <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground lg:inline">
           {projectId}
         </span>
       </div>

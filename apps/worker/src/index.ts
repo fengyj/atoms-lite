@@ -10,6 +10,9 @@ const ALLOWED_ORIGINS = new Set([
   "https://atoms-lite.fengyj.me",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  // 本地预览 iframe 的源（生产同源，不需要）
+  "http://localhost:8787",
+  "http://127.0.0.1:8787",
 ]);
 
 function corsFor(origin: string | null): Record<string, string> {

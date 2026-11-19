@@ -209,6 +209,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         runState={runState}
         projectId={projectId}
         projectName={projectName}
+        template={project.data?.template ?? "static"}
         currentVersion={currentVersion}
         versionNote={versionNote}
       />

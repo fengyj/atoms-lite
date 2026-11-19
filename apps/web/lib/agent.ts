@@ -38,10 +38,13 @@ export type ProjectVersion = {
   createdAt: number;
 };
 
+export type TemplateId = "static" | "react-vite" | "fullstack-hono";
+
 export type ProjectSummary = {
   id: string;
   name: string;
   prompt: string;
+  template: TemplateId;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -292,6 +295,12 @@ export function useWorkspaceFiles(
 /* ---------------------------------------------------------------- *
  * 展示辅助（只服务于冻结接口的字段，不引入后端概念）
  * ---------------------------------------------------------------- */
+
+export function templateLabel(template: string): string {
+  if (template === "react-vite") return "React";
+  if (template === "fullstack-hono") return "全栈";
+  return "Static";
+}
 
 /** commit 短 hash，如 `9c4a1f2` */
 export function shortCommit(commit: string): string {

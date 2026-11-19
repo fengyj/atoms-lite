@@ -4,10 +4,13 @@ import type { Env } from "./env";
 const DEMO_PROJECT_ID = "demo";
 const DEMO_PROJECT_NAME = "五子棋 Demo";
 
+export type TemplateId = "static" | "react-vite" | "fullstack-hono";
+
 type ProjectRow = {
   id: string;
   name: string;
   prompt: string;
+  template: string;
   created_at: number;
   updated_at: number;
 };
@@ -26,6 +29,7 @@ export type ProjectSummary = {
   id: string;
   name: string;
   prompt: string;
+  template: TemplateId;
   createdAt: number;
   updatedAt: number;
   versionCount: number;
@@ -37,16 +41,45 @@ export function deriveProjectName(prompt: string): string {
   const text = prompt.replace(/\s+/g, " ").trim();
   if (/五子棋|黑白棋|棋类/.test(text)) return "五子棋 Demo";
   if (/个人(网站|主页)|作品集|portfolio/i.test(text)) return "个人网站";
+  if (/番茄钟|倒计时|计时器/i.test(text)) return "番茄钟";
   if (/待办|todo|任务清单/i.test(text)) return "待办清单";
+  if (/留言板|留言墙/i.test(text)) return "留言板";
   if (/博客|blog/i.test(text)) return "博客";
   if (/电商|商城|shop/i.test(text)) return "电商站点";
   if (/ppt|幻灯片|演示文稿/i.test(text)) return "演示文稿";
   if (/官网|落地页|landing/i.test(text)) return "落地页";
 
-  const cleaned = text
-    .replace(/^(请|帮我|我想|想要|需要|做|创建|生成|实现|一个|一款|个|的)+/g, "")
-    .trim();
-  return (cleaned || "未命名应用").slice(0, 16);
+  let cleaned = text;
+  const prefix =
+    /^(请|帮我|我想|想要|需要|做|创建|生成|实现|用|基于|react|vue|svelte|next\.?js|一个|一款|个|的)\s*/i;
+  while (prefix.test(cleaned)) cleaned = cleaned.replace(prefix, "");
+  return (cleaned.trim() || "未命名应用").slice(0, 16);
+}
+
+/**
+ * 只做确定性分类；模糊需求留给后续的模型 planner（Phase C）。
+ * 这里只决定“用哪个模板初始化”，不决定具体功能。
+ */
+export function deriveTemplate(prompt: string): TemplateId {
+  const text = prompt.replace(/\s+/g, " ").trim();
+
+  if (
+    /登录|注册|认证|权限|数据库|后端|服务端|接口|\bapi\b|上传|管理后台|持久化|sqlite|postgres|mysql/i.test(
+      text,
+    )
+  ) {
+    return "fullstack-hono";
+  }
+
+  if (
+    /react|vue|svelte|spa|组件|路由|状态管理|前端框架|vite|next\.?js/i.test(
+      text,
+    )
+  ) {
+    return "react-vite";
+  }
+
+  return "static";
 }
 
 function newProjectId(): string {
@@ -65,10 +98,20 @@ export class Projects extends DurableObject<Env> {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         prompt TEXT NOT NULL,
+        template TEXT NOT NULL DEFAULT 'static',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
+
+    // v1 表没有 template 列
+    try {
+      ctx.storage.sql.exec(
+        "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
+      );
+    } catch {
+      // 已存在
+    }
   }
 
   private rows(): ProjectRow[] {
@@ -105,8 +148,8 @@ export class Projects extends DurableObject<Env> {
 
     const now = demoMeta.currentVersion?.createdAt ?? Date.now();
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO atoms_projects (id, name, prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO atoms_projects (id, name, prompt, template, created_at, updated_at)
+       VALUES (?, ?, ?, 'static', ?, ?)`,
       DEMO_PROJECT_ID,
       DEMO_PROJECT_NAME,
       "做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始。",
@@ -121,6 +164,7 @@ export class Projects extends DurableObject<Env> {
       id: row.id,
       name: row.name,
       prompt: row.prompt,
+      template: (row.template as TemplateId) || "static",
       createdAt: row.created_at,
       updatedAt: Math.max(row.updated_at, meta?.currentVersion?.createdAt ?? 0),
       versionCount: meta?.versionCount ?? 0,
@@ -139,22 +183,39 @@ export class Projects extends DurableObject<Env> {
     if (!text) throw new Error("prompt is required");
 
     const id = newProjectId();
+    const name = deriveProjectName(text);
+    const template = deriveTemplate(text);
     const now = Date.now();
+
     this.ctx.storage.sql.exec(
-      `INSERT INTO atoms_projects (id, name, prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO atoms_projects (id, name, prompt, template, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       id,
-      deriveProjectName(text),
+      name,
       text,
+      template,
       now,
       now,
     );
 
+    // 只写模板配置，不启动容器；首次 ensure 时按模板播种。
+    try {
+      const stub = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(id));
+      await stub.fetch("https://workspace/config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ template }),
+      });
+    } catch (error) {
+      console.error("[projects] set template failed", id, template, error);
+    }
+
     await this.ensureDemo();
     return {
       id,
-      name: deriveProjectName(text),
+      name,
       prompt: text,
+      template,
       createdAt: now,
       updatedAt: now,
       versionCount: 0,

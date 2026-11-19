@@ -276,8 +276,30 @@ function buildTerminal(messages: UIMessage[]): TerminalEntry[] {
 
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type !== "tool-exec") continue;
       const tool = part as ToolUIPart;
+
+      if (part.type === "tool-build") {
+        const output = (tool.output ?? {}) as {
+          skipped?: boolean;
+          exitCode?: number;
+          stdout?: string;
+          stderr?: string;
+        };
+        entries.push({
+          id: tool.toolCallId,
+          command: output.skipped ? "build（模板无需构建）" : "npm run build",
+          stdout: output.stdout ?? "",
+          stderr:
+            output.stderr ??
+            tool.errorText ??
+            (typeof tool.output === "string" ? tool.output : ""),
+          exitCode: typeof output.exitCode === "number" ? output.exitCode : null,
+          state: tool.state,
+        });
+        continue;
+      }
+
+      if (part.type !== "tool-exec") continue;
       const input = tool.input as ExecInput | undefined;
       if (!input?.program) continue;
 

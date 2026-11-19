@@ -1,10 +1,13 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
-import { MAX_AGENT_STEPS } from "@atoms-lite/contracts";
+import {
+  MAX_AGENT_STEPS,
+  MAX_AGENT_STEPS_BUILD,
+} from "@atoms-lite/contracts";
 import { z } from "zod";
 import type { Env } from "./env";
-import { SYSTEM_PROMPT } from "./prompt";
+import { systemPrompt } from "./prompt";
 import { WorkspaceClient } from "./workspace/client";
 
 export class ChatAgent extends AIChatAgent<Env> {
@@ -42,6 +45,8 @@ export class ChatAgent extends AIChatAgent<Env> {
     // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
     const projectId = this.name;
     const ws = new WorkspaceClient(this.env, projectId);
+    const meta = await ws.meta().catch(() => null);
+    const template = meta?.template ?? "static";
 
     const tools = {
       list_files: tool({
@@ -131,6 +136,20 @@ export class ChatAgent extends AIChatAgent<Env> {
         },
       }),
 
+      build: tool({
+        description:
+          "按当前项目模板执行构建（React/全栈项目必须调用）。返回构建日志与 exitCode。",
+        inputSchema: z.object({}),
+        execute: async () => {
+          try {
+            return await ws.build();
+          } catch (error) {
+            console.error("[tool] build", error);
+            return { error: String(error) };
+          }
+        },
+      }),
+
       create_version: tool({
         description: "把当前工作区保存为一个版本（git commit + 快照）",
         inputSchema: z.object({
@@ -164,10 +183,12 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model: provider(this.env.MODEL_ID ?? "deepseek-v4.1-flash"),
-      system: SYSTEM_PROMPT,
+      system: systemPrompt(template),
       messages: await convertToModelMessages(this.messages),
       tools,
-      stopWhen: stepCountIs(MAX_AGENT_STEPS),
+      stopWhen: stepCountIs(
+        template === "static" ? MAX_AGENT_STEPS : MAX_AGENT_STEPS_BUILD,
+      ),
       onFinish: async () => {
         try {
           await ws.snapshot();

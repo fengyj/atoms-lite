@@ -2,7 +2,11 @@
 
 对话式应用生成平台 —— 面试笔试 Demo。
 
-当前状态：**v1 可用**。首页工作台输入需求（如五子棋、待办清单、个人网站）即可创建独立项目，生成可运行的多文件网站，支持预览与版本。
+当前状态：**A/B 完成**。首页工作台输入需求即可创建独立项目，并按需求自动选择模板：
+
+- Static：多文件静态站点
+- React：React + TypeScript + Vite + Tailwind + shadcn/ui
+- Full-stack：React 前端 + Hono API + SQLite
 
 线上：https://atoms-lite.fengyj.me
 

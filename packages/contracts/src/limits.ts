@@ -17,6 +17,12 @@ export const MAX_TASK_TOKENS = 120_000;
 export const EXEC_TIMEOUT_MS = 120_000;
 export const EXEC_MAX_OUTPUT_BYTES = 256 * 1024;
 
+/** 构建（npm run build）超时；React/Vite 冷构建可能接近一分钟。 */
+export const BUILD_TIMEOUT_MS = 5 * 60_000;
+
+/** 需要构建的项目给更多 Agent 步数（写代码 → build → 修复）。 */
+export const MAX_AGENT_STEPS_BUILD = 36;
+
 /** 附件上限。 */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_ATTACHMENT_MIME = [

@@ -12,7 +12,8 @@
 | **D1** | 项目、会话、产物索引、导出记录 | 需要**跨项目**列表与查询；DO 无法全局查询 |
 | **DO SQLite（Projects，v1 临时）** | 项目索引：`id/name/prompt/createdAt` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
 | **DO SQLite（ChatAgent）** | Run、Run 事件、审批、任务（v1） | 与会话强相关，写入频繁，要求原子顺序 |
-| **DO SQLite（WorkspaceDO）** | 版本、写锁、快照指针、文件列表缓存 | 与工作区强相关；版本和 git 必须同源；文件缓存用于懒启动时展示 |
+| **DO SQLite（WorkspaceDO）** | 版本、写锁、快照指针、文件列表缓存、模板配置 | 与工作区强相关；版本和 git 必须同源；文件缓存用于懒启动时展示 |
+| **Projects DO** | 项目索引增加 `template`（static / react-vite / fullstack-hono） | 初始化时决定模板；后续 Phase C 接 D1 |
 | **R2** | 附件二进制、导出包、完整日志 | 大对象，不适合放进 SQLite |
 | **平台快照** | 容器 rootfs | 停/起恢复，由 Cloudflare 管理，不进 R2 |
 | **Secret Store** | 模型密钥、第三方凭据 | 不进入 DB、日志、沙箱 |

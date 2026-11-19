@@ -1,4 +1,4 @@
-# v1 实现记录（单角色 · 五子棋生成器）
+# A/B 实现记录（单角色 · 多模板生成器）
 
 状态：**已实现并部署**（2026-11-19）
 
@@ -7,11 +7,15 @@
 - 两个页面：**首页工作台** `/` 与**会话工作区** `/sessions/:projectId`
 - **多项目**：首页每次提交需求都会创建一个独立项目（独立容器、文件、git、版本、会话）
 - 用户输入需求 → ChatAgent 调工具 → WorkspaceDO 写文件 → 启动预览 → 创建版本
-- 生成物：多文件静态站点（`index.html` / `styles.css` / `app.js`），无构建步骤
-- 目标示例：五子棋（15×15、双人对战、胜负判定、悔棋、重新开始、localStorage）
+- **三种项目模板**：
+  - `static`：多文件静态站点，无构建
+  - `react-vite`：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui
+  - `fullstack-hono`：上面的前端 + Hono + `node:sqlite` 后端
+- 项目创建时根据需求自动选择模板并持久化
+- 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
 
-不在 v1：多角色、单项目内多会话、PPT、附件、导出、回滚 UI、D1/R2。
-项目删除 / 重命名也暂未提供。
+不在 A/B：多角色、单项目内多会话、PPT、附件、导出、回滚 UI、Next.js、在线安装新依赖。
+全栈数据目前存在容器内 SQLite（快照保留），D1/R2 留到后续。
 
 ## 2. 组成
 
@@ -22,7 +26,8 @@
 | 项目索引 | `apps/worker/src/projects.ts`（`Projects` DO，项目元数据 + 版本摘要） |
 | Workspace 客户端 | `apps/worker/src/workspace/client.ts` |
 | Worker 路由 | `apps/worker/src/index.ts` |
-| 沙箱镜像 | `apps/worker/Dockerfile` + `container/` |
+| 沙箱镜像 | `apps/worker/Dockerfile` + `container/` + `container/templates/*` |
+| 运行时 supervisor | `apps/worker/container/boot.sh`（静态 / Node 单服务） |
 | Web 首页 | `apps/web/components/dashboard/dashboard.tsx` |
 | Web 工作区 | `apps/web/components/workspace/*` + `lib/agent.ts` |
 
@@ -54,6 +59,7 @@
 
 - 三栏：对话、预览、Sandbox/产物/版本（窄屏切换）
 - **打开项目不启动沙箱**：文件列表读 SQL 缓存，预览只探测状态
+- 构建型项目在改完源码后调用 build，构建通过再启动预览
 - 预览默认显示「预览已休眠」，点击「启动预览」才恢复容器
 - 工具调用卡默认折叠，只显示工具名与状态；点击展开参数与结果
 - Sandbox 面板内分两个 tab：
@@ -69,6 +75,24 @@
 
 ## 3. 关键行为
 
+- **模板选型**：`deriveTemplate(prompt)` 先看全栈信号（登录/数据库/API/上传…），
+  再看 React/SPA/组件/路由信号，否则静态；规则在
+  `apps/worker/src/projects.ts`，Phase C 再接模型 planner。
+- **模板配置**：项目创建时写入 WorkspaceDO 的 `atoms_project_config.template`，
+  不启动容器；首次 `ensure()` 按模板播种。
+- **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `npm ci` 安装，
+  工作区用软链复用，Agent 不需要也不能执行 npm install。
+- 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
+- **运行时**：`boot.sh` 是 PID 1 supervisor，读取
+  `/workspace/.atoms/runtime.json`：
+  - `kind: static` → `server.mjs` 服务 `serveDir`（静态站点 / `dist`）
+  - `kind: node` → 启动 `startCommand`（Hono，监听 8080）
+  - `touch /workspace/.atoms/restart` 让 supervisor 重启子进程
+- **构建**：`build` 工具读取 `buildCommand`（`npm run build`），超时 5 分钟，
+  日志返回给 Agent；React/全栈模板的 build 包含 `tsc --noEmit`。
+- **全栈数据**：SQLite 存在 `/data/app.db`，不在 `/workspace`，代码回滚不会删数据。
+  用户通过预览代理写数据（POST/PATCH/DELETE）后，DO 设置 10s 延迟 alarm，
+  触发一次容器快照，避免 5 分钟空闲回收丢数据。
 - 每个项目一个 WorkspaceDO + 一个容器；沙箱空闲 **5 分钟**回收。
 - **懒启动**：只有真正需要容器时才 `ensure()`：
   - Agent 的 `list_files` / `read_file` / `write_file` / `exec` / `start_preview` / `create_version`
@@ -101,7 +125,7 @@
 
 ### 本地
 
-- 容器启动 ~1s；模板 3 个文件；预览 200。
+- 静态模板：容器启动 ~1s；3 个文件；预览 200。
 - 真实模型生成：**约 90 秒**完成 `list_files → write_file × 3 → exec → start_preview → create_version`。
 - 预览标题 `五子棋 · Gomoku`；点击棋盘后「已落子 1 手」「轮到白棋」；localStorage 写入；无 console 错误。
 
@@ -116,6 +140,25 @@
 - 点击棋盘点位后手数增加、执子方切换。
 - **空闲回收恢复**：停止请求 400s 后 `preview/status` 为 `{running:false}`；再请求 `/previews/demo/` 返回 200、标题仍为「五子棋 · Gomoku」，3 个文件大小不变，版本仍为 `1d6d331`。
 - **预览状态探测**：容器运行且服务就绪时徽标为「就绪」；休眠时显示「已休眠」。
+
+### 模板与构建（本地/生产实测）
+
+- 选型：`做一个五子棋` → `static`；`用 React 做组件化待办` → `react-vite`；
+  `带数据库的前后端` → `fullstack-hono`。
+- React：镜像内 `tsc --noEmit && vite build` 通过（约 4–5 秒），
+  `dist/` 由静态服务器提供；`base: "./"` 保证在 `/previews/:id/` 下资源可用。
+- React Agent 生成：番茄钟（TSX + Tailwind + shadcn），版本 1 条，
+  预览 iframe 正常渲染，开始/暂停/重置可操作。
+- 全栈：构建约 4–22 秒；Hono 服务 `/healthz` 与 `/api/items`；
+  前端在预览路径下用相对 `./api/…` 调用，新增任务、刷新后仍在。
+- 全栈 Agent 生成：给任务增加高/中/低优先级，SQLite 增加 `priority`、
+  旧表自动迁移，API 与前端标签/筛选更新，版本创建成功。
+- 生产同一套模板也通过：React 模板渲染、全栈 SSR 静态页 + API 写入成功。
+- 新镜像内已预构建 starter `dist`：未运行 build 也能先看到模板页面（隔离容器实测）。
+- **全栈数据持久化**：生产环境写入任务后 10s 触发快照；容器空闲回收
+  （`running:false`）再启动预览，任务仍在（`快照持久化验证2`）。
+- 旧快照兼容：容器 entrypoint 内联判断 `/opt/preview/boot.sh`，
+  旧快照没有该文件时回退到静态 `server.mjs`。
 
 ### 懒启动（本地实测）
 
@@ -191,6 +234,12 @@
 
 ![空闲打开](assets/v1-lazy-idle-open.png)
 
+React（番茄钟）与全栈（优先级待办）生成结果：
+
+| React | 全栈 |
+|---|---|
+| ![React 番茄钟](assets/v1-react.png) | ![全栈待办](assets/v1-fullstack.png) |
+
 工作区右侧 Sandbox 的「终端」tab（另一个 tab 是工作区文件树）：
 
 ![Sandbox 终端](assets/v1-workspace-terminal.png)
@@ -203,6 +252,9 @@
 - 每个项目固定一个会话。
 - Sandbox 终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
+- 依赖为镜像内预装的白名单，不能在线安装新 npm 包；Next.js 未支持（Phase C）。
+- 全栈数据靠容器快照保留（写入后 10 秒内快照）；不是真正的外部数据库，
+  多实例/长期持久化应换 D1。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。

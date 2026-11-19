@@ -52,6 +52,7 @@ import {
   formatClock,
   renameProject,
   shortCommit,
+  templateLabel,
   useProjects,
   type ProjectSummary,
 } from "@/lib/agent";
@@ -264,8 +265,8 @@ export function Dashboard() {
               把一个想法变成可运行的应用
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话，
-              修改新项目不会影响已有项目。
+              每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话。
+              技术栈会根据需求自动选择：Static、React 或全栈。
             </p>
           </div>
 
@@ -545,7 +546,7 @@ function ProjectCard({
             <div className="flex items-center gap-2">
               <h3 className="truncate text-sm font-medium">{project.name}</h3>
               <Badge variant="secondary" className="text-3xs">
-                Web
+                {templateLabel(project.template)}
               </Badge>
             </div>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">

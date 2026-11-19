@@ -8,7 +8,8 @@ import { extname, resolve, sep } from "node:path";
 
 const HOST = "0.0.0.0";
 const PORT = 8080;
-const ROOT = "/workspace";
+// boot.sh 会为 React 等项目设置 dist 目录；默认仍是静态站点的 /workspace。
+const ROOT = resolve(process.env.PREVIEW_ROOT || "/workspace");
 const INDEX = "index.html";
 
 const MIME = {

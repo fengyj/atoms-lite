@@ -166,6 +166,9 @@ function displayInput(tool: ToolUIPart): unknown {
   if (name === "read_file") {
     return { path: input.path };
   }
+  if (name === "build") {
+    return {};
+  }
   return tool.input;
 }
 
@@ -177,11 +180,13 @@ function displayOutput(tool: ToolUIPart): unknown {
   if (name === "read_file" && typeof output.content === "string") {
     return { content: truncate(output.content), truncated: output.truncated };
   }
-  if (name === "exec") {
+  if (name === "exec" || name === "build") {
     return {
+      skipped: output.skipped,
       exitCode: output.exitCode,
-      stdout: typeof output.stdout === "string" ? truncate(output.stdout) : output.stdout,
-      stderr: typeof output.stderr === "string" ? truncate(output.stderr, 600) : output.stderr,
+      durationMs: output.durationMs,
+      stdout: typeof output.stdout === "string" ? truncate(output.stdout, 2400) : output.stdout,
+      stderr: typeof output.stderr === "string" ? truncate(output.stderr, 900) : output.stderr,
     };
   }
   return tool.output;

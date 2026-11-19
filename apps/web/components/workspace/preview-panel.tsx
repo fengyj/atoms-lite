@@ -56,7 +56,7 @@ export function PreviewPanel({
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 60_000;
 
     setPhase("probing");
 
