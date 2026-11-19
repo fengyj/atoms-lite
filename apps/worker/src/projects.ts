@@ -162,6 +162,47 @@ export class Projects extends DurableObject<Env> {
     };
   }
 
+  private async rename(id: string, name: string): Promise<ProjectSummary> {
+    const text = name.trim().slice(0, 80);
+    if (!text) throw new Error("name is required");
+
+    const row = this.row(id);
+    if (!row) throw new Error("project not found");
+
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_projects SET name = ?, updated_at = ? WHERE id = ?",
+      text,
+      now,
+      id,
+    );
+    return this.enrich({ ...row, name: text, updated_at: now });
+  }
+
+  private async remove(id: string): Promise<{ ok: true; id: string }> {
+    const row = this.row(id);
+    if (!row) throw new Error("project not found");
+
+    this.ctx.storage.sql.exec("DELETE FROM atoms_projects WHERE id = ?", id);
+
+    // 尽力销毁对应工作区与会话（容器 + DO 存储）；失败只记日志，不阻塞删除
+    try {
+      const stub = this.env.WORKSPACE.get(this.env.WORKSPACE.idFromName(id));
+      await stub.fetch("https://workspace/destroy", { method: "POST" });
+    } catch (error) {
+      console.error("[projects] workspace destroy failed", id, error);
+    }
+
+    try {
+      const agent = this.env.ChatAgent.get(this.env.ChatAgent.idFromName(id));
+      await agent.fetch("https://agent/destroy", { method: "POST" });
+    } catch (error) {
+      console.error("[projects] chat destroy failed", id, error);
+    }
+
+    return { ok: true, id };
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -182,6 +223,17 @@ export class Projects extends DurableObject<Env> {
           return Response.json({ error: "project not found" }, { status: 404 });
         }
         return Response.json({ project: await this.enrich(row) });
+      }
+
+      if (match?.[1] && request.method === "PATCH") {
+        const body = (await request.json()) as { name?: string };
+        return Response.json({
+          project: await this.rename(match[1], body.name ?? ""),
+        });
+      }
+
+      if (match?.[1] && request.method === "DELETE") {
+        return Response.json(await this.remove(match[1]));
       }
 
       return Response.json({ error: "not found" }, { status: 404 });

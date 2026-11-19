@@ -53,6 +53,10 @@
 **会话工作区 `/sessions/:projectId`**
 
 - 三栏：对话、预览、Sandbox/产物/版本（窄屏切换）
+- 工具调用卡默认折叠，只显示工具名与状态；点击展开参数与结果
+- Sandbox 面板同时展示两段内容：
+  - **工作区文件树**（`/workspace`，路径与大小）
+  - **终端记录**：从消息里的 `exec` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
 - Agent 实例名 = 项目 ID，因此对话历史、工具调用、容器、版本都按项目隔离
 - 进入时读取 `?prompt=`，待 Agent 连接就绪且当前空闲后自动发送；
   发送前用 `history.replaceState` 清掉 query，刷新不会重复发送
@@ -71,8 +75,11 @@
 - 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。
 - 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
-- 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`（详情）、
-  `/api/projects/:id/{versions,files,preview/*}`；预览 `/previews/:id/*`。
+- 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
+  （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,preview/*}`；
+  预览 `/previews/:id/*`。
+- 删除项目会删除索引行，并尽力销毁对应 WorkspaceDO（容器 + DO 存储）
+  与 ChatAgent 的会话存储。
 - 旧的 `/api/workspace/*` 仍映射到 `demo`，仅作兼容/调试。
 
 ## 4. 验证记录
@@ -104,6 +111,14 @@
 - 首页同时显示两个项目，项目数 2、版本数 3。
 - 无 console / page 错误。
 
+### 交互细节（生产）
+
+- **工具卡默认折叠**：历史消息中的 `data-tool` 全部为 `closed`；点击标题可展开。
+- **Sandbox 双区块**：五子棋项目显示工作区 3 个文件 + 终端 24 条命令
+  （`$ node --check app.js`、`$ grep …`、`$ ls -la …` 及 exit code）。
+- **重命名**：首页项目卡菜单 → 重命名 → 保存，列表立即显示新名称。
+- **删除**：首页项目卡菜单 → 删除 → 二次确认；卡片消失，`GET /api/projects/:id` 返回 404。
+
 ### 首页 → 工作区闭环
 
 ![首页工作台](assets/v1-dashboard.png)
@@ -127,12 +142,18 @@
 |---|---|
 | ![首页](assets/v1-dashboard.png) | ![工作区](assets/v1-workspace-todo.png) |
 
+工作区右侧 Sandbox 的文件树 + 终端记录：
+
+![Sandbox 文件与终端](assets/v1-workspace-terminal.png)
+
 五子棋工作区见 `assets/v1-workspace.png`。
 
 ## 5. 已知限制
 
 - 没有访问控制；公网 URL 可被任意人使用（演示期接受，需加预算上限）。
-- 每个项目固定一个会话；项目不能删除或重命名。
+- 每个项目固定一个会话。
+- Sandbox 终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
+- 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。

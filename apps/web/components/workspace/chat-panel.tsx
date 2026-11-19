@@ -214,7 +214,7 @@ function renderPart(
     const tool = part as ToolUIPart;
     return (
       <div key={index} data-tool={tool.type} data-state={tool.state}>
-        <Tool defaultOpen>
+        <Tool>
           <ToolHeader type={tool.type} state={tool.state} />
           <ToolContent>
             {tool.input !== undefined ? <ToolInput input={displayInput(tool)} /> : null}

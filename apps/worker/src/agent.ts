@@ -8,6 +8,16 @@ import { SYSTEM_PROMPT } from "./prompt";
 import { WorkspaceClient } from "./workspace/client";
 
 export class ChatAgent extends AIChatAgent<Env> {
+  /** 项目删除时清空该项目的会话存储 */
+  override async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/destroy" && request.method === "POST") {
+      await this.ctx.storage.deleteAll();
+      return Response.json({ ok: true });
+    }
+    return super.onRequest(request);
+  }
+
   override async onChatMessage(): Promise<Response> {
     const baseURL = this.env.MODEL_BASE_URL;
     const apiKey = this.env.MODEL_API_KEY;

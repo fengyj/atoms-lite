@@ -91,6 +91,33 @@ export async function fetchProject(
   return project;
 }
 
+export async function renameProject(
+  projectId: string,
+  name: string,
+  signal?: AbortSignal
+): Promise<ProjectSummary> {
+  const res = await fetch(projectApiUrl(projectId), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal,
+  });
+  const project = (await json<ProjectResponse>(res, "rename project")).project;
+  if (!project) throw new Error("project was not renamed");
+  return project;
+}
+
+export async function deleteProject(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(projectApiUrl(projectId), {
+    method: "DELETE",
+    signal,
+  });
+  if (!res.ok) throw new Error(`delete project HTTP ${res.status}`);
+}
+
 export async function createProject(
   prompt: string,
   signal?: AbortSignal

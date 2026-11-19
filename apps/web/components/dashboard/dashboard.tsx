@@ -11,15 +11,33 @@ import {
   GitBranch,
   LayoutGrid,
   Loader2,
+  MoreHorizontal,
   Paperclip,
+  Pencil,
   Plus,
   Settings,
   Sparkles,
   SquareDashed,
+  Trash2,
   WandSparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -30,7 +48,9 @@ import {
 } from "@/components/ui/select";
 import {
   createProject,
+  deleteProject,
   formatClock,
+  renameProject,
   shortCommit,
   useProjects,
   type ProjectSummary,
@@ -58,6 +78,11 @@ export function Dashboard() {
   const [mode, setMode] = useState("single");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const list = projects.data ?? [];
@@ -70,6 +95,50 @@ export function Dashboard() {
   const focusComposer = () => {
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     textareaRef.current?.focus();
+  };
+
+  const openRename = (project: ProjectSummary) => {
+    setRenameValue(project.name);
+    setRenameTarget(project);
+    setDialogError(null);
+  };
+
+  const openDelete = (project: ProjectSummary) => {
+    setDeleteTarget(project);
+    setDialogError(null);
+  };
+
+  const submitRename = async () => {
+    const name = renameValue.trim();
+    if (!renameTarget || !name || dialogBusy) return;
+
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      await renameProject(renameTarget.id, name);
+      setRenameTarget(null);
+      projects.refresh();
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDialogBusy(false);
+    }
+  };
+
+  const submitDelete = async () => {
+    if (!deleteTarget || dialogBusy) return;
+
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      await deleteProject(deleteTarget.id);
+      setDeleteTarget(null);
+      projects.refresh();
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDialogBusy(false);
+    }
   };
 
   const submit = async (text: string) => {
@@ -321,7 +390,12 @@ export function Dashboard() {
 
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               {list.map((project) => (
-                <ProjectCard key={project.id} project={project} />
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onRename={openRename}
+                  onDelete={openDelete}
+                />
               ))}
 
               {list.length === 0 && !projects.loading ? (
@@ -356,65 +430,182 @@ export function Dashboard() {
           </section>
         </main>
       </div>
+
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open && !dialogBusy) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>重命名项目</DialogTitle>
+            <DialogDescription>
+              只修改项目名称，不影响文件、容器与版本历史。
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            maxLength={80}
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void submitRename();
+              }
+            }}
+          />
+          {dialogError ? (
+            <p className="text-2xs text-destructive">{dialogError}</p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={dialogBusy}
+              onClick={() => setRenameTarget(null)}
+            >
+              取消
+            </Button>
+            <Button
+              disabled={dialogBusy || !renameValue.trim()}
+              onClick={() => void submitRename()}
+              className="gap-1.5"
+            >
+              {dialogBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !dialogBusy) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>删除项目</DialogTitle>
+            <DialogDescription>
+              将删除「{deleteTarget?.name}」的工作区、容器和全部版本，操作无法撤销。
+            </DialogDescription>
+          </DialogHeader>
+          {dialogError ? (
+            <p className="text-2xs text-destructive">{dialogError}</p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={dialogBusy}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={dialogBusy}
+              onClick={() => void submitDelete()}
+              className="gap-1.5"
+            >
+              {dialogBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ProjectCard({ project }: { project: ProjectSummary }) {
+function ProjectCard({
+  project,
+  onRename,
+  onDelete,
+}: {
+  project: ProjectSummary;
+  onRename: (project: ProjectSummary) => void;
+  onDelete: (project: ProjectSummary) => void;
+}) {
   const version = project.currentVersion;
 
   return (
-    <a
-      href={`/sessions/${encodeURIComponent(project.id)}`}
-      className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/50"
-    >
-      <div className="flex items-start gap-3 p-4">
-        <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">
-          {/棋/.test(project.name) ? (
-            <Gamepad2 className="size-6 text-primary" />
-          ) : (
-            <Code2 className="size-6 text-primary" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-medium">{project.name}</h3>
-            <Badge variant="secondary" className="text-3xs">
-              Web
-            </Badge>
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-            {version?.summary || project.prompt}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <GitBranch className="size-3" />
-              {version ? shortCommit(version.gitCommit) : "未生成"}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="size-3" />
-              {version ? formatClock(version.createdAt) : "刚创建"}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Code2 className="size-3" />
-              {project.versionCount} 个版本
-            </span>
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/50">
+      <a href={`/sessions/${encodeURIComponent(project.id)}`} className="block">
+        <div className="flex items-start gap-3 p-4 pr-10">
+          <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">
+            {/棋/.test(project.name) ? (
+              <Gamepad2 className="size-6 text-primary" />
+            ) : (
+              <Code2 className="size-6 text-primary" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-medium">{project.name}</h3>
+              <Badge variant="secondary" className="text-3xs">
+                Web
+              </Badge>
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {version?.summary || project.prompt}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <GitBranch className="size-3" />
+                {version ? shortCommit(version.gitCommit) : "未生成"}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Clock3 className="size-3" />
+                {version ? formatClock(version.createdAt) : "刚创建"}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Code2 className="size-3" />
+                {project.versionCount} 个版本
+              </span>
+            </div>
           </div>
         </div>
-        <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-      </div>
-      <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            version ? "bg-success" : "bg-warning"
-          )}
-        />
-        {version
-          ? `已保存版本 · ${project.id}`
-          : `新项目 · 打开后发送第一条需求`}
-      </div>
-    </a>
+        <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              version ? "bg-success" : "bg-warning"
+            )}
+          />
+          {version
+            ? `已保存版本 · ${project.id}`
+            : `新项目 · 打开后发送第一条需求`}
+        </div>
+      </a>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="absolute right-2 top-2 z-10"
+            aria-label="项目操作"
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => onRename(project)}>
+            <Pencil className="size-3.5" />
+            重命名
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => onDelete(project)}
+          >
+            <Trash2 className="size-3.5" />
+            删除
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

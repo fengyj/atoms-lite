@@ -11,6 +11,7 @@
 - `/` 首页工作台（需求输入、示例、项目概况、最近项目）
 - `/sessions/:projectId` 会话工作区（对话 / 预览 / Sandbox / 版本）
 - 每个项目有独立容器、文件、git 历史、版本和 Agent 会话
+- 首页项目卡支持重命名、删除；Sandbox 面板同时显示文件树与终端命令记录
 
 - 实现记录：`docs/implementation.md`
 - 系统架构：`docs/architecture/system-architecture.md`
@@ -90,6 +91,7 @@ pnpm build
 - [x] **单角色生成闭环**：需求 → 工具写文件 → 预览 → 版本
 - [x] **首页 + 会话页**：首页提交需求后进入工作区并自动发送
 - [x] **多项目**：每次需求创建独立项目，项目之间互不影响
+- [x] 项目重命名 / 删除；Sandbox 文件树 + 终端记录
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）

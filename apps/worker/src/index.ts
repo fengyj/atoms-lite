@@ -18,7 +18,7 @@ function corsFor(origin: string | null): Record<string, string> {
       origin && ALLOWED_ORIGINS.has(origin)
         ? origin
         : "https://atoms-lite.fengyj.me",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type",
     vary: "origin",
   };

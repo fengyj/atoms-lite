@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useMemo, useRef } from "react";
+import type { ToolUIPart, UIMessage } from "ai";
 import {
   FileText,
   Folder,
@@ -60,13 +62,18 @@ export function SidePanel({
   className,
   versions,
   files,
+  messages,
 }: {
   className?: string;
   /** 版本列表（真实请求；DO 存储，容器停止也能读） */
   versions: Endpoint<WorkspaceVersion[]>;
   /** 文件列表（真实请求；工具完成后由工作台触发刷新） */
   files: Endpoint<WorkspaceFileEntry[]>;
+  /** 会话消息：从 exec 工具调用还原终端记录 */
+  messages: UIMessage[];
 }) {
+  const terminal = useMemo(() => buildTerminal(messages), [messages]);
+
   return (
     <section
       className={cn(
@@ -94,9 +101,9 @@ export function SidePanel({
 
         <TabsContent
           value="sandbox"
-          className="mt-0 min-h-0 flex-1 overflow-auto scrollbar-thin"
+          className="mt-0 flex min-h-0 flex-1 flex-col"
         >
-          <div className="border-b border-border p-2">
+          <div className="shrink-0 border-b border-border p-2">
             <div className="mb-1.5 flex items-center justify-between px-1 text-2xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <FolderTree className="size-3.5" />
@@ -129,13 +136,24 @@ export function SidePanel({
                   空工作区：还没有任何文件。
                 </p>
               ) : (
-                <ul className="space-y-0.5">
+                <ul className="max-h-56 space-y-0.5 overflow-auto scrollbar-thin">
                   {files.data.map((entry) => (
                     <FileRow key={entry.path} entry={entry} />
                   ))}
                 </ul>
               )
             ) : null}
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5 text-2xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Terminal className="size-3.5" />
+                终端
+              </span>
+              <span>{terminal.length} 条命令</span>
+            </div>
+            <TerminalLog entries={terminal} />
           </div>
         </TabsContent>
 
@@ -192,6 +210,107 @@ export function SidePanel({
         </TabsContent>
       </Tabs>
     </section>
+  );
+}
+
+type ExecInput = { program?: string; args?: string[]; cwd?: string };
+type ExecOutput = { exitCode?: number; stdout?: string; stderr?: string };
+
+type TerminalEntry = {
+  id: string;
+  command: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  state: ToolUIPart["state"];
+};
+
+function quoteArg(arg: string): string {
+  return /^[A-Za-z0-9_./:=@-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+/** 从消息里的 exec 工具调用还原终端记录（只读展示，不执行命令）。 */
+function buildTerminal(messages: UIMessage[]): TerminalEntry[] {
+  const entries: TerminalEntry[] = [];
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "tool-exec") continue;
+      const tool = part as ToolUIPart;
+      const input = tool.input as ExecInput | undefined;
+      if (!input?.program) continue;
+
+      const output = (tool.output ?? {}) as ExecOutput;
+      entries.push({
+        id: tool.toolCallId,
+        command: [input.program, ...(input.args ?? [])]
+          .map(quoteArg)
+          .join(" "),
+        stdout: output.stdout ?? "",
+        stderr:
+          output.stderr ??
+          tool.errorText ??
+          (typeof tool.output === "string" ? tool.output : ""),
+        exitCode: typeof output.exitCode === "number" ? output.exitCode : null,
+        state: tool.state,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function TerminalLog({ entries }: { entries: TerminalEntry[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const last = entries.at(-1);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [entries.length, last?.state]);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto scrollbar-thin bg-background/70 px-2 pb-2 font-mono text-2xs">
+      {entries.length === 0 ? (
+        <p className="px-1 py-3 leading-5 text-muted-foreground">
+          等待 Agent 执行命令…
+          <br />
+          所有 exec 调用会显示在这里。
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => (
+            <div key={entry.id}>
+              <div className="flex items-start gap-1 text-foreground/90">
+                <span className="select-none text-success">$</span>
+                <span className="min-w-0 break-all">{entry.command}</span>
+              </div>
+              {entry.stdout ? (
+                <pre className="mt-0.5 whitespace-pre-wrap break-all text-muted-foreground">
+                  {entry.stdout.trimEnd()}
+                </pre>
+              ) : null}
+              {entry.stderr ? (
+                <pre className="mt-0.5 whitespace-pre-wrap break-all text-destructive">
+                  {entry.stderr.trimEnd()}
+                </pre>
+              ) : null}
+              <div className="mt-0.5 text-3xs text-muted-foreground/70">
+                {entry.state === "output-available"
+                  ? `exit ${entry.exitCode ?? 0}`
+                  : "running…"}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div ref={bottomRef} />
+      {entries.length > 0 ? (
+        <div className="mt-2 flex items-center gap-1">
+          <span className="text-success">$</span>
+          <span className="animate-pulse text-foreground">▍</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

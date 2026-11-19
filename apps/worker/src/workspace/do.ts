@@ -492,6 +492,21 @@ export class Workspace extends DurableObject<Env> {
         return Response.json({ ok: true, running: this.container.running });
       }
 
+      if (path === "/destroy") {
+        try {
+          if (this.container.running) await this.container.destroy();
+        } catch (error) {
+          console.error("[workspace] container destroy failed", error);
+        }
+        try {
+          await this.ctx.storage.deleteAll();
+        } catch (error) {
+          console.error("[workspace] storage delete failed", error);
+        }
+        this.ensurePromise = null;
+        return Response.json({ ok: true });
+      }
+
       if (path === "/meta") {
         // 只读 SQL，不启动容器：首页列表用
         const current = this.latestVersion();

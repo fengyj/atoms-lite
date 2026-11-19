@@ -196,6 +196,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           className="hidden w-side shrink-0 xl:flex"
           versions={versions}
           files={files}
+          messages={messages}
         />
       </div>
 
@@ -211,6 +212,7 @@ export function Workspace({ projectId }: { projectId: string }) {
               className="flex w-full"
               versions={versions}
               files={files}
+              messages={messages}
             />
           </div>
         </>
