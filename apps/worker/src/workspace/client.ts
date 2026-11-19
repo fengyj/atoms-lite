@@ -131,11 +131,17 @@ export class WorkspaceClient {
   }
 
   snapshot() {
-    return this.call<{ ok: boolean }>("/snapshot", {});
+    return this.call<{ ok: boolean; error?: string }>("/snapshot", {});
   }
 
   createVersion(summary: string) {
-    return this.call<{ versionId: string; gitCommit: string }>("/versions", { summary });
+    return this.call<{
+      versionId: string;
+      gitCommit: string;
+      skipped?: boolean;
+      snapshotOk?: boolean;
+      snapshotError?: string;
+    }>("/versions", { summary });
   }
 
   listVersions() {
@@ -143,6 +149,12 @@ export class WorkspaceClient {
   }
 
   checkout(versionId: string) {
-    return this.call<{ ok: boolean; gitCommit: string }>("/versions/checkout", { versionId });
+    return this.call<{
+      ok: boolean;
+      gitCommit: string;
+      buildError?: string | null;
+      snapshotOk?: boolean;
+      snapshotError?: string;
+    }>("/versions/checkout", { versionId });
   }
 }

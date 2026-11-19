@@ -28,6 +28,7 @@ export function TopBar({
   projectName,
   template,
   runtime,
+  snapshotError,
   currentVersion,
   versionNote,
 }: {
@@ -39,6 +40,7 @@ export function TopBar({
   projectName: string;
   template: string;
   runtime: string;
+  snapshotError: string | null;
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
@@ -93,6 +95,15 @@ export function TopBar({
             >
               {shortCommit(currentVersion.gitCommit)}
             </Badge>
+            {currentVersion.status === "failed" || snapshotError ? (
+              <Badge
+                variant="destructive"
+                className="text-3xs"
+                title={snapshotError ?? undefined}
+              >
+                快照失败
+              </Badge>
+            ) : null}
             <span className="hidden text-2xs text-muted-foreground lg:inline">
               已保存 {formatClock(currentVersion.createdAt)}
             </span>

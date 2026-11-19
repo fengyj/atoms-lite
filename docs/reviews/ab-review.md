@@ -42,3 +42,16 @@ WorkspaceDO、Projects、Agent prompt、预览面板。
 - 新镜像 starter dist 可直接预览。
 - 旧快照回退到静态 server.mjs 正常（demo）。
 - `.git` 预览请求 404；删除项目后 `/files` 返回空而不是 500。
+
+
+## 第二轮 review 修复
+
+| 问题 | 修复 |
+|---|---|
+| 工具 catch 后 return {error}，UI 无法进入 output-error | 所有工具执行异常改为 throw；UI 走明确的 output-error |
+| 快照失败静默 | `takeSnapshot` 返回 `{ok,error}`；失败版本标 `failed`；TopBar 显示「快照失败」；`/meta` 暴露 `snapshotError` |
+| 文件缓存每次全量 find+wc | 写文件只局部 upsert；exec/build/版本/seed 才全量校准 |
+| /destroy 清表后未重建默认行 | destroy 后立即写回 workspace/config/runtime_status 最小行 |
+| pnpm 依赖安装 | Debian 镜像、pnpm add、npmmirror、项目独立 node_modules |
+| npm | 最终镜像删除 npm/npx；旧快照不再回退 npm |
+| browser-static | 新静态项目无容器；SQLite 文件/版本/依赖；esm.sh importmap |

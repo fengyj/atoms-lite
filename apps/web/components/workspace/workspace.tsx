@@ -17,6 +17,7 @@ import {
   previewUrl,
   useProject,
   useWorkspaceFiles,
+  useWorkspaceMeta,
   useWorkspaceVersions,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
@@ -123,10 +124,12 @@ export function Workspace({ projectId }: { projectId: string }) {
   }, [pendingPrompt, agentReady, status, isStreaming, sendMessage]);
 
   // 侧栏数据：版本（DO 存储，容器停止也能读）与文件列表
+  const workspaceMeta = useWorkspaceMeta(projectId);
   const versions = useWorkspaceVersions(projectId);
   const files = useWorkspaceFiles(projectId);
   const refreshVersions = versions.refresh;
   const refreshFiles = files.refresh;
+  const refreshMeta = workspaceMeta.refresh;
 
   // 预览刷新：start_preview / create_version 完成后由 watcher 触发
   const [previewTick, setPreviewTick] = useState(0);
@@ -166,10 +169,11 @@ export function Workspace({ projectId }: { projectId: string }) {
         }
         if (name === "create_version" || name === "finish") {
           refreshVersions();
+          refreshMeta();
         }
       }
     }
-  }, [messages, refreshPreview, refreshFiles, refreshVersions]);
+  }, [messages, refreshPreview, refreshFiles, refreshVersions, refreshMeta]);
 
   // 顶栏运行状态：isStreaming 覆盖服务端续流，status 覆盖客户端请求
   const busy = status === "submitted" || isStreaming;
@@ -216,6 +220,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         projectName={projectName}
         template={project.data?.template ?? "static"}
         runtime={project.data?.runtime ?? "container"}
+        snapshotError={workspaceMeta.data?.snapshotError ?? null}
         currentVersion={currentVersion}
         versionNote={versionNote}
       />

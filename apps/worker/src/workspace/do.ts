@@ -175,6 +175,17 @@ export class Workspace extends DurableObject<Env> {
         updated_at INTEGER NOT NULL
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_runtime_status (
+        id TEXT PRIMARY KEY,
+        snapshot_error TEXT,
+        snapshot_at INTEGER
+      )
+    `);
+    ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO atoms_runtime_status (id, snapshot_error, snapshot_at) VALUES (?, NULL, NULL)",
+      this.projectId,
+    );
     ctx.storage.sql.exec(
       "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
       this.projectId,
@@ -298,6 +309,19 @@ export class Workspace extends DurableObject<Env> {
       this.ctx.storage.sql
         .exec<{ ts: number | null }>("SELECT MAX(updated_at) AS ts FROM atoms_files")
         .one().ts ?? 0
+    );
+  }
+
+  private upsertFilesCache(path: string, size: number): void {
+    const rel = path.startsWith(`${WORKSPACE}/`)
+      ? path.slice(WORKSPACE.length + 1)
+      : path;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_files (path, size, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET size = excluded.size, updated_at = excluded.updated_at`,
+      rel,
+      size,
+      Date.now(),
     );
   }
 
@@ -442,6 +466,7 @@ export class Workspace extends DurableObject<Env> {
           versionId: current.id,
           gitCommit: hash,
           skipped: true,
+          snapshotOk: true,
         };
       }
 
@@ -467,7 +492,12 @@ export class Workspace extends DurableObject<Env> {
         }
       });
       this.setCurrentVersion(id);
-      return { versionId: id, gitCommit: hash, skipped: false };
+      return {
+        versionId: id,
+        gitCommit: hash,
+        skipped: false,
+        snapshotOk: true,
+      };
     });
   }
 
@@ -493,7 +523,7 @@ export class Workspace extends DurableObject<Env> {
         );
       });
       this.setCurrentVersion(versionId);
-      return { ok: true, gitCommit: target.git_commit };
+      return { ok: true, gitCommit: target.git_commit, snapshotOk: true };
     });
   }
 
@@ -846,8 +876,11 @@ export class Workspace extends DurableObject<Env> {
     if (!this.container.running) return;
     await this.exclusive(async () => {
       if (!this.container.running) return;
-      await this.takeSnapshot();
-      console.log("[workspace] snapshot after app mutation", this.projectId);
+      const result = await this.takeSnapshot();
+      console.log("[workspace] snapshot after app mutation", {
+        projectId: this.projectId,
+        ok: result.ok,
+      });
     });
   }
 
@@ -864,7 +897,16 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  private async takeSnapshot(): Promise<void> {
+  private setSnapshotStatus(ok: boolean, error?: string): void {
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_runtime_status SET snapshot_error = ?, snapshot_at = ? WHERE id = ?",
+      ok ? null : (error ?? "snapshot failed").slice(0, 500),
+      Date.now(),
+      this.projectId,
+    );
+  }
+
+  private async takeSnapshot(): Promise<{ ok: boolean; error?: string }> {
     try {
       const snap = await this.container.snapshotContainer({ name: "atoms-lite" });
       this.ctx.storage.sql.exec(
@@ -874,8 +916,13 @@ export class Workspace extends DurableObject<Env> {
         snap.id,
         Date.now(),
       );
+      this.setSnapshotStatus(true);
+      return { ok: true };
     } catch (error) {
       console.error("[workspace] snapshot failed", error);
+      const message = String(error).slice(0, 500);
+      this.setSnapshotStatus(false, message);
+      return { ok: false, error: message };
     }
   }
 
@@ -941,6 +988,7 @@ export class Workspace extends DurableObject<Env> {
             versionId: existing.id,
             gitCommit: existing.gitCommit,
             skipped: true,
+            snapshotOk: true,
           };
         }
       }
@@ -968,8 +1016,20 @@ export class Workspace extends DurableObject<Env> {
       this.setCurrentVersion(id);
 
       await this.syncFilesCacheSafe();
-      await this.takeSnapshot();
-      return { versionId: id, gitCommit, skipped: false };
+      const snapshot = await this.takeSnapshot();
+      if (!snapshot.ok) {
+        this.ctx.storage.sql.exec(
+          "UPDATE atoms_versions SET status = 'failed' WHERE id = ?",
+          id,
+        );
+      }
+      return {
+        versionId: id,
+        gitCommit,
+        skipped: false,
+        snapshotOk: snapshot.ok,
+        snapshotError: snapshot.error,
+      };
     });
   }
 
@@ -1020,12 +1080,14 @@ export class Workspace extends DurableObject<Env> {
       if (!buildError) {
         await this.restartPreview();
       }
-      await this.takeSnapshot();
+      const snapshot = await this.takeSnapshot();
 
       return {
         ok: buildError === null,
         gitCommit: target.git_commit,
         buildError,
+        snapshotOk: snapshot.ok,
+        snapshotError: snapshot.error,
       };
     });
   }
@@ -1172,6 +1234,7 @@ export class Workspace extends DurableObject<Env> {
           "atoms_file_content",
           "atoms_file_versions",
           "atoms_dependencies",
+          "atoms_runtime_status",
           "atoms_project_config",
           "atoms_workspace",
         ]) {
@@ -1181,6 +1244,19 @@ export class Workspace extends DurableObject<Env> {
             console.error("[workspace] clear table failed", table, error);
           }
         }
+        // 保留最小默认行，避免同 ID 被直接访问时依赖 constructor 时机。
+        this.ctx.storage.sql.exec(
+          "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
+          this.projectId,
+        );
+        this.ctx.storage.sql.exec(
+          "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, 'static', 'container', 0)",
+          this.projectId,
+        );
+        this.ctx.storage.sql.exec(
+          "INSERT OR IGNORE INTO atoms_runtime_status (id, snapshot_error, snapshot_at) VALUES (?, NULL, NULL)",
+          this.projectId,
+        );
         this.ensurePromise = null;
         return Response.json({ ok: true });
       }
@@ -1213,6 +1289,20 @@ export class Workspace extends DurableObject<Env> {
         return Response.json({
           template: this.template(),
           runtime: this.runtime(),
+          snapshotError:
+            this.ctx.storage.sql
+              .exec<{ snapshot_error: string | null }>(
+                "SELECT snapshot_error FROM atoms_runtime_status WHERE id = ?",
+                this.projectId,
+              )
+              .toArray()[0]?.snapshot_error ?? null,
+          snapshotAt:
+            this.ctx.storage.sql
+              .exec<{ snapshot_at: number | null }>(
+                "SELECT snapshot_at FROM atoms_runtime_status WHERE id = ?",
+                this.projectId,
+              )
+              .toArray()[0]?.snapshot_at ?? null,
           versionCount: this.versionCount(),
           currentVersion: current
             ? {
@@ -1281,7 +1371,11 @@ export class Workspace extends DurableObject<Env> {
         await this.run(["mkdir", "-p", dir]);
         const files = new Files(this.container);
         await files.writeFile(target, body.content);
-        await this.syncFilesCacheSafe();
+        // 写文件只做局部缓存更新；exec/build/版本操作再做全量校准。
+        this.upsertFilesCache(
+          target,
+          new TextEncoder().encode(body.content).length,
+        );
         return Response.json({ path: target, bytes: body.content.length });
       }
 
@@ -1411,42 +1505,20 @@ export class Workspace extends DurableObject<Env> {
           );
         }
 
-        // 新镜像是 pnpm；旧快照可能只有 npm，回退到 npm install。
-        const hasPnpm = await this.run([
-          "test",
-          "-x",
-          "/usr/local/bin/pnpm",
-        ]);
-        const out =
-          hasPnpm.exitCode === 0
-            ? await this.run(
-                [
-                  "pnpm",
-                  "add",
-                  "--store-dir",
-                  "/pnpm-store",
-                  "--registry",
-                  "https://registry.npmmirror.com",
-                  ...specs.map((spec) => spec.spec),
-                ],
-                WORKSPACE,
-                BUILD_TIMEOUT_MS,
-                { CI: "true" },
-              )
-            : await this.run(
-                [
-                  "npm",
-                  "install",
-                  "--no-audit",
-                  "--no-fund",
-                  "--registry",
-                  "https://registry.npmmirror.com",
-                  ...specs.map((spec) => spec.spec),
-                ],
-                WORKSPACE,
-                BUILD_TIMEOUT_MS,
-                { CI: "true" },
-              );
+        const out = await this.run(
+          [
+            "pnpm",
+            "add",
+            "--store-dir",
+            "/pnpm-store",
+            "--registry",
+            "https://registry.npmmirror.com",
+            ...specs.map((spec) => spec.spec),
+          ],
+          WORKSPACE,
+          BUILD_TIMEOUT_MS,
+          { CI: "true" },
+        );
         await this.syncFilesCacheSafe();
         return Response.json({
           runtime: "container",
@@ -1490,8 +1562,8 @@ export class Workspace extends DurableObject<Env> {
         if (this.runtime() === "browser") {
           return Response.json({ ok: true });
         }
-        await this.takeSnapshot();
-        return Response.json({ ok: true });
+        const snapshot = await this.takeSnapshot();
+        return Response.json(snapshot);
       }
 
       if (path === "/preview/stop") {

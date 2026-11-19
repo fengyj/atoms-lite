@@ -81,6 +81,15 @@ export type WorkspaceFileListing = {
 
 export type PreviewStatus = { running: boolean; ready: boolean };
 
+export type WorkspaceMeta = {
+  template: TemplateId;
+  runtime: RuntimeKind;
+  snapshotError: string | null;
+  snapshotAt: number | null;
+  versionCount: number;
+  currentVersion: ProjectVersion | null;
+};
+
 type ProjectsResponse = { projects?: ProjectSummary[] };
 type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
@@ -208,6 +217,22 @@ export async function startPreview(
  * 预览健康探测：iframe 的 onError 对 4xx/5xx 不会触发，
  * 因此状态徽标以这个接口为准。
  */
+export async function fetchWorkspaceMeta(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceMeta> {
+  const res = await fetch(projectApiUrl(projectId, "/meta"), { signal });
+  const data = await json<Partial<WorkspaceMeta>>(res, "workspace meta");
+  return {
+    template: (data.template ?? "static") as TemplateId,
+    runtime: data.runtime === "browser" ? "browser" : "container",
+    snapshotError: data.snapshotError ?? null,
+    snapshotAt: data.snapshotAt ?? null,
+    versionCount: Number(data.versionCount ?? 0),
+    currentVersion: data.currentVersion ?? null,
+  };
+}
+
 export async function fetchPreviewStatus(
   projectId: string,
   signal?: AbortSignal
@@ -274,6 +299,14 @@ export function useProjects(): Endpoint<ProjectSummary[]> {
 export function useProject(projectId: string): Endpoint<ProjectSummary> {
   const fetcher = useCallback(
     (signal?: AbortSignal) => fetchProject(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useWorkspaceMeta(projectId: string): Endpoint<WorkspaceMeta> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchWorkspaceMeta(projectId, signal),
     [projectId]
   );
   return useEndpoint(fetcher);

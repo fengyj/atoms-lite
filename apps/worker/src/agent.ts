@@ -71,7 +71,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return { entries };
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -86,7 +86,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.readFile(path);
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -102,7 +102,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.writeFile(path, content);
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -119,7 +119,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.exec({ program, args, cwd });
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -132,7 +132,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.startPreview();
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -148,7 +148,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.installPackages(packages);
           } catch (error) {
             console.error("[tool] install_packages", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -162,7 +162,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.build();
           } catch (error) {
             console.error("[tool] build", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -177,7 +177,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             return await ws.createVersion(summary);
           } catch (error) {
             console.error("[tool] error", error);
-            return { error: String(error) };
+            throw error;
           }
         },
       }),
@@ -201,9 +201,12 @@ export class ChatAgent extends AIChatAgent<Env> {
       ),
       onFinish: async () => {
         try {
-          await ws.snapshot();
-        } catch {
-          // 忽略快照失败
+          const result = await ws.snapshot();
+          if (!result.ok) {
+            console.error("[agent] finish snapshot failed", result.error);
+          }
+        } catch (error) {
+          console.error("[agent] finish snapshot threw", error);
         }
       },
       onError: ({ error }) => {

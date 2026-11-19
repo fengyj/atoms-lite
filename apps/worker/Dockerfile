@@ -16,7 +16,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
       git ca-certificates procps \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g pnpm@11.6.0 \
+ && npm install -g pnpm@11.6.0 --registry=https://registry.npmmirror.com \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
  && git config --global user.email "sandbox@atoms-lite.local" \
  && git config --global user.name "atoms-lite sandbox" \
  && git config --global init.defaultBranch main

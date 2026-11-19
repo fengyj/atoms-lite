@@ -108,6 +108,12 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **全栈数据**：SQLite 存在 `/data/app.db`，不在 `/workspace`，代码回滚不会删数据。
   用户通过预览代理写数据（POST/PATCH/DELETE）后，DO 设置 10s 延迟 alarm，
   触发一次容器快照，避免 5 分钟空闲回收丢数据。
+- **文件缓存**：写文件只局部 upsert 该路径；exec/build/版本/seed 才做全量
+  `find + wc` 校准，避免每次写文件全扫。
+- **快照可见性**：`takeSnapshot()` 返回 `{ok,error}`；创建版本时快照失败会把该版本
+  status 标为 `failed`，TopBar 显示「快照失败」，`/meta` 暴露 `snapshotError`。
+- **destroy**：清空业务表后立即写回最小默认行（workspace/config/runtime_status），
+  同 ID 再次访问不会因 constructor 初始化时机 500。
 - 每个项目一个 WorkspaceDO + 一个容器；沙箱空闲 **5 分钟**回收。
 - **运行时**：
   - `browser`（新 static 项目）：文件、版本、依赖都在 DO SQLite；预览由 Worker 直接服务；
@@ -116,10 +122,12 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **依赖安装**：
   - `install_packages` 工具；browser runtime 注册 esm.sh URL 并注入 importmap；
     container runtime 执行 `pnpm add`（registry 使用 npmmirror），项目节点是独立 node_modules。
+  - 镜像最终 **不包含 npm/npx**：构建时用 npm 安装 pnpm 后立即删除 npm；
+    运行期只有 node + pnpm。
   - 容器 egress 已开放（`enableInternet: true`），可在运行时安装镜像预装之外的包。
   - 浏览器静态项目不支持 TS/JSX/React 编译；HTML 资源必须相对路径。
 - **镜像**：改为 `node:24-bookworm-slim`（Debian/glibc），安装 git/procps/pnpm；
-  pnpm store 层缓存；依赖安装与构建可复现。
+  pnpm store 层缓存；依赖安装与构建可复现；最终镜像删除 npm/npx。
 - **实例**：DO 管理的容器不支持 `instance_type`，默认 `dev`（1/16 vCPU / 256 MiB / 2 GB），
   生产 React 构建约 3 分钟；因此不建议在该实例上跑 Next。
 - **懒启动**：只有真正需要容器时才 `ensure()`：
@@ -310,7 +318,9 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - Sandbox 终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
 - 依赖可通过 `install_packages` 安装；browser runtime 走 esm.sh，container runtime 走 pnpm + egress。
+- 镜像运行期只有 pnpm；旧快照如果只有 npm，安装新包不兼容（旧项目可删除）。
 - Next.js **不支持**；DO 管理容器默认实例较小，Next 构建/运行不现实。
+- 旧项目（旧 Alpine/npm 快照）仍可预览/构建，但安装新包需要新建项目。
 - 浏览器静态运行时的预览与主站同源，生成代码仍应视为不可信；没有容器级 CPU/内存隔离。
 - 容器 egress 已开放，生成代码可以访问互联网；演示环境需注意滥用和供应链风险。
 - 全栈数据靠容器快照保留（写入后 10 秒内快照）；不是真正的外部数据库，
@@ -320,7 +330,8 @@ React（番茄钟）与全栈（优先级待办）生成结果：
   当前已在 Worker 层拦截 `/previews/:id/.git/*`，并限制 Agent 的 exec 白名单。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
-- DO 管理的容器不支持 `instance_type`，默认 `dev`（1/16 vCPU / 256 MiB / 2 GB）：生产 React 模板一次
+- Workspace 是 Durable Object；容器通过 `scheduling_policy: durable_object` 绑定到 DO。
+  DO 管理的容器不支持 `instance_type`，默认 `dev`（1/16 vCPU / 256 MiB / 2 GB）：生产 React 模板一次
   `pnpm build` 实测约 3 分 13 秒（本地约 5 秒），接近 5 分钟构建超时。
   更大的 React/Next 项目需要构建服务或调整容器调度方案。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。
