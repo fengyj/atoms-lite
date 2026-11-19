@@ -21,6 +21,7 @@
 | [04-sandbox-and-versions](04-sandbox-and-versions.md) | 沙箱生命周期、快照、版本与回滚 |
 | [05-generation-model-ux](05-generation-model-ux.md) | 生成策略、模型基线、UI 与可观测性 |
 | [06-dev-environment](06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
+| [07-instance-auto-upgrade](07-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
 
 ## 约定
 

@@ -136,7 +136,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   - 浏览器静态项目不支持 TS/JSX/React 编译；HTML 资源必须相对路径。
 - **镜像**：改为 `node:24-bookworm-slim`（Debian/glibc），安装 git/procps/pnpm；
   pnpm store 层缓存；依赖安装与构建可复现；最终镜像删除 npm/npx。
-- **实例**：Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
+- **实例**：自动升级方案见 `docs/decisions/07-instance-auto-upgrade.md`（尚未实现）。
+  Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
   `container.start({ instance })` 支持预定义档位。默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），
   可升级 `standard-1`（1/2 vCPU / 4 GiB / 8 GB）→ `standard-2`（1 vCPU / 6 GiB / 12 GB），
   不支持降级；升级前快照、destroy、从快照启动，数据保留。
