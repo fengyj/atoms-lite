@@ -100,7 +100,7 @@ export function PreviewPanel({
     };
   }, [projectId, reloadKey]);
 
-  /** 显式启动：只有用户点击启动/刷新或生成后才调用 */
+  /** 冷启动：容器休眠或预览未就绪时调用 */
   const activate = useCallback(async () => {
     if (startingRef.current) return;
     startingRef.current = true;
@@ -119,12 +119,42 @@ export function PreviewPanel({
     }
   }, [projectId]);
 
+  /**
+   * 手动刷新：预览已就绪时只重载 iframe，不再重启服务。
+   * 重启会有一小段时间仍返回旧进程的响应，容易让 iframe 停在旧内容上。
+   */
+  const refresh = useCallback(async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setPhase("starting");
+    setNote(null);
+    try {
+      let ready = false;
+      try {
+        ready = (await fetchPreviewStatus(projectId)).ready;
+      } catch {
+        // 探测失败时按冷启动处理，由 startPreview 给出明确错误。
+      }
+      if (!ready) await startPreview(projectId);
+      setActive(true);
+      setFrameKey((key) => key + 1);
+      setPhase("ready");
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+      setPhase("error");
+    } finally {
+      startingRef.current = false;
+    }
+  }, [projectId]);
+
   const openExternal = () => {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const meta = phaseMeta[phase];
   const busy = phase === "starting" || phase === "probing";
+  // 每次刷新都换 URL，避免浏览器/代理把 iframe 文档当作同一次导航复用。
+  const frameSrc = `${url}${url.includes("?") ? "&" : "?"}__atoms=${reloadKey}-${frameKey}`;
 
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
@@ -134,9 +164,9 @@ export function PreviewPanel({
       >
         <WebPreviewNavigation className="border-b-border bg-card px-2 py-1.5">
           <WebPreviewNavigationButton
-            tooltip="启动并刷新"
+            tooltip="刷新预览"
             disabled={busy}
-            onClick={() => void activate()}
+            onClick={() => void refresh()}
           >
             <RotateCw
               className={cn("size-3.5", phase === "starting" && "animate-spin")}
@@ -156,7 +186,7 @@ export function PreviewPanel({
         </WebPreviewNavigation>
 
         {active ? (
-          <WebPreviewBody key={`${reloadKey}-${frameKey}`} />
+          <WebPreviewBody key={`${reloadKey}-${frameKey}`} src={frameSrc} />
         ) : (
           <PreviewPlaceholder
             phase={phase}

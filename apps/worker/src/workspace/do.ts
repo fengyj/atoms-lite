@@ -860,14 +860,33 @@ export class Workspace extends DurableObject<Env> {
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
     await this.signalPreviewRestart();
-    // supervisor 每 1s 检查一次 restart 文件；先等它真正开始重启，
-    // 否则可能读到旧进程的 200 就提前返回。
-    await new Promise((resolve) => setTimeout(resolve, 1_200));
 
+    // supervisor 每 1s 检查 restart，然后 kill 旧子进程、sleep 2s、再启动新进程。
+    // 不能只等「ready」：旧进程在重启前仍会返回 200，会让调用方误以为已完成，
+    // 前端 iframe 就会加载旧产物。这里要求先观察到 down，再观察到 ready。
     const deadline = Date.now() + 60_000;
+    let sawDown = false;
+    let nextSignalAt = Date.now() + 8_000;
+
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 400));
-      if (await this.checkPreview()) return;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const ready = await this.checkPreview();
+
+      if (sawDown) {
+        if (ready) return;
+        continue;
+      }
+
+      if (!ready) {
+        sawDown = true;
+        continue;
+      }
+
+      if (Date.now() >= nextSignalAt) {
+        // 信号可能碰上了 supervisor 的启动窗口；重发一次。
+        await this.signalPreviewRestart();
+        nextSignalAt = Date.now() + 8_000;
+      }
     }
 
     await this.ensurePreview();

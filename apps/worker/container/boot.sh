@@ -44,9 +44,10 @@ clear_restart() {
   rm -f /workspace/.atoms-lite/restart /workspace/.atoms/restart
 }
 
+# 只在启动时清理一次。循环顶部不再清理，避免刚好在启动子进程时
+# 吞掉 DO 刚写入的 restart 信号。
+clear_restart
 while true; do
-  clear_restart
-
   KIND="$(read_field kind)"
   [ -z "$KIND" ] && KIND="static"
 
