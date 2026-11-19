@@ -6,6 +6,8 @@ import {
   isTemplate,
   needsPlanner,
   normalizeTemplate,
+  runtimeForTemplate,
+  type RuntimeKind,
   type TemplateId,
 } from "./templates";
 
@@ -19,6 +21,7 @@ type ProjectRow = {
   name: string;
   prompt: string;
   template: string;
+  runtime: string;
   template_source: string;
   plan_reason: string;
   created_at: number;
@@ -40,6 +43,7 @@ export type ProjectSummary = {
   name: string;
   prompt: string;
   template: TemplateId;
+  runtime: RuntimeKind;
   templateSource: TemplateSource;
   planReason: string;
   createdAt: number;
@@ -85,6 +89,7 @@ export class Projects extends DurableObject<Env> {
         name TEXT NOT NULL,
         prompt TEXT NOT NULL,
         template TEXT NOT NULL DEFAULT 'static',
+        runtime TEXT NOT NULL DEFAULT 'container',
         template_source TEXT NOT NULL DEFAULT 'rule',
         plan_reason TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
@@ -95,6 +100,7 @@ export class Projects extends DurableObject<Env> {
     // v1 表缺少后续列，逐列补齐
     for (const statement of [
       "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
+      "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
       "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
     ]) {
@@ -141,8 +147,8 @@ export class Projects extends DurableObject<Env> {
     const now = demoMeta.currentVersion?.createdAt ?? Date.now();
     this.ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO atoms_projects
-         (id, name, prompt, template, template_source, plan_reason, created_at, updated_at)
-       VALUES (?, ?, ?, 'static', 'rule', 'v1 遗留静态项目', ?, ?)`,
+         (id, name, prompt, template, runtime, template_source, plan_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'static', 'container', 'rule', 'v1 遗留静态项目', ?, ?)`,
       DEMO_PROJECT_ID,
       DEMO_PROJECT_NAME,
       "做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始。",
@@ -158,6 +164,7 @@ export class Projects extends DurableObject<Env> {
       name: row.name,
       prompt: row.prompt,
       template: normalizeTemplate(row.template),
+      runtime: row.runtime === "browser" ? "browser" : "container",
       templateSource: (row.template_source as TemplateSource) || "rule",
       planReason: row.plan_reason || "",
       createdAt: row.created_at,
@@ -216,18 +223,20 @@ export class Projects extends DurableObject<Env> {
       }
     }
 
+    const runtime = runtimeForTemplate(template);
     const id = newProjectId();
     const name = deriveProjectName(text);
     const now = Date.now();
 
     this.ctx.storage.sql.exec(
       `INSERT INTO atoms_projects
-         (id, name, prompt, template, template_source, plan_reason, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, prompt, template, runtime, template_source, plan_reason, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       name,
       text,
       template,
+      runtime,
       source,
       reason,
       now,
@@ -241,7 +250,7 @@ export class Projects extends DurableObject<Env> {
       const res = await stub.fetch("https://workspace/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ template }),
+        body: JSON.stringify({ template, runtime }),
       });
       if (!res.ok) throw new Error(`config HTTP ${res.status}`);
     } catch (error) {
@@ -256,6 +265,7 @@ export class Projects extends DurableObject<Env> {
       name,
       prompt: text,
       template,
+      runtime,
       templateSource: source,
       planReason: reason,
       createdAt: now,

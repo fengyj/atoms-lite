@@ -1,4 +1,5 @@
 export type TemplateId = "static" | "react-vite" | "fullstack-hono";
+export type RuntimeKind = "container" | "browser";
 
 export const TEMPLATES: readonly TemplateId[] = [
   "static",
@@ -12,6 +13,15 @@ export function isTemplate(value: unknown): value is TemplateId {
 
 export function normalizeTemplate(value: unknown): TemplateId {
   return isTemplate(value) ? value : "static";
+}
+
+export function normalizeRuntime(value: unknown): RuntimeKind {
+  return value === "browser" ? "browser" : "container";
+}
+
+/** 静态站点默认走浏览器运行时；React/全栈仍需要容器。 */
+export function runtimeForTemplate(template: TemplateId): RuntimeKind {
+  return template === "static" ? "browser" : "container";
 }
 
 /**

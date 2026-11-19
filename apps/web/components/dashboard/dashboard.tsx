@@ -571,6 +571,9 @@ function ProjectCard({
                 ) : null}
                 {templateLabel(project.template)}
               </Badge>
+              <Badge variant="outline" className="text-3xs font-normal">
+                {project.runtime === "browser" ? "Browser" : "Container"}
+              </Badge>
             </div>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
               {version?.summary || project.prompt}

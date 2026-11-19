@@ -27,6 +27,7 @@ export function TopBar({
   projectId,
   projectName,
   template,
+  runtime,
   currentVersion,
   versionNote,
 }: {
@@ -37,6 +38,7 @@ export function TopBar({
   projectId: string;
   projectName: string;
   template: string;
+  runtime: string;
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
@@ -66,7 +68,7 @@ export function TopBar({
           {projectName}
         </span>
         <Badge variant="outline" className="hidden text-3xs font-normal sm:inline-flex">
-          {templateLabel(template)}
+          {templateLabel(template)} · {runtime === "browser" ? "Browser" : "Container"}
         </Badge>
         <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground lg:inline">
           {projectId}

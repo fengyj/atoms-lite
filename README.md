@@ -4,9 +4,9 @@
 
 当前状态：**A/B 完成**。首页工作台输入需求即可创建独立项目，并按需求自动选择模板：
 
-- Static：多文件静态站点
-- React：React + TypeScript + Vite + Tailwind + shadcn/ui + HashRouter（`src/pages/Index.tsx`）
-- Full-stack：React 前端 + Hono API + SQLite
+- Static：多文件静态站点，**browser runtime**（DO SQLite + esm.sh importmap，无容器）
+- React：React + TypeScript + Vite + Tailwind + shadcn/ui + HashRouter（容器）
+- Full-stack：React 前端 + Hono API + SQLite（容器）
 
 线上：https://atoms-lite.fengyj.me
 
@@ -101,6 +101,8 @@ pnpm build
 - [x] **多项目**：每次需求创建独立项目，项目之间互不影响
 - [x] 项目重命名 / 删除；Sandbox 工作区 / 终端 tab；面板宽度可调
 - [x] 沙箱懒启动 + 文件列表 SQL 缓存
+- [x] browser-static 运行时（无容器静态预览、SQLite 文件/版本、esm.sh 依赖）
+- [x] 依赖安装工具（browser: importmap；container: pnpm add + 开放 egress）
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）
@@ -108,7 +110,8 @@ pnpm build
 - [ ] 版本回滚 UI / 导出 / 产物
 - [ ] 附件与 R2
 - [ ] D1 项目/会话元数据
-- [ ] Next.js / 在线安装新 npm 依赖（需独立运行时与依赖审批）
+- [x] 在线安装新依赖（pnpm + npmmirror，容器 runtime）
+- [ ] Next.js（已明确不支持：实例与构建时间不匹配）
 - [ ] D1/R2 与真实发布（当前全栈数据靠容器快照）
 - [ ] 多角色（v1 不做，接口预留）
 - [ ] 访问门禁与预算上限
@@ -123,5 +126,6 @@ pnpm build
 - 契约包通过 `exports` 直接暴露 `.ts` 源码，不设构建步骤。
 - 演示版没有鉴权；预览 iframe 与主站同源，生成代码按不可信处理。
   生产化需要独立预览域 + 访问门禁。
+- 容器 egress 已开放；生成代码可以访问互联网，需注意滥用与供应链风险。
 - Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
 - 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。

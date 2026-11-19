@@ -2,23 +2,26 @@
 
 # Sandbox image for atoms-lite generated apps.
 #
-# - alpine/git: git + shell
-# - nodejs/npm: static server + React/Vite builds
-# - sandbox-shim: required by the Cloudflare Sandbox Files API
-# - templates: static, React/Vite and Hono + SQLite, dependencies preinstalled
+# Node 24 on Debian (glibc) avoids musl/native-module surprises for pnpm packages.
+# sandbox-shim is required by the Cloudflare Sandbox Files API.
 
 FROM cloudflare/sandbox:1.0.3 AS shim
 
-FROM alpine/git:latest
+FROM node:24-bookworm-slim
 
 COPY --from=shim /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 RUN chmod +x /usr/local/bin/sandbox-shim
 
-RUN apk add --no-cache nodejs npm \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
+      git ca-certificates procps \
+ && rm -rf /var/lib/apt/lists/* \
  && npm install -g pnpm@11.6.0 \
  && git config --global user.email "sandbox@atoms-lite.local" \
  && git config --global user.name "atoms-lite sandbox" \
  && git config --global init.defaultBranch main
+
+RUN printf 'registry=https://registry.npmmirror.com\n' > /root/.npmrc
 
 # 先只复制 package 清单安装依赖，源码改动不会让依赖安装层失效。
 COPY container/templates/react-vite/package.json container/templates/react-vite/pnpm-lock.yaml container/templates/react-vite/pnpm-workspace.yaml /opt/templates/react-vite/

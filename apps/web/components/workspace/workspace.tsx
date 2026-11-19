@@ -215,6 +215,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         projectId={projectId}
         projectName={projectName}
         template={project.data?.template ?? "static"}
+        runtime={project.data?.runtime ?? "container"}
         currentVersion={currentVersion}
         versionNote={versionNote}
       />

@@ -47,6 +47,7 @@ export class ChatAgent extends AIChatAgent<Env> {
     const ws = new WorkspaceClient(this.env, projectId);
     const meta = await ws.meta().catch(() => null);
     const template = meta?.template ?? "static";
+    const runtime = meta?.runtime ?? "container";
 
     const tools = {
       list_files: tool({
@@ -136,6 +137,22 @@ export class ChatAgent extends AIChatAgent<Env> {
         },
       }),
 
+      install_packages: tool({
+        description:
+          "安装第三方依赖。容器项目执行 pnpm add；browser-static 注册 esm.sh 包并注入 importmap。不要直接执行 pnpm/npm install。",
+        inputSchema: z.object({
+          packages: z.array(z.string()).min(1).max(8),
+        }),
+        execute: async ({ packages }) => {
+          try {
+            return await ws.installPackages(packages);
+          } catch (error) {
+            console.error("[tool] install_packages", error);
+            return { error: String(error) };
+          }
+        },
+      }),
+
       build: tool({
         description:
           "按当前项目模板执行构建（React/全栈项目必须调用）。返回构建日志与 exitCode。",
@@ -176,7 +193,7 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model: provider(this.env.MODEL_ID ?? "deepseek-v4.1-flash"),
-      system: systemPrompt(template),
+      system: systemPrompt(template, runtime),
       messages: await convertToModelMessages(this.messages),
       tools,
       stopWhen: stepCountIs(

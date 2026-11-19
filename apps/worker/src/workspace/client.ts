@@ -75,6 +75,7 @@ export class WorkspaceClient {
   meta() {
     return this.call<{
       template: string;
+      runtime: string;
       versionCount: number;
       currentVersion: {
         id: string;
@@ -87,6 +88,18 @@ export class WorkspaceClient {
 
   build() {
     return this.call<BuildResult>("/tools/build", {});
+  }
+
+  installPackages(packages: string[]) {
+    return this.call<{
+      runtime: string;
+      installed?: { name: string; version: string; url: string }[];
+      imports?: Record<string, string>;
+      exitCode?: number;
+      stdout?: string;
+      stderr?: string;
+      error?: string;
+    }>("/tools/install", { packages });
   }
 
   listFiles() {

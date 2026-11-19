@@ -7,6 +7,8 @@ import {
   SANDBOX_INACTIVITY_TIMEOUT_MS,
 } from "@atoms-lite/contracts";
 import type { Env } from "../env";
+import { BROWSER_STATIC_FILES } from "../browser-template";
+import { normalizeRuntime, type RuntimeKind } from "../templates";
 import type { ExecResult, FileEntry, VersionRow } from "./client";
 
 const PREVIEW_PORT = 8080;
@@ -71,6 +73,29 @@ function normalizeTemplate(value: unknown): TemplateId {
     : "static";
 }
 
+const PACKAGE_SPEC_RE =
+  /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[A-Za-z0-9.^~+_-]+)?$/;
+
+function parsePackageSpec(raw: string): {
+  name: string;
+  version: string;
+  spec: string;
+} {
+  const spec = raw.trim();
+  if (!PACKAGE_SPEC_RE.test(spec)) {
+    throw new Error(`invalid package spec: ${raw}`);
+  }
+  const at = spec.lastIndexOf("@");
+  if (at > 0) {
+    return {
+      name: spec.slice(0, at),
+      version: spec.slice(at + 1) || "latest",
+      spec,
+    };
+  }
+  return { name: spec, version: "latest", spec };
+}
+
 type VersionDbRow = {
   id: string;
   git_commit: string;
@@ -123,6 +148,30 @@ export class Workspace extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS atoms_project_config (
         id TEXT PRIMARY KEY,
         template TEXT NOT NULL,
+        runtime TEXT NOT NULL DEFAULT 'container',
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_file_content (
+        path TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_file_versions (
+        version_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        PRIMARY KEY (version_id, path)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_dependencies (
+        name TEXT PRIMARY KEY,
+        version TEXT NOT NULL,
+        url TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
@@ -131,9 +180,16 @@ export class Workspace extends DurableObject<Env> {
       this.projectId,
     );
     ctx.storage.sql.exec(
-      "INSERT OR IGNORE INTO atoms_project_config (id, template, updated_at) VALUES (?, 'static', 0)",
+      "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, 'static', 'container', 0)",
       this.projectId,
     );
+    try {
+      ctx.storage.sql.exec(
+        "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
+      );
+    } catch {
+      // 已存在
+    }
   }
 
   private get container(): Container {
@@ -153,8 +209,9 @@ export class Workspace extends DurableObject<Env> {
     cmd: string[],
     cwd = WORKSPACE,
     timeoutMs = EXEC_TIMEOUT_MS,
+    env?: Record<string, string>,
   ): Promise<ExecResult> {
-    const proc = await this.container.exec(cmd, { cwd });
+    const proc = await this.container.exec(cmd, { cwd, env });
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -190,12 +247,24 @@ export class Workspace extends DurableObject<Env> {
     return normalizeTemplate(rows[0]?.template);
   }
 
-  private setTemplate(template: TemplateId): void {
+  private runtime(): RuntimeKind {
+    const rows = this.ctx.storage.sql
+      .exec<{ runtime: string }>(
+        "SELECT runtime FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray();
+    return normalizeRuntime(rows[0]?.runtime);
+  }
+
+  private setConfig(template: TemplateId, runtime: RuntimeKind): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO atoms_project_config (id, template, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET template = excluded.template, updated_at = excluded.updated_at`,
+      `INSERT INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET template = excluded.template,
+         runtime = excluded.runtime, updated_at = excluded.updated_at`,
       this.projectId,
       template,
+      runtime,
       Date.now(),
     );
   }
@@ -257,11 +326,246 @@ export class Workspace extends DurableObject<Env> {
 
   /** 缓存失败不影响主流程（写文件、exec、版本操作）。 */
   private async syncFilesCacheSafe(): Promise<void> {
+    if (this.runtime() === "browser") return;
     try {
       await this.syncFilesCache();
     } catch (error) {
       console.error("[workspace] file cache sync failed", error);
     }
+  }
+
+  private browserFiles(): FileEntry[] {
+    return this.ctx.storage.sql
+      .exec<{ path: string; size: number }>(
+        "SELECT path, length(CAST(content AS BLOB)) AS size FROM atoms_file_content ORDER BY path",
+      )
+      .toArray()
+      .map((row) => ({ path: row.path, type: "file" as const, size: row.size }));
+  }
+
+  private browserFileRows(): { path: string; content: string }[] {
+    return this.ctx.storage.sql
+      .exec<{ path: string; content: string }>(
+        "SELECT path, content FROM atoms_file_content ORDER BY path",
+      )
+      .toArray();
+  }
+
+  private browserContent(path: string): string | null {
+    const rows = this.ctx.storage.sql
+      .exec<{ content: string }>(
+        "SELECT content FROM atoms_file_content WHERE path = ?",
+        path,
+      )
+      .toArray();
+    return rows[0]?.content ?? null;
+  }
+
+  private browserWrite(path: string, content: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_file_content (path, content, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+      path,
+      content,
+      Date.now(),
+    );
+  }
+
+  private browserCachedAt(): number {
+    return (
+      this.ctx.storage.sql
+        .exec<{ ts: number | null }>(
+          "SELECT MAX(updated_at) AS ts FROM atoms_file_content",
+        )
+        .one().ts ?? 0
+    );
+  }
+
+  private relativePath(path: string): string {
+    if (!path.startsWith(`${WORKSPACE}/`)) {
+      throw new Error(`path not allowed: ${path}`);
+    }
+    const rel = path.slice(WORKSPACE.length + 1);
+    if (
+      !rel ||
+      rel.includes("..") ||
+      rel === ".git" ||
+      rel.startsWith(".git/") ||
+      rel.includes("/.git/")
+    ) {
+      throw new Error(`path not allowed: ${path}`);
+    }
+    return rel;
+  }
+
+  private async seedBrowser(): Promise<void> {
+    const count = this.ctx.storage.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM atoms_file_content")
+      .one().n;
+    if (count > 0) return;
+
+    this.ctx.storage.transactionSync(() => {
+      for (const [path, content] of Object.entries(BROWSER_STATIC_FILES)) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO atoms_file_content (path, content, updated_at) VALUES (?, ?, ?)",
+          path,
+          content,
+          Date.now(),
+        );
+      }
+    });
+  }
+
+  private async hashBrowserFiles(
+    files: { path: string; content: string }[],
+  ): Promise<string> {
+    const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+    const text = sorted.map((f) => `${f.path}\0${f.content}`).join("\0");
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(text),
+    );
+    return [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  private async createBrowserVersion(summary: string) {
+    return this.exclusive(async () => {
+      await this.ensure();
+      const files = this.browserFileRows();
+      const hash = await this.hashBrowserFiles(files);
+      const current = this.latestVersion();
+
+      if (current?.gitCommit === hash) {
+        return {
+          versionId: current.id,
+          gitCommit: hash,
+          skipped: true,
+        };
+      }
+
+      const id = `ver_${crypto.randomUUID()}`;
+      const now = Date.now();
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_versions (id, git_commit, parent_id, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        id,
+        hash,
+        current?.id ?? null,
+        summary,
+        "draft",
+        now,
+      );
+      this.ctx.storage.transactionSync(() => {
+        for (const file of files) {
+          this.ctx.storage.sql.exec(
+            "INSERT INTO atoms_file_versions (version_id, path, content) VALUES (?, ?, ?)",
+            id,
+            file.path,
+            file.content,
+          );
+        }
+      });
+      this.setCurrentVersion(id);
+      return { versionId: id, gitCommit: hash, skipped: false };
+    });
+  }
+
+  private async checkoutBrowser(versionId: string) {
+    return this.exclusive(async () => {
+      await this.ensure();
+      const rows = this.ctx.storage.sql
+        .exec<{ git_commit: string }>(
+          "SELECT git_commit FROM atoms_versions WHERE id = ?",
+          versionId,
+        )
+        .toArray();
+      const target = rows[0];
+      if (!target) throw new Error(`version not found: ${versionId}`);
+
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.sql.exec("DELETE FROM atoms_file_content");
+        this.ctx.storage.sql.exec(
+          `INSERT INTO atoms_file_content (path, content, updated_at)
+           SELECT path, content, ? FROM atoms_file_versions WHERE version_id = ?`,
+          Date.now(),
+          versionId,
+        );
+      });
+      this.setCurrentVersion(versionId);
+      return { ok: true, gitCommit: target.git_commit };
+    });
+  }
+
+  private async serveBrowserFile(rest: string): Promise<Response> {
+    let decoded = rest;
+    try {
+      decoded = decodeURIComponent(rest);
+    } catch {
+      return new Response("bad path", { status: 400 });
+    }
+    if (
+      decoded === "/.git" ||
+      decoded.startsWith("/.git/") ||
+      decoded.includes("/.git/")
+    ) {
+      return new Response("not found", { status: 404 });
+    }
+
+    let rel = decoded.replace(/^\/+/, "");
+    let content = this.browserContent(rel);
+    if (content === null) {
+      // SPA 回退：无扩展名路径回退到 index.html
+      if (!/\.[a-z0-9]+$/i.test(rel) || rel === "") {
+        rel = "index.html";
+        content = this.browserContent(rel);
+      }
+    }
+    if (content === null) {
+      return new Response("not found", { status: 404 });
+    }
+
+    if (rel === "index.html" && !/type=["']importmap["']/i.test(content)) {
+      const deps = this.ctx.storage.sql
+        .exec<{ name: string; url: string }>(
+          "SELECT name, url FROM atoms_dependencies ORDER BY name",
+        )
+        .toArray();
+      if (deps.length > 0) {
+        const imports = Object.fromEntries(deps.map((d) => [d.name, d.url]));
+        const tag = `<script type="importmap">${JSON.stringify({ imports })}</script>`;
+        content = /<head([^>]*)>/i.test(content)
+          ? content.replace(/<head([^>]*)>/i, `<head$1>${tag}`)
+          : `${tag}${content}`;
+      }
+    }
+
+    const MIME: Record<string, string> = {
+      html: "text/html; charset=utf-8",
+      css: "text/css; charset=utf-8",
+      js: "text/javascript; charset=utf-8",
+      mjs: "text/javascript; charset=utf-8",
+      json: "application/json; charset=utf-8",
+      svg: "image/svg+xml",
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      webp: "image/webp",
+      ico: "image/x-icon",
+      woff: "font/woff",
+      woff2: "font/woff2",
+      txt: "text/plain; charset=utf-8",
+      md: "text/plain; charset=utf-8",
+    };
+    const ext = rel.includes(".") ? rel.split(".").pop()!.toLowerCase() : "";
+    return new Response(content, {
+      headers: {
+        "content-type": MIME[ext] ?? "application/octet-stream",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
   }
 
   private snapshotId(): string | null {
@@ -340,8 +644,9 @@ export class Workspace extends DurableObject<Env> {
 
     const hasModules = await this.run(["test", "-d", `${dir}/node_modules`]);
     if (hasModules.exitCode === 0) {
+      // 每项目一份真实 node_modules，后续 install_packages 不会改到共享模板。
       await this.sh(
-        `rm -rf ${WORKSPACE}/node_modules && ln -s ${dir}/node_modules ${WORKSPACE}/node_modules`,
+        `rm -rf ${WORKSPACE}/node_modules && cp -a ${dir}/node_modules ${WORKSPACE}/node_modules`,
       );
     }
 
@@ -411,6 +716,16 @@ export class Workspace extends DurableObject<Env> {
     stderr: string;
     durationMs: number;
   }> {
+    if (this.runtime() === "browser") {
+      return {
+        skipped: true,
+        exitCode: 0,
+        stdout: "browser-static 运行时不需要构建。",
+        stderr: "",
+        durationMs: 0,
+      };
+    }
+
     // 与 createVersion / checkout 共用队列，避免并发写 dist 和 git。
     return this.exclusive(async () => {
       await this.ensure();
@@ -454,6 +769,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async ensure(): Promise<void> {
+    if (this.runtime() === "browser") {
+      this.ensurePromise ??= this.seedBrowser().catch((error) => {
+        this.ensurePromise = null;
+        throw error;
+      });
+      return this.ensurePromise;
+    }
+
     if (!this.container.running) this.ensurePromise = null;
 
     this.ensurePromise ??= this.doEnsure().catch((error) => {
@@ -476,7 +799,7 @@ export class Workspace extends DurableObject<Env> {
           container.start({
             containerSnapshot: { id: snap },
             entrypoint: ENTRYPOINT,
-            enableInternet: false,
+            enableInternet: true,
           });
         } catch (error) {
           console.error("[workspace] snapshot restore failed", error);
@@ -488,7 +811,7 @@ export class Workspace extends DurableObject<Env> {
           container.start({
             image: container.images["base"],
             entrypoint: ENTRYPOINT,
-            enableInternet: false,
+            enableInternet: true,
           });
         }
       } else {
@@ -500,7 +823,7 @@ export class Workspace extends DurableObject<Env> {
         container.start({
           image: container.images["base"],
           entrypoint: ENTRYPOINT,
-          enableInternet: false,
+          enableInternet: true,
         });
       }
 
@@ -509,6 +832,7 @@ export class Workspace extends DurableObject<Env> {
     }
 
     await this.seed();
+    await this.ensureNodeModules();
     await this.ensurePreview();
     await this.syncFilesCacheSafe();
   }
@@ -525,6 +849,19 @@ export class Workspace extends DurableObject<Env> {
       await this.takeSnapshot();
       console.log("[workspace] snapshot after app mutation", this.projectId);
     });
+  }
+
+  private async ensureNodeModules(): Promise<void> {
+    const template = this.template();
+    if (template === "static") return;
+
+    const isLink = await this.run(["test", "-L", `${WORKSPACE}/node_modules`]);
+    if (isLink.exitCode === 0) {
+      // 旧项目是软链；安装依赖前升级为项目自己的副本。
+      await this.sh(
+        `rm -f ${WORKSPACE}/node_modules && cp -a /opt/templates/${template}/node_modules ${WORKSPACE}/node_modules`,
+      );
+    }
   }
 
   private async takeSnapshot(): Promise<void> {
@@ -582,6 +919,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async createVersion(summary: string) {
+    if (this.runtime() === "browser") {
+      return this.createBrowserVersion(summary);
+    }
     return this.exclusive(async () => {
       await this.ensure();
 
@@ -634,6 +974,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async checkout(versionId: string) {
+    if (this.runtime() === "browser") {
+      return this.checkoutBrowser(versionId);
+    }
     return this.exclusive(async () => {
       await this.ensure();
 
@@ -729,11 +1072,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async previewProxy(request: Request): Promise<Response> {
-    await this.ensure();
     const url = new URL(request.url);
-
     const rest =
       url.pathname.slice(`/previews/${this.projectId}`.length) || "/";
+
+    if (this.runtime() === "browser") {
+      await this.ensure();
+      return this.serveBrowserFile(rest);
+    }
+
+    await this.ensure();
 
     // 旧快照的 server.mjs 可能没有 .git 防护；在这一层统一拦截。
     let decodedRest = rest;
@@ -821,6 +1169,9 @@ export class Workspace extends DurableObject<Env> {
           "atoms_versions",
           "atoms_snapshots",
           "atoms_files",
+          "atoms_file_content",
+          "atoms_file_versions",
+          "atoms_dependencies",
           "atoms_project_config",
           "atoms_workspace",
         ]) {
@@ -835,15 +1186,25 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/config") {
-        const body = (await request.json()) as { template?: string };
+        const body = (await request.json()) as {
+          template?: string;
+          runtime?: string;
+        };
         if (this.versionCount() > 0) {
           return Response.json(
             { error: "template is locked after the first version" },
             { status: 409 },
           );
         }
-        this.setTemplate(normalizeTemplate(body.template));
-        return Response.json({ ok: true, template: this.template() });
+        this.setConfig(
+          normalizeTemplate(body.template),
+          normalizeRuntime(body.runtime),
+        );
+        return Response.json({
+          ok: true,
+          template: this.template(),
+          runtime: this.runtime(),
+        });
       }
 
       if (path === "/meta") {
@@ -851,6 +1212,7 @@ export class Workspace extends DurableObject<Env> {
         const current = this.latestVersion();
         return Response.json({
           template: this.template(),
+          runtime: this.runtime(),
           versionCount: this.versionCount(),
           currentVersion: current
             ? {
@@ -864,7 +1226,15 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/files") {
-        // 默认只读 SQL 缓存，不启动容器
+        if (this.runtime() === "browser") {
+          await this.ensure();
+          return Response.json({
+            entries: this.browserFiles(),
+            running: false,
+            cachedAt: this.browserCachedAt(),
+          });
+        }
+        // 容器项目默认只读 SQL 缓存，不启动容器
         return Response.json({
           entries: this.cachedFiles(),
           running: this.container.running,
@@ -874,6 +1244,13 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/files/refresh") {
         await this.ensure();
+        if (this.runtime() === "browser") {
+          return Response.json({
+            entries: this.browserFiles(),
+            running: false,
+            cachedAt: this.browserCachedAt(),
+          });
+        }
         const entries = await this.syncFilesCache();
         return Response.json({
           entries,
@@ -882,15 +1259,23 @@ export class Workspace extends DurableObject<Env> {
         });
       }
 
-      // Agent 的 list_files：需要真实工作区，允许启动容器
+      // Agent 的 list_files：需要真实工作区
       if (path === "/tools/list") {
         await this.ensure();
+        if (this.runtime() === "browser") {
+          return Response.json({ entries: this.browserFiles() });
+        }
         return Response.json({ entries: await this.syncFilesCache() });
       }
 
       if (path === "/tools/write") {
         const body = (await request.json()) as { path: string; content: string };
         await this.ensure();
+        if (this.runtime() === "browser") {
+          const rel = this.relativePath(body.path);
+          this.browserWrite(rel, body.content);
+          return Response.json({ path: body.path, bytes: body.content.length });
+        }
         const target = safePath(body.path);
         const dir = target.slice(0, target.lastIndexOf("/")) || WORKSPACE;
         await this.run(["mkdir", "-p", dir]);
@@ -903,6 +1288,13 @@ export class Workspace extends DurableObject<Env> {
       if (path === "/tools/read") {
         const body = (await request.json()) as { path: string };
         await this.ensure();
+        if (this.runtime() === "browser") {
+          const content = this.browserContent(this.relativePath(body.path));
+          if (content === null) {
+            return Response.json({ error: "file not found" }, { status: 404 });
+          }
+          return Response.json({ content, truncated: false });
+        }
         const target = safePath(body.path);
         const files = new Files(this.container);
         const res = await files.readFile(target);
@@ -917,6 +1309,13 @@ export class Workspace extends DurableObject<Env> {
           cwd?: string;
         };
         await this.ensure();
+
+        if (this.runtime() === "browser") {
+          return Response.json(
+            { error: "browser-static runtime has no shell" },
+            { status: 400 },
+          );
+        }
 
         if (!ALLOWED_PROGRAMS.has(body.program)) {
           return Response.json(
@@ -956,11 +1355,93 @@ export class Workspace extends DurableObject<Env> {
         }
       }
 
+      if (path === "/tools/install") {
+        const body = (await request.json()) as { packages?: string[] };
+        let specs: ReturnType<typeof parsePackageSpec>[];
+        try {
+          specs = (body.packages ?? []).map(parsePackageSpec);
+        } catch (error) {
+          return Response.json(
+            { error: String(error).slice(0, 200) },
+            { status: 400 },
+          );
+        }
+        if (specs.length === 0 || specs.length > 8) {
+          return Response.json(
+            { error: "packages must contain 1-8 entries" },
+            { status: 400 },
+          );
+        }
+
+        await this.ensure();
+
+        if (this.runtime() === "browser") {
+          const installed = specs.map((spec) => ({
+            ...spec,
+            url: `https://esm.sh/${spec.name}@${spec.version}`,
+          }));
+          this.ctx.storage.transactionSync(() => {
+            for (const item of installed) {
+              this.ctx.storage.sql.exec(
+                `INSERT INTO atoms_dependencies (name, version, url, updated_at)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT(name) DO UPDATE SET version = excluded.version,
+                   url = excluded.url, updated_at = excluded.updated_at`,
+                item.name,
+                item.version,
+                item.url,
+                Date.now(),
+              );
+            }
+          });
+          return Response.json({
+            runtime: "browser",
+            installed,
+            imports: Object.fromEntries(
+              installed.map((item) => [item.name, item.url]),
+            ),
+            hint: "用裸包名 import；预览会注入 importmap。",
+          });
+        }
+
+        if (this.template() === "static") {
+          return Response.json(
+            { error: "this static project has no package manager" },
+            { status: 400 },
+          );
+        }
+
+        const out = await this.run(
+          [
+            "pnpm",
+            "add",
+            "--store-dir",
+            "/pnpm-store",
+            "--registry",
+            "https://registry.npmmirror.com",
+            ...specs.map((spec) => spec.spec),
+          ],
+          WORKSPACE,
+          BUILD_TIMEOUT_MS,
+          { CI: "true" },
+        );
+        await this.syncFilesCacheSafe();
+        return Response.json({
+          runtime: "container",
+          exitCode: out.exitCode,
+          stdout: out.stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
+          stderr: out.stderr.slice(0, 32 * 1024),
+        });
+      }
+
       if (path === "/tools/build") {
         return Response.json(await this.build());
       }
 
       if (path === "/preview/status") {
+        if (this.runtime() === "browser") {
+          return Response.json({ running: false, ready: true });
+        }
         // 只探测，不主动启动：iframe 请求本身会触发 ensure()
         const running = this.container.running;
         const ready = running ? await this.checkPreview() : false;
@@ -969,6 +1450,12 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/preview/start") {
         await this.ensure();
+        if (this.runtime() === "browser") {
+          return Response.json({
+            status: "ready",
+            url: `/previews/${this.projectId}/`,
+          });
+        }
         await this.restartPreview();
         return Response.json({
           status: "ready",
@@ -978,6 +1465,9 @@ export class Workspace extends DurableObject<Env> {
 
       if (path === "/snapshot") {
         await this.ensure();
+        if (this.runtime() === "browser") {
+          return Response.json({ ok: true });
+        }
         await this.takeSnapshot();
         return Response.json({ ok: true });
       }
