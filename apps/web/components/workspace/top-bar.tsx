@@ -1,12 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ChevronLeft,
-  Cpu,
-  Download,
-  Sparkles,
-} from "lucide-react";
+import { ChevronLeft, Cpu, Download } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -65,7 +61,7 @@ export function TopBar({
       >
         <ChevronLeft className="size-3 text-muted-foreground sm:hidden" />
         <span className="grid size-5 place-items-center rounded-md bg-primary text-primary-foreground">
-          <Sparkles className="size-3" />
+          <BrandMark className="size-3.5" />
         </span>
         <span className="hidden text-sm font-semibold tracking-tight whitespace-nowrap sm:inline">
           atoms-lite

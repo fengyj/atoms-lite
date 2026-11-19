@@ -22,6 +22,7 @@
 | [05-generation-model-ux](05-generation-model-ux.md) | 生成策略、模型基线、UI 与可观测性 |
 | [06-dev-environment](06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
 | [07-instance-auto-upgrade](07-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
+| [08-iconography](08-iconography.md) | 站内品牌图标、生成项目的图标库选择与使用约定 |
 
 ## 约定
 

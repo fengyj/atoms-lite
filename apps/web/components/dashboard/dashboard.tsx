@@ -21,6 +21,7 @@ import {
   Trash2,
   WandSparkles,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -170,7 +171,7 @@ export function Dashboard() {
           className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4"
         >
           <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="size-4" />
+            <BrandMark className="size-4" />
           </span>
           <span className="text-sm font-semibold tracking-tight">atoms-lite</span>
           <Badge variant="outline" className="ml-auto text-3xs">
@@ -231,7 +232,7 @@ export function Dashboard() {
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 lg:px-8">
           <Link href="/" className="flex items-center gap-2 lg:hidden">
             <span className="grid size-6 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Sparkles className="size-3.5" />
+              <BrandMark className="size-3.5" />
             </span>
             <span className="text-sm font-semibold">atoms-lite</span>
           </Link>

@@ -25,6 +25,8 @@ const BROWSER_STATIC = `当前运行时：browser-static（浏览器静态站点
 - 入口是 /workspace/index.html，可以创建多个 HTML/CSS/JS 文件。
 - HTML 里的 CSS/JS/图片必须用相对路径（./styles.css、./app.js），不要以 / 开头；预览挂在 /previews/:id/ 下，绝对路径会 404。
 - 只支持原生 HTML/CSS/JavaScript（ES modules）；不支持 TypeScript/JSX/React 编译。
+- 界面图标用内联 SVG（16 / 20 / 24px，stroke=currentColor），不要用 emoji 当功能图标，
+  不要引入图标字体；品牌 logo 也优先内联 SVG。
 - 预览由平台直接服务；start_preview 不需要启动容器。
 - 需要第三方库：调用 install_packages（例如 chart.js@4、dayjs），
   然后用裸包名 import（平台会把已安装包注入 importmap，实际来自 esm.sh）；
@@ -46,6 +48,8 @@ const STATIC_CONTAINER = `当前模板：静态站点（容器运行时，无构
 - 入口是 /workspace/index.html，可以创建多个 HTML/CSS/JS 文件。
 - HTML 里的资源引用必须用相对路径（./styles.css、./app.js），不要以 / 开头。
 - 不使用外部 CDN、框架或构建工具，浏览器直接运行。
+- 界面图标用内联 SVG（16 / 20 / 24px，stroke=currentColor），不要用 emoji 当功能图标，
+  不要引入图标字体；品牌 logo 也优先内联 SVG。
 - 工作流：
   1. list_files 查看现有文件
   2. 用 write_file 写完整文件
@@ -63,6 +67,9 @@ const REACT = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 +
 - 源码使用 .tsx / .ts，只改 src/**、index.html；需要拆分组件时在 src/components/ 下新建 .tsx 文件。
 - 样式使用 Tailwind 语义类；已有 Button / Card / Input / Badge 等 shadcn/ui 组件，优先复用。
 - 路径别名 @/ 指向 src/，例如 import { Button } from "@/components/ui/button"。
+- 图标统一用已预装的 lucide-react：import { Camera } from "lucide-react"，
+  只 import 用到的图标；尺寸用 size-4 / size-5，颜色继承 currentColor。
+  不要用 emoji 当功能图标，不要引入第二套图标库或图标字体；品牌 logo 用内联 SVG。
 - 模板已预装 react / react-dom / shadcn 基础设施。需要新库时用 install_packages（会执行 pnpm add），然后正常 import；不要直接跑 pnpm add/install。
 - 构建工具会把 dist/ 作为预览目录；不要手动写 dist。
 - 工作流：
@@ -85,6 +92,8 @@ const FULLSTACK = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS 
 - 新增页面放 src/pages，并在 App.tsx 的 Routes 中注册；不要换成 BrowserRouter。
 - 记得把 index.html 的 <title> 改成与应用名称一致。
 - 路径别名 @/ 指向 src/；优先复用已有 shadcn/ui 组件，Tailwind 语义类写样式。
+- 图标统一用已预装的 lucide-react（只 import 用到的图标，size-4 / size-5，颜色继承
+  currentColor）；不要用 emoji 当功能图标，不要引入第二套图标库或图标字体；品牌 logo 用内联 SVG。
 - 后端：server/index.js，使用 Hono + @hono/node-server，监听 0.0.0.0:8080。
 - 数据库：Node 内置 node:sqlite，数据文件必须放在 /data/app.db（不要在 /workspace 里存数据库，避免被 git 回滚）。
 - 模板已预装 react / react-dom / hono / @hono/node-server / shadcn 基础设施。需要新库时用 install_packages（会执行 pnpm add），然后正常 import；不要直接跑 pnpm add/install。
