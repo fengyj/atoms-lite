@@ -92,15 +92,15 @@ C 完成智能选型 + 手动覆盖。C 的扩展项（Next.js、在线安装新
   新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
 - **设计流程**：新项目/大改版先写 `DESIGN.md`（方向与布局、tokens、共享状态、媒体），
   再实现；首屏内容初始可见，避免默认紫蓝渐变和居中卡片堆叠。
-- **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `npm ci` 安装，
-  工作区用软链复用，Agent 不需要也不能执行 npm install。
+- **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `pnpm install --frozen-lockfile` 安装，
+  工作区用软链复用，Agent 不需要也不能执行 pnpm install。
 - 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
 - **运行时**：`boot.sh` 是 PID 1 supervisor，读取
   `/workspace/.atoms/runtime.json`：
   - `kind: static` → `server.mjs` 服务 `serveDir`（静态站点 / `dist`）
   - `kind: node` → 启动 `startCommand`（Hono，监听 8080）
   - `touch /workspace/.atoms/restart` 让 supervisor 重启子进程
-- **构建**：`build` 工具读取 `buildCommand`（`npm run build`），超时 5 分钟，
+- **构建**：`build` 工具读取 `buildCommand`（`pnpm build`），超时 5 分钟，
   日志返回给 Agent；React/全栈模板的 build 包含 `tsc --noEmit`。
   build 与版本/checkout 共用串行队列，避免并发写 `dist`。
 - **回滚**：checkout 先删除 `dist` 再构建；构建失败返回 `buildError` 且不重启预览。
@@ -288,7 +288,7 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。
-- 生成模板固定为静态站点，不支持 npm 依赖与构建。
+- 模板依赖为白名单预装；不能在线安装新的 pnpm 包。
 - ChatAgent 的 `create_version` 可能被模型调用两次；已做幂等，不会插重复版本。
 - 预览的 HMR 未验证（静态站点不需要）。
 

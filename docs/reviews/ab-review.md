@@ -19,7 +19,7 @@ WorkspaceDO、Projects、Agent prompt、预览面板。
 | P2 | 每轮 `finish` + `onFinish` 重复快照 | 移除 finish 工具内的快照，只保留 onFinish / createVersion / alarm |
 | P2 | 旧静态快照可通过预览读取 `.git` | Worker 层统一拦截（含 URL 解码），server.mjs 再兜底一层 |
 | P2 | 缺 dist 时 `/healthz` 仍 200，预览显示就绪 + 404 | `/` 也必须 200 才算 ready |
-| P2 | Dockerfile 任意模板改动都会让 npm ci 层失效 | 先 COPY package/lock → npm ci（cache mount）→ COPY 源码 → build |
+| P2 | Dockerfile 任意模板改动都会让依赖安装层失效 | 先 COPY package/lock → pnpm install（cache mount）→ COPY 源码 → build |
 | P3 | prompt 仍让模型读 `src/App.jsx` | 改为 `src/App.tsx` |
 | P3 | `.gitignore` 的 `node_modules/` 不匹配软链 | 改为 `node_modules` / `dist` |
 

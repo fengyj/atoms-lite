@@ -15,26 +15,27 @@ COPY --from=shim /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 RUN chmod +x /usr/local/bin/sandbox-shim
 
 RUN apk add --no-cache nodejs npm \
+ && npm install -g pnpm@11.6.0 \
  && git config --global user.email "sandbox@atoms-lite.local" \
  && git config --global user.name "atoms-lite sandbox" \
  && git config --global init.defaultBranch main
 
-# 先只复制 package 清单安装依赖，源码改动不会让 npm ci 层失效。
-COPY container/templates/react-vite/package.json container/templates/react-vite/package-lock.json /opt/templates/react-vite/
-COPY container/templates/fullstack-hono/package.json container/templates/fullstack-hono/package-lock.json /opt/templates/fullstack-hono/
+# 先只复制 package 清单安装依赖，源码改动不会让依赖安装层失效。
+COPY container/templates/react-vite/package.json container/templates/react-vite/pnpm-lock.yaml container/templates/react-vite/pnpm-workspace.yaml /opt/templates/react-vite/
+COPY container/templates/fullstack-hono/package.json container/templates/fullstack-hono/pnpm-lock.yaml container/templates/fullstack-hono/pnpm-workspace.yaml /opt/templates/fullstack-hono/
 
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/pnpm-store \
     cd /opt/templates/react-vite \
- && npm ci --no-audit --no-fund \
+ && pnpm install --frozen-lockfile --store-dir /pnpm-store \
  && cd /opt/templates/fullstack-hono \
- && npm ci --no-audit --no-fund
+ && pnpm install --frozen-lockfile --store-dir /pnpm-store
 
 # 模板源码 + 预构建 starter dist
 COPY container/templates/ /opt/templates/
 RUN cd /opt/templates/react-vite \
- && npm run build \
+ && pnpm build \
  && cd /opt/templates/fullstack-hono \
- && npm run build
+ && pnpm build
 
 COPY container/server.mjs /opt/preview/server.mjs
 COPY container/boot.sh /opt/preview/boot.sh

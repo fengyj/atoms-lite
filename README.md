@@ -35,6 +35,7 @@
 | Agent 运行时 | `agents`（Cloudflare Agents SDK） | 0.33.0 |
 | 模型接入 | AI SDK（OpenAI 兼容端点） | 7.0.176 |
 | 语言 | TypeScript | 6.0.3 |
+| 包管理 | pnpm | 11.6.0 |
 | 构建 / 本地运行时 | Wrangler（workerd） | 4.164.0 |
 
 版本是刻意锁定的：`agents` 与 `@cloudflare/ai-chat` 都处于 0.x，`ai` 7 刚稳定。
