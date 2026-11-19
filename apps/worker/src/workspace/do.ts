@@ -440,6 +440,7 @@ export class Workspace extends DurableObject<Env> {
         "SELECT path, size FROM atoms_files ORDER BY path",
       )
       .toArray()
+      .filter((row) => !isInternalPath(row.path))
       .map((row) => ({ path: row.path, type: "file" as const, size: row.size }));
   }
 
@@ -503,6 +504,7 @@ export class Workspace extends DurableObject<Env> {
         "SELECT path, length(CAST(content AS BLOB)) AS size FROM atoms_file_content ORDER BY path",
       )
       .toArray()
+      .filter((row) => !isInternalPath(row.path))
       .map((row) => ({ path: row.path, type: "file" as const, size: row.size }));
   }
 
