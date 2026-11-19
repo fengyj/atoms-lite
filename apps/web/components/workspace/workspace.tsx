@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { ToolUIPart } from "ai";
@@ -22,9 +23,52 @@ import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "preview";
 
+const CHAT_WIDTH_KEY = "atoms:chat-width";
+const SIDE_WIDTH_KEY = "atoms:side-width";
+const DEFAULT_CHAT_WIDTH = 384;
+const DEFAULT_SIDE_WIDTH = 320;
+const MIN_CHAT_WIDTH = 300;
+const MAX_CHAT_WIDTH = 560;
+const MIN_SIDE_WIDTH = 260;
+const MAX_SIDE_WIDTH = 480;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function storedWidth(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof window === "undefined") return fallback;
+  const value = Number(window.localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? clamp(value, min, max) : fallback;
+}
+
 export function Workspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("chat");
   const [sideOpen, setSideOpen] = useState(false);
+  const [chatWidth, setChatWidth] = useState(() =>
+    storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
+  );
+  const [sideWidth, setSideWidth] = useState(() =>
+    storedWidth(SIDE_WIDTH_KEY, DEFAULT_SIDE_WIDTH, MIN_SIDE_WIDTH, MAX_SIDE_WIDTH),
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
+  }, [chatWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDE_WIDTH_KEY, String(sideWidth));
+  }, [sideWidth]);
+
+  const layoutStyle = {
+    "--chat-width": `${chatWidth}px`,
+    "--side-width": `${sideWidth}px`,
+  } as CSSProperties;
 
   // 项目元数据（名称/版本数）与当前项目专属的 Agent 会话
   const project = useProject(projectId);
@@ -169,10 +213,10 @@ export function Workspace({ projectId }: { projectId: string }) {
         versionNote={versionNote}
       />
 
-      <div className="flex min-h-0 flex-1 gap-2 p-2">
+      <div className="flex min-h-0 flex-1 gap-1 p-2" style={layoutStyle}>
         <ChatPanel
           className={cn(
-            "w-full shrink-0 md:flex md:w-chat lg:w-chat-lg xl:w-chat-xl",
+            "w-full shrink-0 md:flex md:w-(--chat-width)",
             tab === "chat" ? "flex" : "hidden md:flex"
           )}
           messages={messages}
@@ -181,6 +225,16 @@ export function Workspace({ projectId }: { projectId: string }) {
           onSubmitText={submitText}
           onStop={stop}
           onApproval={respondApproval}
+        />
+        <ResizeHandle
+          className="hidden md:flex"
+          label="调整对话宽度"
+          side="left"
+          width={chatWidth}
+          min={MIN_CHAT_WIDTH}
+          max={MAX_CHAT_WIDTH}
+          onWidth={setChatWidth}
+          onReset={() => setChatWidth(DEFAULT_CHAT_WIDTH)}
         />
         <PreviewPanel
           className={cn(
@@ -192,8 +246,18 @@ export function Workspace({ projectId }: { projectId: string }) {
           reloadKey={previewTick}
           onRefresh={refreshPreview}
         />
+        <ResizeHandle
+          className="hidden xl:flex"
+          label="调整侧栏宽度"
+          side="right"
+          width={sideWidth}
+          min={MIN_SIDE_WIDTH}
+          max={MAX_SIDE_WIDTH}
+          onWidth={setSideWidth}
+          onReset={() => setSideWidth(DEFAULT_SIDE_WIDTH)}
+        />
         <SidePanel
-          className="hidden w-side shrink-0 xl:flex"
+          className="hidden shrink-0 xl:flex xl:w-(--side-width)"
           versions={versions}
           files={files}
           messages={messages}
@@ -239,6 +303,77 @@ export function Workspace({ projectId }: { projectId: string }) {
           label="更多"
         />
       </nav>
+    </div>
+  );
+}
+
+function ResizeHandle({
+  className,
+  label,
+  side,
+  width,
+  min,
+  max,
+  onWidth,
+  onReset,
+}: {
+  className?: string;
+  label: string;
+  /** left：拖动右边缘调整左侧面板；right：拖动左边缘调整右侧面板 */
+  side: "left" | "right";
+  width: number;
+  min: number;
+  max: number;
+  onWidth: (width: number) => void;
+  onReset: () => void;
+}) {
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const start = (event: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = { startX: event.clientX, startWidth: width };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  const move = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    const delta = event.clientX - drag.current.startX;
+    const raw =
+      side === "left"
+        ? drag.current.startWidth + delta
+        : drag.current.startWidth - delta;
+    onWidth(clamp(raw, min, max));
+  };
+
+  const end = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      title="拖动调整宽度，双击重置"
+      onPointerDown={start}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onLostPointerCapture={end}
+      onDoubleClick={onReset}
+      className={cn(
+        "group relative hidden w-1.5 shrink-0 cursor-col-resize touch-none items-center justify-center",
+        className
+      )}
+    >
+      <span className="h-10 w-px rounded-full bg-border transition-colors group-hover:bg-primary" />
     </div>
   );
 }

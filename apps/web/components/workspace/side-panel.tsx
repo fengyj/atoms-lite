@@ -103,58 +103,87 @@ export function SidePanel({
           value="sandbox"
           className="mt-0 flex min-h-0 flex-1 flex-col"
         >
-          <div className="shrink-0 border-b border-border p-2">
-            <div className="mb-1.5 flex items-center justify-between px-1 text-2xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <FolderTree className="size-3.5" />
-                工作区 /workspace
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span>{files.data?.length ?? 0} 个文件</span>
-                <button
-                  type="button"
-                  onClick={files.refresh}
-                  aria-label="刷新文件列表"
-                  className="text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <RotateCw
-                    className={cn("size-3.5", files.loading && "animate-spin")}
-                  />
-                </button>
-              </span>
+          <Tabs
+            defaultValue="workspace"
+            className="flex min-h-0 flex-1 flex-col gap-0"
+          >
+            <div className="border-b border-border px-2 py-1.5">
+              <TabsList className="h-7 w-full justify-start gap-1 bg-transparent p-0">
+                <TabsTrigger value="workspace" className="gap-1.5 text-2xs">
+                  <FolderTree className="size-3.5" />
+                  工作区
+                </TabsTrigger>
+                <TabsTrigger value="terminal" className="gap-1.5 text-2xs">
+                  <Terminal className="size-3.5" />
+                  终端
+                  {terminal.length > 0 ? (
+                    <span className="text-3xs text-muted-foreground">
+                      {terminal.length}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+              </TabsList>
             </div>
 
-            <StateRow
-              loading={files.loading}
-              error={files.error}
-              onRetry={files.refresh}
-            />
+            <TabsContent
+              value="workspace"
+              className="mt-0 min-h-0 flex-1 overflow-auto p-2 scrollbar-thin"
+            >
+              <div className="mb-1.5 flex items-center justify-between px-1 text-2xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <FolderTree className="size-3.5" />
+                  /workspace
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span>{files.data?.length ?? 0} 个文件</span>
+                  <button
+                    type="button"
+                    onClick={files.refresh}
+                    aria-label="刷新文件列表"
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <RotateCw
+                      className={cn("size-3.5", files.loading && "animate-spin")}
+                    />
+                  </button>
+                </span>
+              </div>
 
-            {files.data ? (
-              files.data.length === 0 ? (
-                <p className="px-1 py-2 text-2xs text-muted-foreground">
-                  空工作区：还没有任何文件。
-                </p>
-              ) : (
-                <ul className="max-h-56 space-y-0.5 overflow-auto scrollbar-thin">
-                  {files.data.map((entry) => (
-                    <FileRow key={entry.path} entry={entry} />
-                  ))}
-                </ul>
-              )
-            ) : null}
-          </div>
+              <StateRow
+                loading={files.loading}
+                error={files.error}
+                onRetry={files.refresh}
+              />
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5 text-2xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Terminal className="size-3.5" />
-                终端
-              </span>
-              <span>{terminal.length} 条命令</span>
-            </div>
-            <TerminalLog entries={terminal} />
-          </div>
+              {files.data ? (
+                files.data.length === 0 ? (
+                  <p className="px-1 py-2 text-2xs text-muted-foreground">
+                    空工作区：还没有任何文件。
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {files.data.map((entry) => (
+                      <FileRow key={entry.path} entry={entry} />
+                    ))}
+                  </ul>
+                )
+              ) : null}
+            </TabsContent>
+
+            <TabsContent
+              value="terminal"
+              className="mt-0 flex min-h-0 flex-1 flex-col"
+            >
+              <div className="flex shrink-0 items-center justify-between px-2 py-1.5 text-2xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Terminal className="size-3.5" />
+                  Agent 命令记录
+                </span>
+                <span>{terminal.length} 条命令</span>
+              </div>
+              <TerminalLog entries={terminal} />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent

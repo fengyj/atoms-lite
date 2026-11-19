@@ -54,9 +54,10 @@
 
 - 三栏：对话、预览、Sandbox/产物/版本（窄屏切换）
 - 工具调用卡默认折叠，只显示工具名与状态；点击展开参数与结果
-- Sandbox 面板同时展示两段内容：
-  - **工作区文件树**（`/workspace`，路径与大小）
-  - **终端记录**：从消息里的 `exec` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
+- Sandbox 面板内分两个 tab：
+  - **工作区**：`/workspace` 文件树、路径与大小
+  - **终端**：从消息里的 `exec` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
+- 对话栏与右侧栏支持拖动调整宽度；双击把手恢复默认值，宽度写入 localStorage
 - Agent 实例名 = 项目 ID，因此对话历史、工具调用、容器、版本都按项目隔离
 - 进入时读取 `?prompt=`，待 Agent 连接就绪且当前空闲后自动发送；
   发送前用 `history.replaceState` 清掉 query，刷新不会重复发送
@@ -114,8 +115,10 @@
 ### 交互细节（生产）
 
 - **工具卡默认折叠**：历史消息中的 `data-tool` 全部为 `closed`；点击标题可展开。
-- **Sandbox 双区块**：五子棋项目显示工作区 3 个文件 + 终端 24 条命令
+- **Sandbox 两个 tab**：工作区显示 3 个文件；终端显示 24 条命令
   （`$ node --check app.js`、`$ grep …`、`$ ls -la …` 及 exit code）。
+- **拖动调整宽度**：对话栏 384 → 464px，右侧栏 320 → 380px；
+  刷新后仍为 464 / 380（localStorage 记忆）。
 - **重命名**：首页项目卡菜单 → 重命名 → 保存，列表立即显示新名称。
 - **删除**：首页项目卡菜单 → 删除 → 二次确认；卡片消失，`GET /api/projects/:id` 返回 404。
 
@@ -142,9 +145,9 @@
 |---|---|
 | ![首页](assets/v1-dashboard.png) | ![工作区](assets/v1-workspace-todo.png) |
 
-工作区右侧 Sandbox 的文件树 + 终端记录：
+工作区右侧 Sandbox 的「终端」tab（另一个 tab 是工作区文件树）：
 
-![Sandbox 文件与终端](assets/v1-workspace-terminal.png)
+![Sandbox 终端](assets/v1-workspace-terminal.png)
 
 五子棋工作区见 `assets/v1-workspace.png`。
 
