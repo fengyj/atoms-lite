@@ -56,23 +56,22 @@ browser < container/basic < container/standard-1 < container/standard-2
 
 ### 迁移协议
 
-1. 旧环境先创建快照/版本。
-2. 导出旧文件到 `atoms_migration_files`（BLOB），排除：
+1. 旧文件导出到 `atoms_migration_files`（BLOB），排除：
    `node_modules`、`dist`、`.git`、`.atoms*`、构建缓存、lockfile、`.npmrc`。
-3. 单文件上限 2MB、总量 30MB、最多 500 个文件；超限项写入 manifest 的 skipped。
-4. 目标环境重置为目标模板，文件解压到 `_sandbox_migration/`：
+2. 单文件上限 2MB、总量 30MB、最多 500 个文件；超限项写入 manifest 的 skipped。
+3. 目标环境重置为目标模板，文件解压到 `_sandbox_migration/`：
    - `manifest.json`
    - `files/...`
    - `workspace.tar.gz`
-5. 模型通过迁移工具按需读取/复制：
+4. 模型通过迁移工具按需读取/复制：
    - `list_migration_files`
    - `read_migration_file`
    - `copy_migration_file`（二进制/大文件服务端复制）
    - `finish_migration`
-6. `_sandbox_migration/` 同时排除于 git、文件树、预览、版本和快照；
+5. `_sandbox_migration/` 同时排除于 git、文件树、预览、版本和快照；
    平台写入 `.gitignore` 和 `.git/info/exclude`。
-7. `finish_migration` 清理备份；随后由模型 `create_version`。
-8. 切换前的版本标记为 `archived`，不再允许 checkout；旧数据/旧 git 历史
+6. `finish_migration` 清理备份；随后由模型 `create_version`。
+7. 切换前的版本标记为 `archived`，不再允许 checkout；旧数据/旧 git 历史
    不会自动合并到新环境。
 
 全栈 `/data/app.db` 不在工作区备份内；切换出全栈前需要用户确认数据保留策略。

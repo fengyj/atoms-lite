@@ -1265,9 +1265,9 @@ export class Workspace extends DurableObject<Env> {
 
     if (sourceRuntime === "container") {
       await this.ensure();
-      await this.takeSnapshot();
     }
-    const snapshotId = sourceRuntime === "container" ? this.snapshotId() : null;
+    // 迁移归档本身就是备份；不再额外做一次旧环境快照，避免切换耗时翻倍。
+    const snapshotId = null;
     const archive = await this.exportWorkspaceArchive();
     const now = Date.now();
 
