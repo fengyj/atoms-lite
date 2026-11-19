@@ -18,6 +18,7 @@
 - 首页项目卡支持重命名、删除；Sandbox 面板分「工作区 / 终端」两个 tab
 - 对话栏与右侧栏可拖动调整宽度，刷新后保持
 - 沙箱懒启动：打开项目只读缓存与版本；发送需求、同步文件或点击启动预览才拉起容器
+- 容器实例默认 basic，可在工作区升级到 standard-1 / standard-2（不可降级）
 - 新项目/大改版会先写 `DESIGN.md`，再实现页面；默认首页在 `src/pages/Index.tsx`
 
 - 实现记录：`docs/implementation.md`

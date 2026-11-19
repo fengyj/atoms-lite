@@ -75,6 +75,8 @@ const REACT = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 +
   7. create_version
   8. finish
 - build 成功前不要急着 start_preview。
+- 如果 build 因内存不足/OOM/超时失败，调用 upgrade_instance 提升实例
+  （basic → standard-1 → standard-2），然后重试；升级不可降级。
 `;
 
 const FULLSTACK = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui 前端 + Hono 后端 + SQLite
@@ -99,6 +101,8 @@ const FULLSTACK = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS 
   7. create_version
   8. finish
 - 数据放在 /data，代码回滚不会删除业务数据；不要尝试把数据库提交到 git。
+- 如果 build 因内存不足/OOM/超时失败，调用 upgrade_instance 提升实例
+  （basic → standard-1 → standard-2），然后重试；升级不可降级。
 `;
 
 export function systemPrompt(template: string, runtime = "container"): string {

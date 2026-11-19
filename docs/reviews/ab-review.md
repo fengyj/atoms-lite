@@ -55,3 +55,9 @@ WorkspaceDO、Projects、Agent prompt、预览面板。
 | pnpm 依赖安装 | Debian 镜像、pnpm add、npmmirror、项目独立 node_modules |
 | npm | 最终镜像删除 npm/npx；旧快照不再回退 npm |
 | browser-static | 新静态项目无容器；SQLite 文件/版本/依赖；esm.sh importmap |
+
+## 第三轮
+
+- 容器实例默认 basic，支持运行期升级 standard-1/standard-2（不可降级）。
+- 升级前快照、destroy、从快照启动；browser runtime 不支持升级但返回结构化错误。
+- 旧 DO 实例通过 ensureSchema + PRAGMA 兼容 instance_tier 列缺失。

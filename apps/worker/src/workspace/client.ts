@@ -76,6 +76,7 @@ export class WorkspaceClient {
     return this.call<{
       template: string;
       runtime: string;
+      instanceTier: string;
       versionCount: number;
       currentVersion: {
         id: string;
@@ -88,6 +89,15 @@ export class WorkspaceClient {
 
   build() {
     return this.call<BuildResult>("/tools/build", {});
+  }
+
+  upgradeInstance() {
+    return this.call<{
+      tier: string;
+      upgraded: boolean;
+      max?: boolean;
+      error?: string;
+    }>("/instance/upgrade", {});
   }
 
   installPackages(packages: string[]) {

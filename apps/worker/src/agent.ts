@@ -137,6 +137,22 @@ export class ChatAgent extends AIChatAgent<Env> {
         },
       }),
 
+      upgrade_instance: tool({
+        description:
+          "当前容器实例不够用（构建 OOM、超时、磁盘不足）时升级：basic → standard-1 → standard-2。不可降级；升级前会自动快照并重启容器。",
+        inputSchema: z.object({
+          reason: z.string().max(200).optional(),
+        }),
+        execute: async () => {
+          try {
+            return await ws.upgradeInstance();
+          } catch (error) {
+            console.error("[tool] upgrade_instance", error);
+            throw error;
+          }
+        },
+      }),
+
       install_packages: tool({
         description:
           "安装第三方依赖。容器项目执行 pnpm add；browser-static 注册 esm.sh 包并注入 importmap。不要直接执行 pnpm/npm install。",

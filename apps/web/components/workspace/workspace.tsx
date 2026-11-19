@@ -19,6 +19,7 @@ import {
   useWorkspaceFiles,
   useWorkspaceMeta,
   useWorkspaceVersions,
+  upgradeInstance,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +52,8 @@ function storedWidth(
 export function Workspace({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("chat");
   const [sideOpen, setSideOpen] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
@@ -203,6 +206,33 @@ export function Workspace({ projectId }: { projectId: string }) {
     [sendMessage]
   );
 
+  const handleUpgrade = useCallback(async () => {
+    if (upgrading) return;
+    setUpgrading(true);
+    setUpgradeError(null);
+    try {
+      const result = await upgradeInstance(projectId);
+      if (!result.upgraded && result.error) {
+        setUpgradeError(result.error);
+      }
+      workspaceMeta.refresh();
+      versions.refresh();
+      files.refresh();
+      refreshPreview();
+    } catch (error) {
+      setUpgradeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUpgrading(false);
+    }
+  }, [
+    projectId,
+    upgrading,
+    workspaceMeta.refresh,
+    versions.refresh,
+    files.refresh,
+    refreshPreview,
+  ]);
+
   const respondApproval = useCallback(
     (id: string, approved: boolean) => {
       addToolApprovalResponse({ id, approved });
@@ -220,6 +250,10 @@ export function Workspace({ projectId }: { projectId: string }) {
         projectName={projectName}
         template={project.data?.template ?? "static"}
         runtime={project.data?.runtime ?? "container"}
+        instanceTier={workspaceMeta.data?.instanceTier ?? "basic"}
+        upgrading={upgrading}
+        upgradeError={upgradeError}
+        onUpgrade={() => void handleUpgrade()}
         snapshotError={workspaceMeta.data?.snapshotError ?? null}
         currentVersion={currentVersion}
         versionNote={versionNote}

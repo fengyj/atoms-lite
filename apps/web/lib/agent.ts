@@ -84,6 +84,7 @@ export type PreviewStatus = { running: boolean; ready: boolean };
 export type WorkspaceMeta = {
   template: TemplateId;
   runtime: RuntimeKind;
+  instanceTier: string;
   snapshotError: string | null;
   snapshotAt: number | null;
   versionCount: number;
@@ -217,6 +218,24 @@ export async function startPreview(
  * 预览健康探测：iframe 的 onError 对 4xx/5xx 不会触发，
  * 因此状态徽标以这个接口为准。
  */
+export async function upgradeInstance(projectId: string): Promise<{
+  tier: string;
+  upgraded: boolean;
+  max?: boolean;
+  error?: string;
+}> {
+  const res = await fetch(projectApiUrl(projectId, "/instance/upgrade"), {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`upgrade instance HTTP ${res.status}`);
+  return (await res.json()) as {
+    tier: string;
+    upgraded: boolean;
+    max?: boolean;
+    error?: string;
+  };
+}
+
 export async function fetchWorkspaceMeta(
   projectId: string,
   signal?: AbortSignal
@@ -226,6 +245,7 @@ export async function fetchWorkspaceMeta(
   return {
     template: (data.template ?? "static") as TemplateId,
     runtime: data.runtime === "browser" ? "browser" : "container",
+    instanceTier: data.instanceTier ?? "basic",
     snapshotError: data.snapshotError ?? null,
     snapshotAt: data.snapshotAt ?? null,
     versionCount: Number(data.versionCount ?? 0),

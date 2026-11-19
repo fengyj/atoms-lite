@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, Download, PanelRight, Sparkles } from "lucide-react";
+import {
+  ChevronLeft,
+  Cpu,
+  Download,
+  PanelRight,
+  Sparkles,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,6 +34,10 @@ export function TopBar({
   projectName,
   template,
   runtime,
+  instanceTier,
+  upgrading,
+  upgradeError,
+  onUpgrade,
   snapshotError,
   currentVersion,
   versionNote,
@@ -40,6 +50,10 @@ export function TopBar({
   projectName: string;
   template: string;
   runtime: string;
+  instanceTier: string;
+  upgrading: boolean;
+  upgradeError: string | null;
+  onUpgrade: () => void;
   snapshotError: string | null;
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
@@ -86,6 +100,41 @@ export function TopBar({
       </Badge>
 
       <div className="ml-auto flex items-center gap-1.5">
+        {runtime !== "browser" ? (
+          <>
+            <Badge
+              variant="outline"
+              className="hidden font-mono text-3xs font-normal sm:inline-flex"
+              title="当前容器实例"
+            >
+              {instanceTier}
+            </Badge>
+            {instanceTier !== "standard-2" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                disabled={upgrading || runState === "running"}
+                onClick={onUpgrade}
+                title="升级实例（不可降级）"
+              >
+                <Cpu className="size-3.5" />
+                <span className="hidden lg:inline">
+                  {upgrading ? "升级中…" : "升级"}
+                </span>
+              </Button>
+            ) : null}
+            {upgradeError ? (
+              <Badge
+                variant="destructive"
+                className="hidden text-3xs sm:inline-flex"
+                title={upgradeError}
+              >
+                实例升级失败
+              </Badge>
+            ) : null}
+          </>
+        ) : null}
         {currentVersion ? (
           <>
             <Badge

@@ -128,8 +128,10 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   - 浏览器静态项目不支持 TS/JSX/React 编译；HTML 资源必须相对路径。
 - **镜像**：改为 `node:24-bookworm-slim`（Debian/glibc），安装 git/procps/pnpm；
   pnpm store 层缓存；依赖安装与构建可复现；最终镜像删除 npm/npx。
-- **实例**：DO 管理的容器不支持 `instance_type`，默认 `dev`（1/16 vCPU / 256 MiB / 2 GB），
-  生产 React 构建约 3 分钟；因此不建议在该实例上跑 Next。
+- **实例**：Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
+  `container.start({ instance })` 支持预定义档位。默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），
+  可升级 `standard-1`（1/2 vCPU / 4 GiB / 8 GB）→ `standard-2`（1 vCPU / 6 GiB / 12 GB），
+  不支持降级；升级前快照、destroy、从快照启动，数据保留。
 - **懒启动**：只有真正需要容器时才 `ensure()`：
   - Agent 的 `list_files` / `read_file` / `write_file` / `exec` / `start_preview` / `create_version`
   - 用户点击「启动预览」，或在文件面板点击「同步文件」
@@ -176,6 +178,14 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 点击棋盘点位后手数增加、执子方切换。
 - **空闲回收恢复**：停止请求 400s 后 `preview/status` 为 `{running:false}`；再请求 `/previews/demo/` 返回 200、标题仍为「五子棋 · Gomoku」，3 个文件大小不变，版本仍为 `1d6d331`。
 - **预览状态探测**：容器运行且服务就绪时徽标为「就绪」；休眠时显示「已休眠」。
+
+### 实例升级（本地/生产实测）
+
+- 新项目默认 `basic`；`POST /api/projects/:id/instance/upgrade`：
+  basic → standard-1 → standard-2，第三次返回 `max:true`。
+- 升级前自动快照，destroy 后用新实例从快照启动；文件 marker 和预览均保留。
+- 生产验证：basic → standard-1（13s）→ standard-2，数据保留；browser runtime 返回
+  “does not use a container”，不报 500。
 
 ### browser-static（本地实测）
 
@@ -319,21 +329,20 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
 - 依赖可通过 `install_packages` 安装；browser runtime 走 esm.sh，container runtime 走 pnpm + egress。
 - 镜像运行期只有 pnpm；旧快照如果只有 npm，安装新包不兼容（旧项目可删除）。
-- Next.js **不支持**；DO 管理容器默认实例较小，Next 构建/运行不现实。
+- Next.js **不支持**；即使可升级到 standard-2，Next 的镜像、构建和运行成本仍不匹配当前架构。
 - 旧项目（旧 Alpine/npm 快照）仍可预览/构建，但安装新包需要新建项目。
 - 浏览器静态运行时的预览与主站同源，生成代码仍应视为不可信；没有容器级 CPU/内存隔离。
 - 容器 egress 已开放，生成代码可以访问互联网；演示环境需注意滥用和供应链风险。
 - 全栈数据靠容器快照保留（写入后 10 秒内快照）；不是真正的外部数据库，
-  多实例/长期持久化应换 D1。快照失败目前只记日志，不自动重试。
+  多实例/长期持久化应换 D1。快照失败会标记版本/顶栏，但不自动重试。
 - **安全边界**：演示版无鉴权，预览 iframe 与主站同源（`allow-same-origin`），
   生成代码必须视为不可信；生产化需要独立预览域 + 访问门禁。
   当前已在 Worker 层拦截 `/previews/:id/.git/*`，并限制 Agent 的 exec 白名单。
 - 项目索引在 `Projects` DO 中，尚未迁移到 D1；项目多时首页需要 N 次 DO 读取。
 - 每个活跃项目都会占一个容器；并发项目多时受 Cloudflare 容器配额限制。
 - Workspace 是 Durable Object；容器通过 `scheduling_policy: durable_object` 绑定到 DO。
-  DO 管理的容器不支持 `instance_type`，默认 `dev`（1/16 vCPU / 256 MiB / 2 GB）：生产 React 模板一次
-  `pnpm build` 实测约 3 分 13 秒（本地约 5 秒），接近 5 分钟构建超时。
-  更大的 React/Next 项目需要构建服务或调整容器调度方案。
+  实例默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），可在运行期升级到 standard-1/standard-2；
+  升级不可降级。更重的 React/Next 项目仍建议构建服务。
 - 导出按钮禁用；产物 tab 空态；回滚没有 UI。
 - 模板依赖为白名单预装；不能在线安装新的 pnpm 包。
 - ChatAgent 的 `create_version` 可能被模型调用两次；已做幂等，不会插重复版本。

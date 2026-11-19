@@ -112,6 +112,31 @@ export class Projects extends DurableObject<Env> {
     }
   }
 
+  /** 热部署后旧 DO 实例不会重跑 constructor；fetch 时补齐列。 */
+  private ensureSchema(): void {
+    const sql = this.ctx.storage.sql;
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_projects (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      template TEXT NOT NULL DEFAULT 'static',
+      runtime TEXT NOT NULL DEFAULT 'container',
+      template_source TEXT NOT NULL DEFAULT 'rule',
+      plan_reason TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    for (const statement of [
+      "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
+      "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
+      "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
+      "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
+    ]) {
+      try {
+        sql.exec(statement);
+      } catch {
+        // 已存在
+      }
+    }
+  }
+
   private rows(): ProjectRow[] {
     return this.ctx.storage.sql
       .exec<ProjectRow>("SELECT * FROM atoms_projects ORDER BY updated_at DESC")
@@ -317,6 +342,7 @@ export class Projects extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    this.ensureSchema();
     const url = new URL(request.url);
 
     try {

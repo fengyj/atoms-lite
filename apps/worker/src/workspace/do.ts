@@ -22,6 +22,14 @@ const ENTRYPOINT = [
 ];
 
 const TEMPLATES = new Set(["static", "react-vite", "fullstack-hono"]);
+
+type InstanceTier = "basic" | "standard-1" | "standard-2";
+const INSTANCE_TIERS: InstanceTier[] = ["basic", "standard-1", "standard-2"];
+
+function nextInstanceTier(current: InstanceTier): InstanceTier | null {
+  const index = INSTANCE_TIERS.indexOf(current);
+  return index >= 0 ? (INSTANCE_TIERS[index + 1] ?? null) : null;
+}
 const ALLOWED_PROGRAMS = new Set([
   "ls",
   "cat",
@@ -149,6 +157,7 @@ export class Workspace extends DurableObject<Env> {
         id TEXT PRIMARY KEY,
         template TEXT NOT NULL,
         runtime TEXT NOT NULL DEFAULT 'container',
+        instance_tier TEXT NOT NULL DEFAULT 'basic',
         updated_at INTEGER NOT NULL
       )
     `);
@@ -182,6 +191,16 @@ export class Workspace extends DurableObject<Env> {
         snapshot_at INTEGER
       )
     `);
+    for (const statement of [
+      "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
+      "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
+    ]) {
+      try {
+        ctx.storage.sql.exec(statement);
+      } catch {
+        // 已存在
+      }
+    }
     ctx.storage.sql.exec(
       "INSERT OR IGNORE INTO atoms_runtime_status (id, snapshot_error, snapshot_at) VALUES (?, NULL, NULL)",
       this.projectId,
@@ -191,16 +210,67 @@ export class Workspace extends DurableObject<Env> {
       this.projectId,
     );
     ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, instance_tier, updated_at) VALUES (?, 'static', 'container', 'basic', 0)",
+      this.projectId,
+    );
+  }
+
+  /** 热部署后旧 DO 实例不会重跑 constructor；每次 fetch 做幂等迁移。 */
+  private ensureSchema(): void {
+    const sql = this.ctx.storage.sql;
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_versions (
+      id TEXT PRIMARY KEY, git_commit TEXT NOT NULL, parent_id TEXT,
+      summary TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_snapshots (
+      project_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_workspace (
+      id TEXT PRIMARY KEY, current_version_id TEXT
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_files (
+      path TEXT PRIMARY KEY, size INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_project_config (
+      id TEXT PRIMARY KEY, template TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'container',
+      instance_tier TEXT NOT NULL DEFAULT 'basic', updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_content (
+      path TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_versions (
+      version_id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
+      PRIMARY KEY (version_id, path)
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_dependencies (
+      name TEXT PRIMARY KEY, version TEXT NOT NULL, url TEXT NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_runtime_status (
+      id TEXT PRIMARY KEY, snapshot_error TEXT, snapshot_at INTEGER
+    )`);
+
+    for (const statement of [
+      "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
+      "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
+    ]) {
+      try {
+        sql.exec(statement);
+      } catch {
+        // 已存在
+      }
+    }
+    sql.exec(
+      "INSERT OR IGNORE INTO atoms_workspace (id, current_version_id) VALUES (?, NULL)",
+      this.projectId,
+    );
+    sql.exec(
       "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, 'static', 'container', 0)",
       this.projectId,
     );
-    try {
-      ctx.storage.sql.exec(
-        "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
-      );
-    } catch {
-      // 已存在
-    }
+    sql.exec(
+      "INSERT OR IGNORE INTO atoms_runtime_status (id, snapshot_error, snapshot_at) VALUES (?, NULL, NULL)",
+      this.projectId,
+    );
   }
 
   private get container(): Container {
@@ -266,6 +336,42 @@ export class Workspace extends DurableObject<Env> {
       )
       .toArray();
     return normalizeRuntime(rows[0]?.runtime);
+  }
+
+  private instanceTier(): InstanceTier {
+    const columns = this.ctx.storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(atoms_project_config)")
+      .toArray();
+    if (!columns.some((column) => column.name === "instance_tier")) {
+      // 旧 DO 实例可能还没有该列；按默认 basic 运行，升级时再补列。
+      return "basic";
+    }
+    const rows = this.ctx.storage.sql
+      .exec<{ instance_tier: string }>(
+        "SELECT instance_tier FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray();
+    const value = rows[0]?.instance_tier;
+    return value === "standard-1" || value === "standard-2"
+      ? value
+      : "basic";
+  }
+
+  private setInstanceTier(tier: InstanceTier): void {
+    try {
+      this.ctx.storage.sql.exec(
+        "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
+      );
+    } catch {
+      // 已存在
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_project_config SET instance_tier = ?, updated_at = ? WHERE id = ?",
+      tier,
+      Date.now(),
+      this.projectId,
+    );
   }
 
   private setConfig(template: TemplateId, runtime: RuntimeKind): void {
@@ -729,6 +835,9 @@ export class Workspace extends DurableObject<Env> {
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
     await this.sh(`mkdir -p ${WORKSPACE}/.atoms && touch ${WORKSPACE}/.atoms/restart`);
+    // supervisor 每 1s 检查一次 restart 文件；先等它真正开始重启，
+    // 否则可能读到旧进程的 200 就提前返回。
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
 
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
@@ -830,6 +939,7 @@ export class Workspace extends DurableObject<Env> {
             containerSnapshot: { id: snap },
             entrypoint: ENTRYPOINT,
             enableInternet: true,
+            instance: this.instanceTier(),
           });
         } catch (error) {
           console.error("[workspace] snapshot restore failed", error);
@@ -842,6 +952,7 @@ export class Workspace extends DurableObject<Env> {
             image: container.images["base"],
             entrypoint: ENTRYPOINT,
             enableInternet: true,
+            instance: this.instanceTier(),
           });
         }
       } else {
@@ -854,6 +965,7 @@ export class Workspace extends DurableObject<Env> {
           image: container.images["base"],
           entrypoint: ENTRYPOINT,
           enableInternet: true,
+          instance: this.instanceTier(),
         });
       }
 
@@ -895,6 +1007,55 @@ export class Workspace extends DurableObject<Env> {
         `rm -f ${WORKSPACE}/node_modules && cp -a /opt/templates/${template}/node_modules ${WORKSPACE}/node_modules`,
       );
     }
+  }
+
+  private async upgradeInstance(): Promise<{
+    tier: InstanceTier;
+    upgraded: boolean;
+    max?: boolean;
+    error?: string;
+  }> {
+    if (this.runtime() === "browser") {
+      return {
+        tier: "basic",
+        upgraded: false,
+        error: "browser runtime does not use a container",
+      };
+    }
+
+    return this.exclusive(async () => {
+      const current = this.instanceTier();
+      const next = nextInstanceTier(current);
+      if (!next) {
+        return { tier: current, upgraded: false, max: true };
+      }
+
+      await this.ensure();
+      const snapshot = await this.takeSnapshot();
+      if (!snapshot.ok) {
+        return {
+          tier: current,
+          upgraded: false,
+          error: `snapshot failed: ${snapshot.error ?? "unknown"}`,
+        };
+      }
+
+      this.setInstanceTier(next);
+      try {
+        await this.container.destroy();
+      } catch (error) {
+        return {
+          tier: next,
+          upgraded: false,
+          error: `destroy failed: ${String(error).slice(0, 300)}`,
+        };
+      }
+
+      this.ensurePromise = null;
+      await this.ensure();
+      await this.restartPreview();
+      return { tier: next, upgraded: true };
+    });
   }
 
   private setSnapshotStatus(ok: boolean, error?: string): void {
@@ -1206,6 +1367,7 @@ export class Workspace extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    this.ensureSchema();
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -1250,7 +1412,7 @@ export class Workspace extends DurableObject<Env> {
           this.projectId,
         );
         this.ctx.storage.sql.exec(
-          "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, updated_at) VALUES (?, 'static', 'container', 0)",
+          "INSERT OR IGNORE INTO atoms_project_config (id, template, runtime, instance_tier, updated_at) VALUES (?, 'static', 'container', 'basic', 0)",
           this.projectId,
         );
         this.ctx.storage.sql.exec(
@@ -1289,6 +1451,7 @@ export class Workspace extends DurableObject<Env> {
         return Response.json({
           template: this.template(),
           runtime: this.runtime(),
+          instanceTier: this.instanceTier(),
           snapshotError:
             this.ctx.storage.sql
               .exec<{ snapshot_error: string | null }>(
@@ -1526,6 +1689,10 @@ export class Workspace extends DurableObject<Env> {
           stdout: out.stdout.slice(0, EXEC_MAX_OUTPUT_BYTES),
           stderr: out.stderr.slice(0, 32 * 1024),
         });
+      }
+
+      if (path === "/instance/upgrade" && request.method === "POST") {
+        return Response.json(await this.upgradeInstance());
       }
 
       if (path === "/tools/build") {
