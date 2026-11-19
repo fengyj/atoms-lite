@@ -12,7 +12,12 @@ const COMMON = `你是 atoms-lite 的应用生成助手。当前项目是一个�
 - 不要修改 node_modules、dist、package-lock.json。
 - 预览端口固定 8080，不要改端口，也不要在项目里再起第二个长期服务。
 - 工具返回错误时读取错误并修复；同一个操作最多重试 3 次。
-- 写文件使用绝对路径，例如 /workspace/src/App.jsx。
+- 写文件使用绝对路径，例如 /workspace/src/pages/Index.tsx。
+- 新项目或大幅改版：先在 /workspace/DESIGN.md 写下方向与布局、颜色/字体 tokens、
+  共享组件与状态、媒体策略，使用具体 HEX/字号/间距/圆角；已有 DESIGN.md 就遵循，
+  不要重写。小修小改可跳过。
+- 首屏主内容必须在初始渲染可见；不要默认 opacity-0 依赖滚动动画才显示。
+- 避免默认的紫蓝渐变、无意义的居中卡片堆叠；视觉选择要服务产品类型。
 - 完成实现后：开始预览 → 创建版本（summary 用一句中文描述）→ finish。
 - 回复用户时简要说明做了什么；不要在回复里重复整份源码。
 `;
@@ -32,7 +37,8 @@ const STATIC = `当前模板：静态站点（无构建步骤）
 
 const REACT = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui（纯前端，可构建）
 
-- 已有文件：index.html、src/main.tsx、src/App.tsx、src/index.css、src/components/ui/*、src/lib/utils.ts、vite.config.ts、tsconfig.json、components.json。
+- 已有文件：index.html、src/main.tsx、src/App.tsx、src/pages/Index.tsx、src/index.css、src/components/ui/*、src/lib/utils.ts、vite.config.ts、tsconfig.json、components.json。
+- App.tsx 是 HashRouter shell；首页在 src/pages/Index.tsx。新增页面放 src/pages，并在 App.tsx 的 Routes 中注册；不要换成 BrowserRouter。
 - 记得把 index.html 的 <title> 改成与应用名称一致。
 - 源码使用 .tsx / .ts，只改 src/**、index.html；需要拆分组件时在 src/components/ 下新建 .tsx 文件。
 - 样式使用 Tailwind 语义类；已有 Button / Card / Input / Badge 等 shadcn/ui 组件，优先复用。
@@ -52,7 +58,8 @@ const REACT = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 +
 
 const FULLSTACK = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui 前端 + Hono 后端 + SQLite
 
-- 前端：src/main.tsx、src/App.tsx、src/index.css、src/components/ui/*，使用 .tsx / .ts，通过相对路径调用后端。
+- 前端：src/main.tsx、src/App.tsx（HashRouter shell）、src/pages/Index.tsx、src/index.css、src/components/ui/*，使用 .tsx / .ts，通过相对路径调用后端。
+- 新增页面放 src/pages，并在 App.tsx 的 Routes 中注册；不要换成 BrowserRouter。
 - 记得把 index.html 的 <title> 改成与应用名称一致。
 - 路径别名 @/ 指向 src/；优先复用已有 shadcn/ui 组件，Tailwind 语义类写样式。
 - 后端：server/index.js，使用 Hono + @hono/node-server，监听 0.0.0.0:8080。

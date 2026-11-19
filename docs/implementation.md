@@ -9,7 +9,7 @@
 - 用户输入需求 → ChatAgent 调工具 → WorkspaceDO 写文件 → 启动预览 → 创建版本
 - **三种项目模板**：
   - `static`：多文件静态站点，无构建
-  - `react-vite`：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui
+  - `react-vite`：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui + HashRouter（`src/pages/Index.tsx`）
   - `fullstack-hono`：上面的前端 + Hono + `node:sqlite` 后端
 - 项目创建时根据需求自动选择模板并持久化
 - 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
@@ -80,6 +80,10 @@
   `apps/worker/src/projects.ts`，Phase C 再接模型 planner。
 - **模板配置**：项目创建时写入 WorkspaceDO 的 `atoms_project_config.template`，
   不启动容器；首次 `ensure()` 按模板播种。
+- **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
+  新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
+- **设计流程**：新项目/大改版先写 `DESIGN.md`（方向与布局、tokens、共享状态、媒体），
+  再实现；首屏内容初始可见，避免默认紫蓝渐变和居中卡片堆叠。
 - **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `npm ci` 安装，
   工作区用软链复用，Agent 不需要也不能执行 npm install。
 - 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
