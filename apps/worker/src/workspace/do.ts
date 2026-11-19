@@ -1411,20 +1411,42 @@ export class Workspace extends DurableObject<Env> {
           );
         }
 
-        const out = await this.run(
-          [
-            "pnpm",
-            "add",
-            "--store-dir",
-            "/pnpm-store",
-            "--registry",
-            "https://registry.npmmirror.com",
-            ...specs.map((spec) => spec.spec),
-          ],
-          WORKSPACE,
-          BUILD_TIMEOUT_MS,
-          { CI: "true" },
-        );
+        // 新镜像是 pnpm；旧快照可能只有 npm，回退到 npm install。
+        const hasPnpm = await this.run([
+          "test",
+          "-x",
+          "/usr/local/bin/pnpm",
+        ]);
+        const out =
+          hasPnpm.exitCode === 0
+            ? await this.run(
+                [
+                  "pnpm",
+                  "add",
+                  "--store-dir",
+                  "/pnpm-store",
+                  "--registry",
+                  "https://registry.npmmirror.com",
+                  ...specs.map((spec) => spec.spec),
+                ],
+                WORKSPACE,
+                BUILD_TIMEOUT_MS,
+                { CI: "true" },
+              )
+            : await this.run(
+                [
+                  "npm",
+                  "install",
+                  "--no-audit",
+                  "--no-fund",
+                  "--registry",
+                  "https://registry.npmmirror.com",
+                  ...specs.map((spec) => spec.spec),
+                ],
+                WORKSPACE,
+                BUILD_TIMEOUT_MS,
+                { CI: "true" },
+              );
         await this.syncFilesCacheSafe();
         return Response.json({
           runtime: "container",
