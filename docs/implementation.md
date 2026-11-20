@@ -188,7 +188,11 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   刷新或重新进入项目仍可见；switch_runtime / confirm_continue 的历史卡片也保留目标、
   原因、摘要和确认结果，已提交后为只读。
 - **过程折叠**：assistant 消息中，最终文本之前的 reasoning 和工具调用收进默认折叠的
-  「n 次工具调用 · x 次思考」块；计数随流式调用递增，展开后恢复完整的思考/工具卡片。
+  「x 次思考 · n 次工具调用」块；计数随流式调用递增，展开后恢复完整的思考/工具卡片。
+  已提交的 ask_user / switch_runtime / confirm_continue 作为普通工具调用一起折叠；
+  仍在等待用户操作的卡片保持展开，避免把问题藏起来。
+- **中断状态**：非当前活跃消息里遗留的 `streaming` / `input-available` 不再显示
+  「思考中 / 执行中」，而是显示「思考已中断 / 已中断」。
 - **结构化日志**：`[agent.turn.start/finish/abort/error]` 包含
   `projectId`、`requestId`、`continuation`、模板/运行环境、steps、finishReason、
   token 用量和耗时；工具失败时 `[workspace.call.failed]` 也带

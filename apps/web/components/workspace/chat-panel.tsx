@@ -207,7 +207,9 @@ export function ChatPanel({
 
             {(() => {
               let previousTimestamp: number | null = null;
-              return messages.map((message) => {
+              return messages.map((message, messageIndex) => {
+                const active =
+                  busy && messageIndex === messages.length - 1;
                 const timestamp = messageTimestamp(message);
                 const showTime =
                   timestamp !== null &&
@@ -222,6 +224,7 @@ export function ChatPanel({
                         {message.role === "assistant" ? (
                           <AssistantParts
                             parts={message.parts}
+                            active={active}
                             onApproval={onApproval}
                             onAskUser={onAskUser}
                             onSwitchRuntime={onSwitchRuntime}
@@ -237,6 +240,7 @@ export function ChatPanel({
                               onAskUser,
                               onSwitchRuntime,
                               onContinue,
+                              active,
                               fallbackTemplate
                             )
                           )
@@ -526,7 +530,13 @@ function isPinnedCard(part: UIMessage["parts"][number]): boolean {
     part.type === "tool-switch_runtime" ||
     part.type === "tool-confirm_continue"
   ) {
-    return true;
+    // 等待用户操作的卡片必须露出来；提交后作为普通工具调用折叠。
+    const state = (part as ToolUIPart).state;
+    return (
+      state !== "output-available" &&
+      state !== "output-error" &&
+      state !== "output-denied"
+    );
   }
   return (
     part.type.startsWith("tool-") &&
@@ -536,6 +546,7 @@ function isPinnedCard(part: UIMessage["parts"][number]): boolean {
 
 function AssistantParts({
   parts,
+  active,
   onApproval,
   onAskUser,
   onSwitchRuntime,
@@ -543,6 +554,7 @@ function AssistantParts({
   fallbackTemplate,
 }: {
   parts: UIMessage["parts"];
+  active: boolean;
   onApproval: (id: string, approved: boolean) => void;
   onAskUser: (
     id: string,
@@ -582,6 +594,7 @@ function AssistantParts({
       {processParts.length ? (
         <ProcessGroup
           parts={processParts}
+          active={active}
           toolCount={toolCount}
           reasoningCount={reasoningCount}
           streaming={streaming}
@@ -600,6 +613,7 @@ function AssistantParts({
           onAskUser,
           onSwitchRuntime,
           onContinue,
+          active,
           fallbackTemplate
         )
       )}
@@ -612,6 +626,7 @@ function AssistantParts({
 
 function ProcessGroup({
   parts,
+  active,
   toolCount,
   reasoningCount,
   streaming,
@@ -622,6 +637,7 @@ function ProcessGroup({
   fallbackTemplate,
 }: {
   parts: UIMessage["parts"];
+  active: boolean;
   toolCount: number;
   reasoningCount: number;
   streaming: boolean;
@@ -642,7 +658,7 @@ function ProcessGroup({
   const [open, setOpen] = useState(false);
   const summary =
     toolCount || reasoningCount
-      ? `${toolCount} 次工具调用 · ${reasoningCount} 次思考`
+      ? `${reasoningCount} 次思考 · ${toolCount} 次工具调用`
       : "过程";
 
   return (
@@ -672,6 +688,7 @@ function ProcessGroup({
             onAskUser,
             onSwitchRuntime,
             onContinue,
+            active,
             fallbackTemplate
           )
         )}
@@ -696,6 +713,7 @@ function renderPart(
     confirmed: boolean
   ) => Promise<void>,
   onContinue: (id: string, cont: boolean) => void,
+  active: boolean,
   fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined
 ) {
   if (part.type === "text") {
@@ -703,13 +721,20 @@ function renderPart(
   }
 
   if (part.type === "reasoning") {
+    const interrupted = !active && part.state === "streaming";
     return (
       <Reasoning
         key={index}
         defaultOpen={false}
-        isStreaming={part.state === "streaming"}
+        isStreaming={!interrupted && part.state === "streaming"}
       >
-        <ReasoningTrigger />
+        {interrupted ? (
+          <ReasoningTrigger
+            getThinkingMessage={() => <p>思考已中断</p>}
+          />
+        ) : (
+          <ReasoningTrigger />
+        )}
         <ReasoningContent>{part.text}</ReasoningContent>
       </Reasoning>
     );
@@ -780,14 +805,23 @@ function renderPart(
     return (
       <div key={index} data-tool={tool.type} data-state={tool.state}>
         <Tool>
-          <ToolHeader type={tool.type} state={tool.state} />
+          <ToolHeader
+            type={tool.type}
+            state={tool.state}
+            interrupted={
+              !active &&
+              (tool.state === "input-streaming" ||
+                tool.state === "input-available" ||
+                tool.state === "approval-requested")
+            }
+          />
           <ToolContent>
             {tool.input !== undefined ? <ToolInput input={displayInput(tool)} /> : null}
             <ToolOutput output={displayOutput(tool)} errorText={tool.errorText} />
           </ToolContent>
         </Tool>
 
-        {tool.state === "approval-requested" && tool.approval?.id ? (
+        {active && tool.state === "approval-requested" && tool.approval?.id ? (
           <Confirmation approval={tool.approval} state={tool.state}>
             <ConfirmationTitle>需要确认</ConfirmationTitle>
             <ConfirmationRequest>

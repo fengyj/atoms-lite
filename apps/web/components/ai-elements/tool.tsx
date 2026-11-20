@@ -33,10 +33,24 @@ export type ToolHeaderProps = {
   title?: string;
   type: ToolUIPart["type"];
   state: ToolUIPart["state"];
+  /** 历史消息里的未完成工具不应继续显示“执行中”。 */
+  interrupted?: boolean;
   className?: string;
 };
 
-const getStatusBadge = (status: ToolUIPart["state"]) => {
+const getStatusBadge = (
+  status: ToolUIPart["state"],
+  interrupted = false
+) => {
+  if (interrupted) {
+    return (
+      <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+        <XCircleIcon className="size-4 text-muted-foreground" />
+        已中断
+      </Badge>
+    );
+  }
+
   const labels: Record<ToolUIPart["state"], string> = {
     "input-streaming": "等待参数",
     "input-available": "执行中",
@@ -70,6 +84,7 @@ export const ToolHeader = ({
   title,
   type,
   state,
+  interrupted = false,
   ...props
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
@@ -84,7 +99,7 @@ export const ToolHeader = ({
       <span className="font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
-      {getStatusBadge(state)}
+      {getStatusBadge(state, interrupted)}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
