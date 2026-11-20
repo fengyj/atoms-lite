@@ -8,7 +8,7 @@ export const SANDBOX_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 export const RUN_ACTIVE_TIMEOUT_MS = 30 * 60_000;
 
 /** 单次 Agent 运行的最大步数。 */
-export const MAX_AGENT_STEPS = 20;
+export const MAX_AGENT_STEPS = 50;
 
 /** 单次运行的最大交接次数（多角色预留）。 */
 export const MAX_HANDOFFS = 6;
@@ -24,7 +24,7 @@ export const EXEC_MAX_OUTPUT_BYTES = 256 * 1024;
 export const BUILD_TIMEOUT_MS = 5 * 60_000;
 
 /** 需要构建的项目给更多 Agent 步数（写代码 → build → 修复）。 */
-export const MAX_AGENT_STEPS_BUILD = 36;
+export const MAX_AGENT_STEPS_BUILD = 50;
 
 /** 附件上限。 */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;

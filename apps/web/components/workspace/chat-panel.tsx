@@ -4,6 +4,7 @@ import { Fragment, useRef, useState } from "react";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import {
   Check,
+  ChevronDown,
   Crosshair,
   Loader2,
   MessageSquare,
@@ -53,6 +54,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -66,6 +72,7 @@ import {
 } from "@/components/workspace/ask-user-card";
 import { SwitchRuntimeCard } from "@/components/workspace/switch-runtime-card";
 import type { ElementSelection } from "@/lib/element-selection";
+import { templateLabel } from "@/lib/agent";
 
 /** 空态示例需求：五子棋 */
 const SAMPLE_PROMPT =
@@ -212,15 +219,26 @@ export function ChatPanel({
                     {showTime ? <TimeSeparator timestamp={timestamp} /> : null}
                     <Message from={message.role}>
                       <MessageContent className="space-y-3">
-                        {message.parts.map((part, index) =>
-                          renderPart(
-                            part,
-                            index,
-                            onApproval,
-                            onAskUser,
-                            onSwitchRuntime,
-                            onContinue,
-                            fallbackTemplate
+                        {message.role === "assistant" ? (
+                          <AssistantParts
+                            parts={message.parts}
+                            onApproval={onApproval}
+                            onAskUser={onAskUser}
+                            onSwitchRuntime={onSwitchRuntime}
+                            onContinue={onContinue}
+                            fallbackTemplate={fallbackTemplate}
+                          />
+                        ) : (
+                          message.parts.map((part, index) =>
+                            renderPart(
+                              part,
+                              index,
+                              onApproval,
+                              onAskUser,
+                              onSwitchRuntime,
+                              onContinue,
+                              fallbackTemplate
+                            )
                           )
                         )}
                       </MessageContent>
@@ -493,6 +511,175 @@ function displayOutput(tool: ToolUIPart): unknown {
   return tool.output;
 }
 
+/** 找出最后一条非空 text，作为“最终回复”；之前的工具/思考收进过程块。 */
+function finalTextIndex(parts: UIMessage["parts"]): number {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part && part.type === "text" && part.text.trim()) return index;
+  }
+  return -1;
+}
+
+function isPinnedCard(part: UIMessage["parts"][number]): boolean {
+  if (
+    part.type === "tool-ask_user" ||
+    part.type === "tool-switch_runtime" ||
+    part.type === "tool-confirm_continue"
+  ) {
+    return true;
+  }
+  return (
+    part.type.startsWith("tool-") &&
+    (part as ToolUIPart).state === "approval-requested"
+  );
+}
+
+function AssistantParts({
+  parts,
+  onApproval,
+  onAskUser,
+  onSwitchRuntime,
+  onContinue,
+  fallbackTemplate,
+}: {
+  parts: UIMessage["parts"];
+  onApproval: (id: string, approved: boolean) => void;
+  onAskUser: (
+    id: string,
+    input: AskUserInput,
+    payload: AskUserPayload
+  ) => Promise<void>;
+  onSwitchRuntime: (
+    id: string,
+    input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
+    confirmed: boolean
+  ) => Promise<void>;
+  onContinue: (id: string, cont: boolean) => void;
+  fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined;
+}) {
+  const finalIndex = finalTextIndex(parts);
+  const finalPart = finalIndex >= 0 ? (parts[finalIndex] ?? null) : null;
+  const pinned = parts.filter(isPinnedCard);
+  const processParts = parts.filter(
+    (part, index) =>
+      index !== finalIndex && part.type !== "step-start" && !isPinnedCard(part)
+  );
+  const toolCount = processParts.filter((part) =>
+    part.type.startsWith("tool-")
+  ).length;
+  const reasoningCount = processParts.filter(
+    (part) => part.type === "reasoning"
+  ).length;
+  const streaming = processParts.some((part) => {
+    if (part.type === "reasoning") return part.state === "streaming";
+    if (!part.type.startsWith("tool-")) return false;
+    const tool = part as ToolUIPart;
+    return tool.state !== "output-available" && tool.state !== "output-error";
+  });
+
+  return (
+    <>
+      {processParts.length ? (
+        <ProcessGroup
+          parts={processParts}
+          toolCount={toolCount}
+          reasoningCount={reasoningCount}
+          streaming={streaming}
+          onApproval={onApproval}
+          onAskUser={onAskUser}
+          onSwitchRuntime={onSwitchRuntime}
+          onContinue={onContinue}
+          fallbackTemplate={fallbackTemplate}
+        />
+      ) : null}
+      {pinned.map((part, index) =>
+        renderPart(
+          part,
+          index,
+          onApproval,
+          onAskUser,
+          onSwitchRuntime,
+          onContinue,
+          fallbackTemplate
+        )
+      )}
+      {finalPart?.type === "text" ? (
+        <MessageResponse>{finalPart.text}</MessageResponse>
+      ) : null}
+    </>
+  );
+}
+
+function ProcessGroup({
+  parts,
+  toolCount,
+  reasoningCount,
+  streaming,
+  onApproval,
+  onAskUser,
+  onSwitchRuntime,
+  onContinue,
+  fallbackTemplate,
+}: {
+  parts: UIMessage["parts"];
+  toolCount: number;
+  reasoningCount: number;
+  streaming: boolean;
+  onApproval: (id: string, approved: boolean) => void;
+  onAskUser: (
+    id: string,
+    input: AskUserInput,
+    payload: AskUserPayload
+  ) => Promise<void>;
+  onSwitchRuntime: (
+    id: string,
+    input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
+    confirmed: boolean
+  ) => Promise<void>;
+  onContinue: (id: string, cont: boolean) => void;
+  fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const summary =
+    toolCount || reasoningCount
+      ? `${toolCount} 次工具调用 · ${reasoningCount} 次思考`
+      : "过程";
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40"
+        >
+          <ChevronDown
+            className={`size-3.5 shrink-0 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+          <span>{summary}</span>
+          {streaming ? (
+            <Loader2 className="ml-auto size-3.5 animate-spin" />
+          ) : null}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 space-y-3 border-l border-border/60 pl-3">
+        {parts.map((part, index) =>
+          renderPart(
+            part,
+            index,
+            onApproval,
+            onAskUser,
+            onSwitchRuntime,
+            onContinue,
+            fallbackTemplate
+          )
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /** 单个消息 part 的渲染：text / reasoning / tool-* */
 function renderPart(
   part: UIMessage["parts"][number],
@@ -750,12 +937,31 @@ function ContinueResult({ tool }: { tool: ToolUIPart }) {
       </div>
     );
   }
+  const input = tool.input as
+    | { summary?: string; completed?: string[]; remaining?: string[] }
+    | undefined;
   const output = (tool.output ?? {}) as { continue?: boolean };
+  const declined = output.continue === false;
   return (
-    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
-      {output.continue === false
-        ? "已结束本轮，Agent 会总结当前结果。"
-        : "已确认继续，Agent 正在接着执行剩余步骤。"}
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium">
+        {declined ? (
+          <X className="size-3.5 text-muted-foreground" />
+        ) : (
+          <Check className="size-3.5 text-success" />
+        )}
+        {declined ? "已结束本轮" : "已确认继续"}
+      </div>
+      {input?.summary ? (
+        <p className="mt-1 text-2xs leading-5 text-foreground/90">
+          {input.summary}
+        </p>
+      ) : null}
+      {input?.remaining?.length ? (
+        <p className="mt-1 text-3xs leading-5 text-muted-foreground">
+          当时剩余：{input.remaining.join("、")}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -815,16 +1021,33 @@ function SwitchRuntimeResult({ tool }: { tool: ToolUIPart }) {
       </div>
     );
   }
+  const input = tool.input as
+    | { template?: "static" | "react-vite" | "fullstack-hono"; reason?: string }
+    | undefined;
   const output = (tool.output ?? {}) as {
     cancelled?: boolean;
     prepared?: boolean;
-    template?: string;
   };
   return (
-    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
-      {output.cancelled
-        ? "已取消环境切换。"
-        : `已切换并准备迁移${output.template ? `：${output.template}` : ""}。`}
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium">
+        {output.cancelled ? (
+          <X className="size-3.5 text-muted-foreground" />
+        ) : (
+          <Check className="size-3.5 text-success" />
+        )}
+        {output.cancelled ? "已取消运行环境切换" : "已确认运行环境切换"}
+      </div>
+      {input?.template ? (
+        <p className="mt-1 text-2xs text-muted-foreground">
+          目标：{templateLabel(input.template)}
+        </p>
+      ) : null}
+      {input?.reason ? (
+        <p className="mt-0.5 text-2xs leading-5 text-foreground/90">
+          {input.reason}
+        </p>
+      ) : null}
     </div>
   );
 }

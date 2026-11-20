@@ -179,13 +179,16 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令；
   输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 插入命令名、Esc 关闭；
   选中后可继续补充要求，再按回车执行。
-- **步数上限确认**：达到单轮工具步数上限时，`prepareStep` 强制模型调用 `confirm_continue`，
-  聊天中显示「继续执行 / 结束本轮」卡片；确认后通过 client tool output 续跑，
+- **步数上限确认**：单轮工具步数上限为 **50**（static 与 build 型一致）。达到上限时，
+  `prepareStep` 强制模型调用 `confirm_continue`，聊天中显示「继续执行 / 结束本轮」卡片；确认后通过 client tool output 续跑，
   不再需要用户手打「继续」。只有上一轮仍有工具调用时才触发。
 - **聊天时间**：持久化消息写入 `metadata.createdAt`；相邻消息间隔 ≥5 分钟时显示时间分隔，
   今天只显示 `HH:mm`，昨天显示「昨天 HH:mm」，更早显示日期 + 时间。
 - **ask_user 历史**：已完成的 ask_user 卡片在会话历史里展示当时的问题和答案，
-  刷新或重新进入项目仍可见。
+  刷新或重新进入项目仍可见；switch_runtime / confirm_continue 的历史卡片也保留目标、
+  原因、摘要和确认结果，已提交后为只读。
+- **过程折叠**：assistant 消息中，最终文本之前的 reasoning 和工具调用收进默认折叠的
+  「n 次工具调用 · x 次思考」块；计数随流式调用递增，展开后恢复完整的思考/工具卡片。
 - **结构化日志**：`[agent.turn.start/finish/abort/error]` 包含
   `projectId`、`requestId`、`continuation`、模板/运行环境、steps、finishReason、
   token 用量和耗时；工具失败时 `[workspace.call.failed]` 也带
