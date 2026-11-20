@@ -1589,7 +1589,7 @@ export class Workspace extends DurableObject<Env> {
    * 让 supervisor 的 restart 分支能真正完成 down → ready。
    */
   private async killWorkspaceNodeProcesses(): Promise<void> {
-    await this.sh(`node -e 'const fs=require("fs");for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid)||pid==="1"||Number(pid)===process.pid)continue;let cmd="";let cwd="";try{cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\0/g," ");cwd=fs.readlinkSync("/proc/"+pid+"/cwd")}catch{continue}if(cwd.startsWith("/workspace")&&cmd.includes("node")){try{process.kill(Number(pid),"SIGKILL")}catch{}}}'`);
+    await this.sh(`node -e 'const fs=require("fs");for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid)||pid==="1"||Number(pid)===process.pid)continue;let cmd="";let cwd="";try{cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\\0/g," ");cwd=fs.readlinkSync("/proc/"+pid+"/cwd")}catch{continue}if(cwd.startsWith("/workspace")&&cmd.includes("node")){try{process.kill(Number(pid),"SIGKILL")}catch{}}}'`);
   }
 
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
@@ -1657,7 +1657,7 @@ export class Workspace extends DurableObject<Env> {
     }
 
     const procs = await this.sh(
-      `node -e 'const fs=require("fs");const out=[];for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid))continue;try{const cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\0/g," ").trim();const cwd=fs.readlinkSync("/proc/"+pid+"/cwd");if(cwd.startsWith("/workspace")||cmd.includes("boot.sh")||cmd.includes("preview"))out.push(pid+":"+cmd.slice(0,50))}catch{}}console.log(out.join(" | "))'`,
+      `node -e 'const fs=require("fs");const out=[];for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid))continue;try{const cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\\0/g," ").trim();const cwd=fs.readlinkSync("/proc/"+pid+"/cwd");if(cwd.startsWith("/workspace")||cmd.includes("boot.sh")||cmd.includes("preview"))out.push(pid+":"+cmd.slice(0,50))}catch{}}console.log(out.join(" | "))'`,
     ).catch(() => ({ stdout: "" }));
     throw new Error(
       `preview restart timed out (pid1=${pid1.slice(0, 60)}; down=${sawDown}; procs=${procs.stdout.replace(/\s+/g, " ").slice(0, 600)})`,
