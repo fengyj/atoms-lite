@@ -128,6 +128,25 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
     }),
   });
 
+  // 达到单轮工具步数上限时，由 prepareStep 强制调用；客户端展示继续确认卡。
+  tools.confirm_continue = tool({
+    description:
+      "仅由系统在单轮工具步数达到上限时强制调用，不要主动调用。向用户展示继续确认卡，让用户决定是否继续执行剩余步骤。",
+    inputSchema: z.object({
+      summary: z.string().max(300).optional().describe("本轮已完成的内容摘要"),
+      completed: z
+        .array(z.string().max(120))
+        .max(8)
+        .optional()
+        .describe("已经完成的关键步骤"),
+      remaining: z
+        .array(z.string().max(120))
+        .max(8)
+        .optional()
+        .describe("尚未完成的关键步骤"),
+    }),
+  });
+
   if (!ctx.configured) return tools;
 
   tools.list_files = tool({

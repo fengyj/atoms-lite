@@ -269,6 +269,17 @@ export function Workspace({ projectId }: { projectId: string }) {
     ]
   );
 
+  const respondContinue = useCallback(
+    (id: string, cont: boolean) => {
+      addToolOutput({
+        toolCallId: id,
+        toolName: "confirm_continue",
+        output: { continue: cont },
+      });
+    },
+    [addToolOutput]
+  );
+
   const respondSwitchRuntime = useCallback(
     async (
       id: string,
@@ -341,6 +352,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           onApproval={respondApproval}
           onAskUser={respondAskUser}
           onSwitchRuntime={respondSwitchRuntime}
+          onContinue={respondContinue}
           fallbackTemplate={project.data?.template ?? "static"}
           selection={selection}
           onClearSelection={() => setSelection(null)}

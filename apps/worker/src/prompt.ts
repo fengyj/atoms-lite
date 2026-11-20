@@ -14,6 +14,7 @@ const COMMON = `你是 atoms-lite 的应用生成助手。项目位于独立工�
 - 不要修改 node_modules、dist、.git、锁文件和平台内部目录。
 - 安装依赖必须用 install_packages，不要执行 npm/pnpm install。
 - 工具不可用时不要硬试；以 runtime_context 里的 capabilities 为准。
+- 如果系统强制调用 confirm_continue，说明本轮已达到工具步数上限：用简短摘要列出已完成和未完成项；用户确认后继续，拒绝后停止并总结。
 - 如果 runtime_context 里有 selection_* 字段，用户指的是这个元素/组件；优先做局部修改，不要重写整个页面。
 
 完成定义（全部满足才 finish）：

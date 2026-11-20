@@ -179,6 +179,17 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令；
   输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 插入命令名、Esc 关闭；
   选中后可继续补充要求，再按回车执行。
+- **步数上限确认**：达到单轮工具步数上限时，`prepareStep` 强制模型调用 `confirm_continue`，
+  聊天中显示「继续执行 / 结束本轮」卡片；确认后通过 client tool output 续跑，
+  不再需要用户手打「继续」。只有上一轮仍有工具调用时才触发。
+- **聊天时间**：持久化消息写入 `metadata.createdAt`；相邻消息间隔 ≥5 分钟时显示时间分隔，
+  今天只显示 `HH:mm`，昨天显示「昨天 HH:mm」，更早显示日期 + 时间。
+- **ask_user 历史**：已完成的 ask_user 卡片在会话历史里展示当时的问题和答案，
+  刷新或重新进入项目仍可见。
+- **结构化日志**：`[agent.turn.start/finish/abort/error]` 包含
+  `projectId`、`requestId`、`continuation`、模板/运行环境、steps、finishReason、
+  token 用量和耗时，便于按项目/回合过滤；流中断恢复使用
+  `chatStreamStallTimeoutMs` + `chatRecovery.terminalMessage`。
 - **首页精简**：移除角色/技术栈下拉、统计卡和底部「新建项目」卡；技术栈由需求自动推断。
 - **回滚**：先自动保存未提交改动，再用 `git read-tree` 恢复目标树并生成新的 rollback commit/version；
   checkout 后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。

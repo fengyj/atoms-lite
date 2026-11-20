@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import {
+  Check,
   Crosshair,
   Loader2,
   MessageSquare,
@@ -104,6 +105,7 @@ export function ChatPanel({
   onApproval,
   onAskUser,
   onSwitchRuntime,
+  onContinue,
   fallbackTemplate,
   selection,
   onClearSelection,
@@ -128,6 +130,7 @@ export function ChatPanel({
     input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
     confirmed: boolean
   ) => Promise<void>;
+  onContinue: (id: string, cont: boolean) => void;
   fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
   selection?: ElementSelection | null;
   onClearSelection?: () => void;
@@ -195,22 +198,37 @@ export function ChatPanel({
               </ConversationEmptyState>
             ) : null}
 
-            {messages.map((message) => (
-              <Message key={message.id} from={message.role}>
-                <MessageContent className="space-y-3">
-                  {message.parts.map((part, index) =>
-                    renderPart(
-                      part,
-                      index,
-                      onApproval,
-                      onAskUser,
-                      onSwitchRuntime,
-                      fallbackTemplate
-                    )
-                  )}
-                </MessageContent>
-              </Message>
-            ))}
+            {(() => {
+              let previousTimestamp: number | null = null;
+              return messages.map((message) => {
+                const timestamp = messageTimestamp(message);
+                const showTime =
+                  timestamp !== null &&
+                  (previousTimestamp === null ||
+                    timestamp - previousTimestamp >= 5 * 60 * 1000);
+                if (timestamp !== null) previousTimestamp = timestamp;
+                return (
+                  <Fragment key={message.id}>
+                    {showTime ? <TimeSeparator timestamp={timestamp} /> : null}
+                    <Message from={message.role}>
+                      <MessageContent className="space-y-3">
+                        {message.parts.map((part, index) =>
+                          renderPart(
+                            part,
+                            index,
+                            onApproval,
+                            onAskUser,
+                            onSwitchRuntime,
+                            onContinue,
+                            fallbackTemplate
+                          )
+                        )}
+                      </MessageContent>
+                    </Message>
+                  </Fragment>
+                );
+              });
+            })()}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
@@ -490,6 +508,7 @@ function renderPart(
     input: { template: "static" | "react-vite" | "fullstack-hono"; reason: string },
     confirmed: boolean
   ) => Promise<void>,
+  onContinue: (id: string, cont: boolean) => void,
   fallbackTemplate: "static" | "react-vite" | "fullstack-hono" | undefined
 ) {
   if (part.type === "text") {
@@ -548,6 +567,23 @@ function renderPart(
         reason={input.reason}
         onConfirm={() => onSwitchRuntime(tool.toolCallId, input, true)}
         onCancel={() => void onSwitchRuntime(tool.toolCallId, input, false)}
+      />
+    );
+  }
+
+  if (part.type === "tool-confirm_continue") {
+    const tool = part as ToolUIPart;
+    const input = tool.input as
+      | { summary?: string; completed?: string[]; remaining?: string[] }
+      | undefined;
+    if (tool.state === "output-available" || tool.state === "output-error") {
+      return <ContinueResult key={index} tool={tool} />;
+    }
+    return (
+      <ContinueCard
+        key={index}
+        input={input}
+        onContinue={(cont) => onContinue(tool.toolCallId, cont)}
       />
     );
   }
@@ -612,18 +648,161 @@ function AskUserResult({ tool }: { tool: ToolUIPart }) {
       </div>
     );
   }
+  const input = tool.input as AskUserInput | undefined;
   const output = (tool.output ?? {}) as {
+    answers?: Record<string, string | string[]>;
     skipped?: boolean;
     cancelled?: boolean;
-    template?: string;
   };
+  const questions = input?.questions ?? [];
+  if (output.cancelled || output.skipped) {
+    return (
+      <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
+        {output.cancelled ? "用户取消了问卷，按默认方案继续。" : "已跳过问卷，使用推荐项继续。"}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium">
+        <Check className="size-3.5 text-success" />
+        需求已确认
+      </div>
+      {questions.length ? (
+        <dl className="mt-2 space-y-2">
+          {questions.map((question) => (
+            <div key={question.id}>
+              <dt className="text-3xs leading-4 text-muted-foreground">
+                {question.label}
+              </dt>
+              <dd className="mt-0.5 text-xs leading-5 text-foreground/90">
+                {answerText(question, output.answers?.[question.id])}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function answerText(
+  question: AskUserInput["questions"][number],
+  value: string | string[] | undefined
+): string {
+  if (Array.isArray(value)) {
+    if (!value.length) return "未回答";
+    return value
+      .map(
+        (item) =>
+          question.options?.find((option) => option.value === item)?.label ?? item
+      )
+      .join("、");
+  }
+  if (!value) return "未回答";
+  return question.options?.find((option) => option.value === value)?.label ?? value;
+}
+
+function ContinueCard({
+  input,
+  onContinue,
+}: {
+  input?: { summary?: string; completed?: string[]; remaining?: string[] };
+  onContinue: (cont: boolean) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-3">
+      <p className="text-xs font-medium">本轮已经执行了较多步骤</p>
+      <p className="mt-1 text-2xs leading-5 text-muted-foreground">
+        达到单轮工具步数上限。可以继续执行剩余步骤，或先结束本轮查看当前结果。
+      </p>
+      {input?.summary ? (
+        <p className="mt-2 text-2xs leading-5 text-foreground/90">
+          {input.summary}
+        </p>
+      ) : null}
+      {input?.remaining?.length ? (
+        <p className="mt-1 text-3xs leading-5 text-muted-foreground">
+          可能还剩：{input.remaining.join("、")}
+        </p>
+      ) : null}
+      <div className="mt-2.5 flex items-center gap-2">
+        <Button size="sm" onClick={() => onContinue(true)}>
+          继续执行
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onContinue(false)}
+        >
+          结束本轮
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ContinueResult({ tool }: { tool: ToolUIPart }) {
+  if (tool.state === "output-error") {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+        继续执行失败：{tool.errorText ?? "未知错误"}
+      </div>
+    );
+  }
+  const output = (tool.output ?? {}) as { continue?: boolean };
   return (
     <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-2xs text-muted-foreground">
-      {output.cancelled
-        ? "用户取消了问卷，将按默认方案继续。"
-        : output.skipped
-          ? "已跳过，使用推荐项开始。"
-          : "需求已确认，开始生成。"}
+      {output.continue === false
+        ? "已结束本轮，Agent 会总结当前结果。"
+        : "已确认继续，Agent 正在接着执行剩余步骤。"}
+    </div>
+  );
+}
+
+function messageTimestamp(message: UIMessage): number | null {
+  if (
+    message.metadata &&
+    typeof message.metadata === "object" &&
+    !Array.isArray(message.metadata)
+  ) {
+    const createdAt = (message.metadata as { createdAt?: unknown }).createdAt;
+    if (typeof createdAt === "number") return createdAt;
+  }
+  const match = message.id.match(/^assistant_(\d+)_/);
+  return match ? Number(match[1]) : null;
+}
+
+function formatMessageTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const time = date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const startOfDay = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const dayDiff = Math.round(
+    (startOfDay(now) - startOfDay(date)) / (24 * 60 * 60 * 1000)
+  );
+  if (dayDiff === 0) return time;
+  if (dayDiff === 1) return `昨天 ${time}`;
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+  }
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+}
+
+function TimeSeparator({ timestamp }: { timestamp: number | null }) {
+  if (timestamp === null) return null;
+  return (
+    <div className="my-1 flex items-center gap-3 text-3xs text-muted-foreground">
+      <span className="h-px flex-1 bg-border/60" />
+      <time dateTime={new Date(timestamp).toISOString()}>
+        {formatMessageTimestamp(timestamp)}
+      </time>
+      <span className="h-px flex-1 bg-border/60" />
     </div>
   );
 }

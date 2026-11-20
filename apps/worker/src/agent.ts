@@ -1,6 +1,11 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { convertToModelMessages, stepCountIs, streamText } from "ai";
+import {
+  convertToModelMessages,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+} from "ai";
 import {
   MAX_AGENT_STEPS,
   MAX_AGENT_STEPS_BUILD,
@@ -16,6 +21,15 @@ import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
 
 export class ChatAgent extends AIChatAgent<Env> {
+  /** 模型流 5 分钟没有任何 chunk 时进入有界恢复，覆盖长 build/评审但不至于挂死。 */
+  override chatStreamStallTimeoutMs = 300_000;
+
+  /** 恢复失败时给用户一个可操作的终止提示，而不是留下空消息。 */
+  override chatRecovery = {
+    terminalMessage:
+      "本轮执行中断了。可以点击重试或继续，我会从当前进度接着做。",
+  };
+
   /** 项目删除时清空该项目的会话存储 */
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -26,9 +40,28 @@ export class ChatAgent extends AIChatAgent<Env> {
     return super.onRequest(request);
   }
 
+  /** 给持久化消息补一个客户端可读的 createdAt，用于聊天时间分隔。 */
+  protected override sanitizeMessageForPersistence(message: UIMessage): UIMessage {
+    const metadata =
+      message.metadata &&
+      typeof message.metadata === "object" &&
+      !Array.isArray(message.metadata)
+        ? (message.metadata as Record<string, unknown>)
+        : {};
+    if (typeof metadata.createdAt === "number") return message;
+    return {
+      ...message,
+      metadata: { ...metadata, createdAt: Date.now() },
+    };
+  }
+
   override async onChatMessage(
     _onFinish?: Parameters<AIChatAgent<Env>["onChatMessage"]>[0],
-    options?: { body?: Record<string, unknown> },
+    options?: {
+      requestId?: string;
+      continuation?: boolean;
+      body?: Record<string, unknown>;
+    },
   ): Promise<Response> {
     const baseURL = this.env.MODEL_BASE_URL;
     const apiKey = this.env.MODEL_API_KEY;
@@ -113,7 +146,14 @@ export class ChatAgent extends AIChatAgent<Env> {
     const tools = createTools({ ws, ctx, model });
     if (configured) {
       await ws.beginRun().catch((error) => {
-        console.error("[agent] begin run failed", error);
+        console.error(
+          "[agent.turn.begin_run_failed]",
+          JSON.stringify({
+            projectId,
+            requestId: options?.requestId ?? "unknown",
+            error: String(error).slice(0, 300),
+          }),
+        );
       });
     }
     const modelMessages = await convertToModelMessages(this.messages);
@@ -122,47 +162,135 @@ export class ChatAgent extends AIChatAgent<Env> {
       renderRuntimeContext(ctx),
     );
 
+    const maxSteps = !configured
+      ? 6
+      : template === "static"
+        ? MAX_AGENT_STEPS
+        : MAX_AGENT_STEPS_BUILD;
+    const requestId = options?.requestId ?? "unknown";
+    const turnLog = {
+      projectId,
+      requestId,
+      continuation: options?.continuation ?? false,
+      template,
+      runtime,
+      configured,
+      messages: modelMessages.length,
+      selection: Boolean(selection),
+    };
+    const startedAt = Date.now();
+    console.log("[agent.turn.start]", JSON.stringify(turnLog));
+
     const result = streamText({
       model,
       system: systemPrompt(ctx),
       messages,
       tools,
-      stopWhen: stepCountIs(
-        !configured
-          ? 6
-          : template === "static"
-            ? MAX_AGENT_STEPS
-            : MAX_AGENT_STEPS_BUILD,
-      ),
-      onFinish: async () => {
+      stopWhen: stepCountIs(maxSteps),
+      // 到达单轮步数上限时，不再静默停止：强制模型调用确认卡，
+      // 让用户决定是否继续，避免必须手动发送“继续”。
+      prepareStep: ({ stepNumber, steps }) =>
+        configured &&
+        stepNumber >= maxSteps - 1 &&
+        steps.at(-1)?.finishReason === "tool-calls"
+          ? {
+              toolChoice: { type: "tool", toolName: "confirm_continue" },
+              activeTools: ["confirm_continue"],
+            }
+          : {},
+      onFinish: async (finish) => {
+        let snapshotOk: boolean | null = null;
         try {
           if (configured && !meta?.migration?.active) {
-            const result = await ws.snapshot();
-            if (!result.ok) {
-              console.error("[agent] finish snapshot failed", result.error);
+            const snapshot = await ws.snapshot();
+            snapshotOk = snapshot.ok;
+            if (!snapshot.ok) {
+              console.error(
+                "[agent.turn.snapshot_failed]",
+                JSON.stringify({
+                  projectId,
+                  requestId,
+                  error: snapshot.error?.slice(0, 300),
+                }),
+              );
             }
           }
         } catch (error) {
-          console.error("[agent] finish snapshot threw", error);
+          console.error(
+            "[agent.turn.snapshot_error]",
+            JSON.stringify({
+              projectId,
+              requestId,
+              error: String(error).slice(0, 300),
+            }),
+          );
         } finally {
+          console.log(
+            "[agent.turn.finish]",
+            JSON.stringify({
+              ...turnLog,
+              steps: finish.stepNumber + 1,
+              finishReason: finish.finishReason,
+              inputTokens: finish.usage?.inputTokens ?? 0,
+              outputTokens: finish.usage?.outputTokens ?? 0,
+              durationMs: Date.now() - startedAt,
+              snapshotOk,
+            }),
+          );
           if (configured) {
             await ws.endRun().catch((error) => {
-              console.error("[agent] end run failed", error);
+              console.error(
+                "[agent.turn.end_run_failed]",
+                JSON.stringify({
+                  projectId,
+                  requestId,
+                  error: String(error).slice(0, 300),
+                }),
+              );
             });
           }
         }
       },
-      onAbort: async () => {
+      onAbort: async ({ reason }) => {
+        console.error(
+          "[agent.turn.abort]",
+          JSON.stringify({
+            ...turnLog,
+            durationMs: Date.now() - startedAt,
+            reason: String(reason ?? "").slice(0, 300),
+          }),
+        );
         if (!configured) return;
         await ws.endRun().catch((error) => {
-          console.error("[agent] end run after abort failed", error);
+          console.error(
+            "[agent.turn.end_run_after_abort_failed]",
+            JSON.stringify({
+              projectId,
+              requestId,
+              error: String(error).slice(0, 300),
+            }),
+          );
         });
       },
       onError: async ({ error }) => {
-        console.error("model error", error);
+        console.error(
+          "[agent.turn.error]",
+          JSON.stringify({
+            ...turnLog,
+            durationMs: Date.now() - startedAt,
+            error: String(error).slice(0, 500),
+          }),
+        );
         if (!configured) return;
         await ws.endRun().catch((endError) => {
-          console.error("[agent] end run after error failed", endError);
+          console.error(
+            "[agent.turn.end_run_after_error_failed]",
+            JSON.stringify({
+              projectId,
+              requestId,
+              error: String(endError).slice(0, 300),
+            }),
+          );
         });
       },
     });
