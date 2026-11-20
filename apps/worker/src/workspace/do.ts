@@ -1583,6 +1583,15 @@ export class Workspace extends DurableObject<Env> {
     throw new Error("preview server did not become ready");
   }
 
+  /**
+   * supervisor 有时只杀到 shell 包装进程，真正的 app 进程仍占着 8080。
+   * 超时前兜底杀掉 /workspace 下由 node 启动的进程（跳过 PID 1 和当前脚本），
+   * 让 supervisor 的 restart 分支能真正完成 down → ready。
+   */
+  private async killWorkspaceNodeProcesses(): Promise<void> {
+    await this.sh(`node -e 'const fs=require("fs");for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid)||pid==="1"||Number(pid)===process.pid)continue;let cmd="";let cwd="";try{cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\0/g," ");cwd=fs.readlinkSync("/proc/"+pid+"/cwd")}catch{continue}if(cwd.startsWith("/workspace")&&cmd.includes("node")){try{process.kill(Number(pid),"SIGKILL")}catch{}}}'`);
+  }
+
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
     const pid1 = await this.pid1Command();
@@ -1634,6 +1643,12 @@ export class Workspace extends DurableObject<Env> {
             return;
           }
           signalConsumed = true;
+        }
+        if (!sawDown) {
+          console.warn(
+            "[workspace] preview did not go down after restart signal; killing workspace node processes",
+          );
+          await this.killWorkspaceNodeProcesses();
         }
         // 信号可能碰上了 supervisor 的启动窗口；重发一次。
         await this.signalPreviewRestart();
