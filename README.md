@@ -28,6 +28,7 @@
 - 预览刷新按运行时区分：static / React 直接读磁盘，全栈项目才重启 Node 进程
 
 - 实现记录：`docs/implementation.md`
+- 笔试说明：`docs/submission.md`
 - 系统架构：`docs/architecture/system-architecture.md`
 - 数据模型：`docs/architecture/data-model.md`
 - 验证记录：`docs/poc/`
