@@ -176,8 +176,14 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
 - **预览元素选择**：同源 iframe 内高亮元素，收集 selector/outerHTML/关键样式，
   作为请求 body 的选择上下文发给 Agent；不写入消息历史。本地跨端口开发不可用，生产同源可用。
-- **设计检查**：预览工具栏内置轻量 DOM 检查（小字、低对比度、溢出、过小点击目标、渐变文字），
-  结果可点击并带入对话；完整 Impeccable WASM detector 作为后续候选。
+- **设计审查**：`/design-review` 命令或 `design_review` 工具触发；先跑 Impeccable WASM detector 源码扫描，
+  再交给只读设计子 agent。预览只保留元素选择，不再放设计检查按钮。
+- **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令。
+- **首页精简**：移除角色/技术栈下拉、统计卡和底部「新建项目」卡；技术栈由需求自动推断。
+- **回滚**：先自动保存未提交改动，再用 `git read-tree` 恢复目标树并生成新的 rollback commit/version；
+  checkout 后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。
+- **预览地址栏**：输入新 URL 会更新 iframe 的 src，不再只是修改地址栏状态。
+- **预览重启**：超时明确失败，不再接受旧进程的 healthy 响应。
 - 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
   只在启动/加载阶段短轮询，就绪后停止。
 - 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。

@@ -1577,7 +1577,7 @@ export class Workspace extends DurableObject<Env> {
       }
     }
 
-    await this.ensurePreview();
+    throw new Error("preview restart timed out");
   }
 
   private async build(): Promise<{
@@ -1661,6 +1661,30 @@ export class Workspace extends DurableObject<Env> {
     return this.ensurePromise;
   }
 
+  /** 冷启动后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。 */
+  private async verifyCurrentVersionHead(): Promise<void> {
+    if (this.runtime() !== "container") return;
+    const current = this.currentVersionId();
+    if (!current) return;
+    const row = this.ctx.storage.sql
+      .exec<{ git_commit: string }>(
+        "SELECT git_commit FROM atoms_versions WHERE id = ?",
+        current,
+      )
+      .toArray()[0];
+    if (!row) return;
+    const out = await this.run(["git", "rev-parse", "HEAD"], WORKSPACE);
+    const head = out.stdout.trim();
+    if (out.exitCode !== 0 || !head) {
+      throw new Error("workspace git HEAD is unavailable after restore");
+    }
+    if (head !== row.git_commit) {
+      throw new Error(
+        `workspace HEAD ${head.slice(0, 8)} does not match current version ${row.git_commit.slice(0, 8)}`,
+      );
+    }
+  }
+
   private async doEnsure(): Promise<void> {
     const container = this.container;
 
@@ -1710,6 +1734,7 @@ export class Workspace extends DurableObject<Env> {
 
     await this.seed();
     await this.ensureNodeModules();
+    await this.verifyCurrentVersionHead();
     await this.ensurePreview();
     await this.syncFilesCacheSafe();
   }
@@ -1955,8 +1980,8 @@ export class Workspace extends DurableObject<Env> {
       await this.ensure();
 
       const rows = this.ctx.storage.sql
-        .exec<{ git_commit: string }>(
-          "SELECT git_commit FROM atoms_versions WHERE id = ?",
+        .exec<{ git_commit: string; summary: string }>(
+          "SELECT git_commit, summary FROM atoms_versions WHERE id = ?",
           versionId,
         )
         .toArray();
@@ -1964,12 +1989,45 @@ export class Workspace extends DurableObject<Env> {
       if (!target) throw new Error(`version not found: ${versionId}`);
 
       await this.sh(`cd ${WORKSPACE} && rm -f .git/index.lock`);
-      const out = await this.sh(
-        `cd ${WORKSPACE} && git reset --hard ${target.git_commit} && git clean -fd`,
-      );
-      if (out.exitCode !== 0) throw new Error(out.stderr || "checkout failed");
 
-      this.setCurrentVersion(versionId);
+      // 不丢弃任何工作区内容：先把未提交改动保存成一个 git commit，
+      // 再用 read-tree 恢复目标树，最后生成一个「回滚」新 commit。
+      await this.sh(`cd ${WORKSPACE} && git add -A`);
+      const dirty = await this.run(
+        ["git", "diff", "--cached", "--quiet"],
+        WORKSPACE,
+      );
+      if (dirty.exitCode !== 0) {
+        await this.sh(
+          `cd ${WORKSPACE} && git commit -q -m "auto-save before rollback"`,
+        );
+      }
+
+      const restore = await this.sh(
+        `cd ${WORKSPACE} && git read-tree --reset -u ${target.git_commit}`,
+      );
+      if (restore.exitCode !== 0) {
+        throw new Error(restore.stderr || "checkout failed");
+      }
+      const commit = await this.sh(
+        `cd ${WORKSPACE} && git commit --allow-empty -q -m "rollback to ${target.git_commit.slice(0, 8)}" && git rev-parse HEAD`,
+      );
+      if (commit.exitCode !== 0) {
+        throw new Error(commit.stderr || "rollback commit failed");
+      }
+      const gitCommit = commit.stdout.trim();
+      const parent = this.latestVersion();
+      const id = `ver_${crypto.randomUUID()}`;
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_versions (id, git_commit, parent_id, summary, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        id,
+        gitCommit,
+        parent?.id ?? null,
+        `回滚到 ${target.git_commit.slice(0, 8)}：${target.summary}`,
+        "draft",
+        Date.now(),
+      );
+      this.setCurrentVersion(id);
 
       // git clean 不会删除被 ignore 的 dist；先清掉再重建。
       await this.sh(`rm -rf ${WORKSPACE}/dist`);
@@ -1995,10 +2053,17 @@ export class Workspace extends DurableObject<Env> {
         await this.restartPreview();
       }
       const snapshot = await this.takeSnapshot();
+      if (buildError || !snapshot.ok) {
+        this.ctx.storage.sql.exec(
+          "UPDATE atoms_versions SET status = 'failed' WHERE id = ?",
+          id,
+        );
+      }
 
       return {
-        ok: buildError === null,
-        gitCommit: target.git_commit,
+        ok: buildError === null && snapshot.ok,
+        gitCommit,
+        versionId: id,
         buildError,
         snapshotOk: snapshot.ok,
         snapshotError: snapshot.error,

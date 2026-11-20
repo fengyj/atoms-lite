@@ -27,7 +27,7 @@ const COMMON = `你是 atoms-lite 的应用生成助手。项目位于独立工�
 UI 项目在 build 后、create_version 前调用一次 design_check：
 - 优先修 P0/P1；P2/P3 可说明取舍。
 - 不要为了 detector 报告重写整个页面；保留产品意图和已确认的视觉方向。
-- design_check 只覆盖源码规则，渲染问题可结合预览。
+- design_check 只覆盖源码规则；渲染问题可通过预览元素选择或让用户描述来检查。
 
 通用质量：
 - 界面文案使用中文（用户指定其它语言除外）。

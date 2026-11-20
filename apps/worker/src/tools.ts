@@ -324,9 +324,70 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
     });
   }
 
+  const scanSources = async (
+    paths?: string[],
+    maxFindings = 15,
+  ): Promise<{
+    scanned: number;
+    findings: Array<Record<string, unknown>>;
+    total: number;
+  }> => {
+    const listed = await ws.listFiles();
+    const source = /\.(tsx?|jsx?|css|html?|vue|svelte)$/i;
+    let entries = listed.entries
+      .map((entry) => entry.path)
+      .filter((path) => source.test(path));
+    if (paths?.length) {
+      entries = entries.filter((path) =>
+        paths.some((prefix) => {
+          const normalized = prefix
+            .replace(/^\/+/, "")
+            .replace(/^workspace\//, "");
+          return (
+            path === normalized || path.startsWith(`${normalized}/`)
+          );
+        }),
+      );
+    } else {
+      entries = entries.filter(
+        (path) =>
+          path.startsWith("src/") ||
+          path === "index.html" ||
+          path === "styles.css" ||
+          path === "server/index.js",
+      );
+    }
+    entries = entries.slice(0, 30);
+
+    const findings: Array<Record<string, unknown>> = [];
+    let scanned = 0;
+    let bytes = 0;
+    for (const path of entries) {
+      if (bytes > 120_000) break;
+      try {
+        const file = await ws.readFile(`/workspace/${path}`);
+        bytes += file.content.length;
+        const result = /\.html?$/i.test(path)
+          ? detectHtmlSource(file.content, path)
+          : detectTextSource(file.content, path);
+        scanned += 1;
+        for (const finding of result) {
+          findings.push({ ...finding, file: path });
+        }
+      } catch {
+        // 单个文件读取失败不阻塞其它文件
+      }
+    }
+    return {
+      scanned,
+      findings: findings.slice(0, maxFindings),
+      total: findings.length,
+    };
+  };
+
   tools.design_check = tool({
     description:
-      "用 Impeccable 确定性 detector 扫描生成项目的源码，检查 AI slop、小字、对比度、间距、嵌套卡片等问题。适合在 build 后、create_version 前调用；返回最多 30 条 findings。它不是完整视觉回归，渲染后的问题仍可用预览里的设计检查。",
+      "用 Impeccable 确定性 detector 扫描生成项目的源码，检查 AI slop、小字、对比度、间距、嵌套卡片等问题。适合在 build 后、create_version 前调用；返回最多 30 条 findings。它不是完整视觉回归。",
     inputSchema: z.object({
       paths: z
         .array(z.string().max(300))
@@ -335,57 +396,8 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
         .describe("要扫描的文件或目录前缀；省略时扫描 src/index.html/styles.css"),
       maxFindings: z.number().int().min(1).max(30).default(15),
     }),
-    execute: async ({ paths, maxFindings }) => {
-      const listed = await ws.listFiles();
-      const source =
-        /\.(tsx?|jsx?|css|html?|vue|svelte)$/i;
-      let entries = listed.entries
-        .map((entry) => entry.path)
-        .filter((path) => source.test(path));
-      if (paths?.length) {
-        entries = entries.filter((path) =>
-          paths.some(
-            (prefix) =>
-              path === prefix.replace(/^\/+/, "") ||
-              path.startsWith(`${prefix.replace(/^\/+/, "")}/`),
-          ),
-        );
-      } else {
-        entries = entries.filter(
-          (path) =>
-            path.startsWith("src/") ||
-            path === "index.html" ||
-            path === "styles.css" ||
-            path === "server/index.js",
-        );
-      }
-      entries = entries.slice(0, 30);
-
-      const findings: Array<Record<string, unknown>> = [];
-      let scanned = 0;
-      let bytes = 0;
-      for (const path of entries) {
-        if (bytes > 120_000) break;
-        try {
-          const file = await ws.readFile(`/workspace/${path}`);
-          bytes += file.content.length;
-          const result = /\.html?$/i.test(path)
-            ? detectHtmlSource(file.content, path)
-            : detectTextSource(file.content, path);
-          scanned += 1;
-          for (const finding of result) {
-            findings.push({ ...finding, file: path });
-          }
-        } catch {
-          // 单个文件读取失败不阻塞其它文件
-        }
-      }
-      return {
-        scanned,
-        findings: findings.slice(0, maxFindings),
-        total: findings.length,
-      };
-    },
+    execute: async ({ paths, maxFindings }) =>
+      scanSources(paths, maxFindings),
   });
 
   tools.subagent = tool({
@@ -423,7 +435,7 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
 
   tools.design_review = tool({
     description:
-      "让设计审查子 agent 检查信息层级、间距、颜色、响应式和状态设计。只读，本轮与其它评审合计最多 2 次，单次 45 秒。建议在首次预览后调用一次；小修小改不要调用。",
+      "设计审查：先运行 Impeccable 确定性 detector 扫描源码，再让只读设计子 agent 综合检查信息层级、间距、颜色、响应式和状态设计。只读，本轮与其它评审合计最多 2 次，单次 45 秒。建议在首次预览后调用一次；小修小改不要调用。",
     inputSchema: z.object({
       task: z.string().min(1).max(1000).default("审查当前界面的设计质量"),
       files: z
@@ -433,8 +445,18 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
         .describe("要检查的文件，相对或 /workspace 绝对路径；省略时自动选择"),
       maxFindings: z.number().int().min(1).max(6).default(5),
     }),
-    execute: async ({ task, files, maxFindings }) =>
-      review({ role: "design_reviewer", task, files, maxFindings }),
+    execute: async ({ task, files, maxFindings }) => {
+      const deterministic = await scanSources(files, 10);
+      const report = await review({
+        role: "design_reviewer",
+        task: `${task}\n\n确定性 detector findings（优先核对，不要重复泛泛而谈）:\n${JSON.stringify(
+          deterministic.findings,
+        ).slice(0, 5000)}`,
+        files,
+        maxFindings,
+      });
+      return { deterministic, review: report };
+    },
   });
 
   tools.finish = tool({

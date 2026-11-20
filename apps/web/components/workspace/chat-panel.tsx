@@ -1,7 +1,14 @@
 "use client";
 
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
-import { Crosshair, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
+import {
+  Crosshair,
+  Loader2,
+  MessageSquare,
+  Slash,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   Conversation,
   ConversationContent,
@@ -40,6 +47,13 @@ import {
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Panel } from "@/components/workspace/panel";
 import {
   AskUserCard,
@@ -52,6 +66,30 @@ import type { ElementSelection } from "@/lib/element-selection";
 /** 空态示例需求：五子棋 */
 const SAMPLE_PROMPT =
   "做一个五子棋：双人对战、自动判断胜负、支持重新开局，界面简洁好看。";
+
+const COMMANDS = [
+  {
+    name: "/design-review",
+    label: "设计审查",
+    description: "detector + design_review，只读评审",
+    prompt:
+      "请先调用 design_check 扫描当前源码，再调用 design_review 做一次设计审查。只输出问题、证据、优先级和具体修改建议，不要改代码。",
+  },
+  {
+    name: "/code-review",
+    label: "代码审查",
+    description: "检查正确性、边界和安全问题",
+    prompt:
+      "请调用 code_review 检查当前实现，重点看正确性、边界、错误处理和安全性。只输出问题与建议，不要改代码。",
+  },
+  {
+    name: "/polish",
+    label: "收尾打磨",
+    description: "间距、层级、状态和文案",
+    prompt:
+      "请在不改变产品意图和现有视觉方向的前提下做一次 polish：修复信息层级、间距、状态和文案问题，完成后 build、start_preview、create_version。",
+  },
+] as const;
 
 export function ChatPanel({
   className,
@@ -98,7 +136,9 @@ export function ChatPanel({
       onStop();
       return;
     }
-    if (trimmed) onSubmitText(trimmed);
+    if (!trimmed) return;
+    const command = COMMANDS.find((item) => item.name === trimmed);
+    onSubmitText(command?.prompt ?? trimmed);
   };
 
   return (
@@ -195,7 +235,40 @@ export function ChatPanel({
                 }
               />
             </PromptInputBody>
-            <PromptInputFooter className="justify-end">
+            <PromptInputFooter className="justify-between">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-xs text-muted-foreground"
+                    disabled={busy}
+                  >
+                    <Slash className="size-3.5" />
+                    命令
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  {COMMANDS.map((command) => (
+                    <DropdownMenuItem
+                      key={command.name}
+                      className="flex flex-col items-start gap-0.5"
+                      onSelect={() => onSubmitText(command.prompt)}
+                    >
+                      <span className="flex w-full items-center gap-2">
+                        <code className="font-mono text-2xs text-primary">
+                          {command.name}
+                        </code>
+                        <span className="text-xs">{command.label}</span>
+                      </span>
+                      <span className="text-3xs text-muted-foreground">
+                        {command.description}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <PromptInputSubmit status={busy ? "streaming" : status} />
             </PromptInputFooter>
           </PromptInput>

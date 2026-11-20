@@ -42,13 +42,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   createProject,
   deleteProject,
   formatClock,
@@ -57,7 +50,6 @@ import {
   templateLabel,
   useProjects,
   type ProjectSummary,
-  type TemplateChoice,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
@@ -79,8 +71,6 @@ const EXAMPLES = [
 export function Dashboard() {
   const projects = useProjects();
   const [prompt, setPrompt] = useState("");
-  const [mode, setMode] = useState("single");
-  const [stack, setStack] = useState<TemplateChoice>("auto");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null);
@@ -91,11 +81,6 @@ export function Dashboard() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const list = projects.data ?? [];
-  const versionTotal = list.reduce((sum, item) => sum + item.versionCount, 0);
-  const lastSaved = list.reduce(
-    (latest, item) => Math.max(latest, item.currentVersion?.createdAt ?? 0),
-    0
-  );
 
   const focusComposer = () => {
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -153,7 +138,7 @@ export function Dashboard() {
     setCreating(true);
     setCreateError(null);
     try {
-      const project = await createProject(value, stack);
+      const project = await createProject(value);
       // 静态导出没有为动态项目 ID 预渲染 HTML，这里走整页加载
       window.location.assign(
         `/sessions/${encodeURIComponent(project.id)}?prompt=${encodeURIComponent(value)}`
@@ -281,7 +266,7 @@ export function Dashboard() {
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话。
-              技术栈可以自动选型，也可以手动指定：Static、React 或全栈。
+              技术栈会根据需求自动选择，不需要你理解 runtime。
             </p>
           </div>
 
@@ -300,32 +285,6 @@ export function Dashboard() {
               className="min-h-28 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
             />
             <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-2.5">
-              <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger size="sm" className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="single">单角色</SelectItem>
-                  <SelectItem value="auto">自动</SelectItem>
-                  <SelectItem value="multi" disabled>
-                    多角色（即将支持）
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={stack}
-                onValueChange={(value) => setStack(value as TemplateChoice)}
-              >
-                <SelectTrigger size="sm" className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">自动（先确认）</SelectItem>
-                  <SelectItem value="static">Static</SelectItem>
-                  <SelectItem value="react-vite">React</SelectItem>
-                  <SelectItem value="fullstack-hono">全栈</SelectItem>
-                </SelectContent>
-              </Select>
               <Button
                 variant="ghost"
                 size="sm"
@@ -378,30 +337,6 @@ export function Dashboard() {
             ))}
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard
-              icon={<FolderKanban />}
-              label="项目"
-              value={projects.loading ? "…" : `${list.length}`}
-            />
-            <StatCard
-              icon={<GitBranch />}
-              label="版本"
-              value={projects.loading ? "…" : `${versionTotal}`}
-            />
-            <StatCard
-              icon={<Clock3 />}
-              label="最近保存"
-              value={lastSaved > 0 ? formatClock(lastSaved) : "—"}
-            />
-            <StatCard
-              icon={<Code2 />}
-              label="沙箱"
-              value="按需启动"
-              dot="bg-success"
-            />
-          </div>
-
           <section id="projects" className="mt-10 scroll-mt-20">
             <div className="flex items-end justify-between gap-3">
               <div>
@@ -437,19 +372,6 @@ export function Dashboard() {
                 </div>
               ) : null}
 
-              <button
-                type="button"
-                onClick={focusComposer}
-                className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-6 text-center transition-colors hover:border-primary/50 hover:bg-card"
-              >
-                <span className="grid size-10 place-items-center rounded-full border border-border bg-card">
-                  <Plus className="size-4 text-muted-foreground" />
-                </span>
-                <span className="text-sm font-medium">新建项目</span>
-                <span className="max-w-56 text-2xs leading-5 text-muted-foreground">
-                  描述一个网站，会创建一个独立项目并进入工作区
-                </span>
-              </button>
             </div>
 
             {projects.error ? (
@@ -678,30 +600,5 @@ function SidebarItem({
         <span className="ml-auto text-3xs text-muted-foreground">待开放</span>
       ) : null}
     </span>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  dot,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  dot?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-2xs text-muted-foreground [&_svg]:size-3">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-1.5 flex items-center gap-1.5">
-        {dot ? <span className={cn("size-1.5 rounded-full", dot)} /> : null}
-        <span className="text-sm font-medium">{value}</span>
-      </div>
-    </div>
   );
 }

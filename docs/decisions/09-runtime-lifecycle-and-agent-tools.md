@@ -123,13 +123,9 @@ browser < container/basic < container/standard-1 < container/standard-2
 - 本地开发时 Web 与 Worker 不同源，选择器会提示无法读取 DOM；生产同源可用。
 - 这是 Live Mode 的轻量替代：先做「选中 + 对话修改」，不做三变体热替换。
 
-预览工具栏另有「检查设计」：
-
-- 在预览 DOM 上运行轻量规则：小于 11px 的功能文字、低对比度、横向溢出、
-  小于 32px 的点击目标、渐变文字。
-- findings 最多 40 条，点击一条会把它对应的元素带入对话，方便直接让 Agent 修。
-- 规则方向参考 Impeccable detector，但当前不依赖它的 WASM/二进制；
-  后续可把完整 WASM detector 接到 Worker 做源码扫描。
+设计审查不再作为预览按钮，而是通过 `/design-review` 命令或 `design_review` 工具触发。
+`design_review` 先运行 WASM detector 扫描源码，再把确定性 findings 交给只读设计子 agent
+综合评审；预览只保留元素选择，不承担设计审查 UI。
 
 ## 8. Impeccable WASM detector
 
@@ -140,7 +136,7 @@ browser < container/basic < container/standard-1 < container/standard-2
 - `.html` 用 `detect_html_source_json`
 - `.ts/.tsx/.js/.jsx/.css` 用 `detect_text_json`
 - 单次最多 30 个文件、约 120KB，返回最多 30 条 findings
-- 源码规则不覆盖渲染后的对比度/溢出；预览里的轻量设计检查负责这一层
+- 源码规则不覆盖渲染后的对比度/溢出；这类问题需要浏览器/DOM 检查，当前不冒充完整视觉回归
 
 WASM 约 4.5MB，Worker 总上传约 8.3MB（gzip 约 2.5MB），仍在限制内。
 若后续体积成为问题，可拆成独立 detector Worker 或按需加载。
