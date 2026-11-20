@@ -155,7 +155,9 @@ export function ChatPanel({
     >
       <div className="flex h-full flex-col">
         <Conversation className="flex-1">
-          <ConversationContent className="gap-5 px-3 py-4">
+          <ConversationContent
+            className={`gap-5 px-3 py-4${messages.length === 0 ? " min-h-full justify-center" : ""}`}
+          >
             {messages.length === 0 ? (
               <ConversationEmptyState className="gap-4">
                 <span className="grid size-10 place-items-center rounded-full border border-border bg-muted text-muted-foreground">
