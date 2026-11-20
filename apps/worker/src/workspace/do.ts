@@ -1522,8 +1522,44 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
+  /** 读取 PID 1 的启动命令，判断当前容器是否由 preview supervisor 管理。 */
+  private async pid1Command(): Promise<string> {
+    try {
+      const out = await this.run(["cat", "/proc/1/cmdline"], "/", 15_000);
+      if (out.exitCode !== 0) return "";
+      return out.stdout.replace(/\0/g, " ").trim();
+    } catch {
+      return "";
+    }
+  }
+
   private async ensurePreview(): Promise<void> {
     if (await this.checkPreview()) return;
+
+    // 旧快照的 PID 1 可能直接是 server.mjs；此时不能另起一个进程抢 8080 端口。
+    const pid1 = await this.pid1Command();
+    const supervised = pid1.includes("boot.sh");
+    const legacyServer = pid1.includes("preview/server.mjs");
+
+    if (supervised || legacyServer) {
+      const deadline = Date.now() + 60_000;
+      const signalAt = Date.now() + 6_000;
+      let signaled = false;
+      while (Date.now() < deadline) {
+        if (await this.checkPreview()) return;
+        // supervisor 若已在启动窗口，先给它几秒；仍无响应再发一次重启信号。
+        if (supervised && !signaled && Date.now() >= signalAt) {
+          await this.signalPreviewRestart();
+          signaled = true;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      throw new Error(
+        supervised
+          ? "preview server did not become ready"
+          : "legacy preview server is not responding",
+      );
+    }
 
     await this.signalPreviewRestart();
 
@@ -1549,7 +1585,18 @@ export class Workspace extends DurableObject<Env> {
 
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
-    await this.signalPreviewRestart();
+    const pid1 = await this.pid1Command();
+    if (!pid1.includes("boot.sh")) {
+      // 旧快照没有 supervisor：重启信号永远不会被消费。
+      // 静态 server 每次请求都读磁盘，ensure 到 ready 即可。
+      console.warn(
+        "[workspace] preview supervisor not running; falling back to ensurePreview",
+      );
+      await this.ensurePreview();
+      return;
+    }
+
+    const signalPath = await this.signalPreviewRestart();
 
     // supervisor 每 1s 检查 restart，然后 kill 旧子进程、sleep 2s、再启动新进程。
     // 不能只等「ready」：旧进程在重启前仍会返回 200，会让调用方误以为已完成，
@@ -1557,6 +1604,7 @@ export class Workspace extends DurableObject<Env> {
     const deadline = Date.now() + 60_000;
     let sawDown = false;
     let nextSignalAt = Date.now() + 8_000;
+    let signalConsumed = false;
 
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1569,10 +1617,24 @@ export class Workspace extends DurableObject<Env> {
 
       if (!ready) {
         sawDown = true;
+        signalConsumed = true;
         continue;
       }
 
       if (Date.now() >= nextSignalAt) {
+        if (!signalConsumed) {
+          const pending = await this.run(["test", "-f", signalPath]);
+          if (pending.exitCode === 0) {
+            // boot.sh 在镜像里存在，但当前 PID 1 不是 supervisor。
+            console.warn(
+              "[workspace] preview restart signal was not consumed; skipping down wait",
+            );
+            await this.sh(`rm -f ${signalPath}`);
+            await this.ensurePreview();
+            return;
+          }
+          signalConsumed = true;
+        }
         // 信号可能碰上了 supervisor 的启动窗口；重发一次。
         await this.signalPreviewRestart();
         nextSignalAt = Date.now() + 8_000;
