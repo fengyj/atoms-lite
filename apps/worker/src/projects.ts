@@ -15,6 +15,7 @@ const DEMO_PROJECT_ID = "demo";
 const DEMO_PROJECT_NAME = "五子棋 Demo";
 
 export type TemplateSource = "rule" | "model" | "manual" | "fallback";
+export type ProjectNameSource = "derived" | "ai" | "user" | "fallback" | "legacy";
 
 type ProjectRow = {
   id: string;
@@ -23,6 +24,7 @@ type ProjectRow = {
   template: string;
   runtime: string;
   template_source: string;
+  name_source: string;
   plan_reason: string;
   configured: number;
   created_at: number;
@@ -46,6 +48,7 @@ export type ProjectSummary = {
   template: TemplateId;
   runtime: RuntimeKind;
   templateSource: TemplateSource;
+  nameSource: ProjectNameSource;
   planReason: string;
   configured: boolean;
   createdAt: number;
@@ -54,7 +57,7 @@ export type ProjectSummary = {
   currentVersion: WorkspaceMeta["currentVersion"];
 };
 
-/** 从需求里取一个可读的项目名；真正的结构化命名留给后续模型生成。 */
+/** 从需求里取一个可读的兜底项目名；首轮对话后会用小模型生成更好的标题。 */
 export function deriveProjectName(prompt: string): string {
   const text = prompt.replace(/\s+/g, " ").trim();
   if (/五子棋|黑白棋|棋类/.test(text)) return "五子棋 Demo";
@@ -72,6 +75,18 @@ export function deriveProjectName(prompt: string): string {
     /^(请|帮我|我想|想要|需要|做|创建|生成|实现|用|基于|react|vue|svelte|next\.?js|一个|一款|个|的)\s*/i;
   while (prefix.test(cleaned)) cleaned = cleaned.replace(prefix, "");
   return (cleaned.trim() || "未命名应用").slice(0, 16);
+}
+
+function normalizeNameSource(value: string | null | undefined): ProjectNameSource {
+  if (
+    value === "ai" ||
+    value === "user" ||
+    value === "fallback" ||
+    value === "legacy"
+  ) {
+    return value;
+  }
+  return "derived";
 }
 
 function newProjectId(): string {
@@ -93,6 +108,7 @@ export class Projects extends DurableObject<Env> {
         template TEXT NOT NULL DEFAULT 'static',
         runtime TEXT NOT NULL DEFAULT 'container',
         template_source TEXT NOT NULL DEFAULT 'rule',
+        name_source TEXT NOT NULL DEFAULT 'derived',
         plan_reason TEXT NOT NULL DEFAULT '',
         configured INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
@@ -105,6 +121,7 @@ export class Projects extends DurableObject<Env> {
       "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
       "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
+      "ALTER TABLE atoms_projects ADD COLUMN name_source TEXT NOT NULL DEFAULT 'legacy'",
       "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
       "ALTER TABLE atoms_projects ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
     ]) {
@@ -124,6 +141,7 @@ export class Projects extends DurableObject<Env> {
       template TEXT NOT NULL DEFAULT 'static',
       runtime TEXT NOT NULL DEFAULT 'container',
       template_source TEXT NOT NULL DEFAULT 'rule',
+      name_source TEXT NOT NULL DEFAULT 'derived',
       plan_reason TEXT NOT NULL DEFAULT '',
       configured INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -132,6 +150,7 @@ export class Projects extends DurableObject<Env> {
       "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
       "ALTER TABLE atoms_projects ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_projects ADD COLUMN template_source TEXT NOT NULL DEFAULT 'rule'",
+      "ALTER TABLE atoms_projects ADD COLUMN name_source TEXT NOT NULL DEFAULT 'legacy'",
       "ALTER TABLE atoms_projects ADD COLUMN plan_reason TEXT NOT NULL DEFAULT ''",
       "ALTER TABLE atoms_projects ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
     ]) {
@@ -197,6 +216,7 @@ export class Projects extends DurableObject<Env> {
       template: normalizeTemplate(row.template),
       runtime: row.runtime === "browser" ? "browser" : "container",
       templateSource: (row.template_source as TemplateSource) || "rule",
+      nameSource: normalizeNameSource(row.name_source),
       planReason: row.plan_reason || "",
       configured: row.configured !== 0,
       createdAt: row.created_at,
@@ -263,8 +283,8 @@ export class Projects extends DurableObject<Env> {
 
     this.ctx.storage.sql.exec(
       `INSERT INTO atoms_projects
-         (id, name, prompt, template, runtime, template_source, plan_reason, configured, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, prompt, template, runtime, template_source, name_source, plan_reason, configured, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'derived', ?, ?, ?, ?)`,
       id,
       name,
       text,
@@ -301,6 +321,7 @@ export class Projects extends DurableObject<Env> {
       template,
       runtime,
       templateSource: source,
+      nameSource: "derived",
       planReason: reason,
       configured: configured === 1,
       createdAt: now,
@@ -404,12 +425,57 @@ export class Projects extends DurableObject<Env> {
 
     const now = Date.now();
     this.ctx.storage.sql.exec(
-      "UPDATE atoms_projects SET name = ?, updated_at = ? WHERE id = ?",
+      "UPDATE atoms_projects SET name = ?, name_source = 'user', updated_at = ? WHERE id = ?",
       text,
       now,
       id,
     );
-    return this.enrich({ ...row, name: text, updated_at: now });
+    return this.enrich({
+      ...row,
+      name: text,
+      name_source: "user",
+      updated_at: now,
+    });
+  }
+
+  private async autoName(
+    id: string,
+    name: string | undefined,
+    source: "ai" | "fallback",
+  ): Promise<ProjectSummary> {
+    const row = this.row(id);
+    if (!row) throw new Error("project not found");
+    const current = normalizeNameSource(row.name_source);
+    if (current !== "derived") return this.enrich(row);
+
+    const now = Date.now();
+    if (source === "fallback") {
+      this.ctx.storage.sql.exec(
+        "UPDATE atoms_projects SET name_source = 'fallback', updated_at = ? WHERE id = ?",
+        now,
+        id,
+      );
+      return this.enrich({
+        ...row,
+        name_source: "fallback",
+        updated_at: now,
+      });
+    }
+
+    const text = (name ?? "").trim().slice(0, 80);
+    if (!text) throw new Error("name is required");
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_projects SET name = ?, name_source = 'ai', updated_at = ? WHERE id = ?",
+      text,
+      now,
+      id,
+    );
+    return this.enrich({
+      ...row,
+      name: text,
+      name_source: "ai",
+      updated_at: now,
+    });
   }
 
   private async remove(id: string): Promise<{ ok: true; id: string }> {
@@ -475,6 +541,20 @@ export class Projects extends DurableObject<Env> {
         const body = (await request.json()) as { template?: string };
         return Response.json({
           project: await this.configure(configureMatch[1], body.template ?? ""),
+        });
+      }
+
+      const autoNameMatch = url.pathname.match(
+        /^\/projects\/([^/]+)\/auto-name$/,
+      );
+      if (autoNameMatch?.[1] && request.method === "POST") {
+        const body = (await request.json()) as {
+          name?: string;
+          source?: string;
+        };
+        const source = body.source === "fallback" ? "fallback" : "ai";
+        return Response.json({
+          project: await this.autoName(autoNameMatch[1], body.name, source),
         });
       }
 

@@ -2,10 +2,12 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   convertToModelMessages,
+  generateText,
   stepCountIs,
   streamText,
   type UIMessage,
 } from "ai";
+import type { ChatResponseResult } from "@cloudflare/ai-chat";
 import {
   MAX_AGENT_STEPS,
   MAX_AGENT_STEPS_BUILD,
@@ -19,6 +21,17 @@ import {
 import { systemPrompt } from "./prompt";
 import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
+
+function cleanProjectName(raw: string): string {
+  return raw
+    .replace(/^(项目名称|标题|名称)\s*[:：]\s*/i, "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/^["'“”‘’《》【】\s]+|["'“”‘’《》【】\s]+$/g, "")
+    .replace(/[。！？!?，,；;：:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 24);
+}
 
 export class ChatAgent extends AIChatAgent<Env> {
   /** 模型流 5 分钟没有任何 chunk 时进入有界恢复，覆盖长 build/评审但不至于挂死。 */
@@ -38,6 +51,123 @@ export class ChatAgent extends AIChatAgent<Env> {
       return Response.json({ ok: true });
     }
     return super.onRequest(request);
+  }
+
+  private createModel() {
+    const baseURL = this.env.MODEL_BASE_URL;
+    const apiKey = this.env.MODEL_API_KEY;
+    if (!baseURL || !apiKey) return null;
+    const provider = createOpenAICompatible({
+      name: "atoms-model",
+      baseURL: baseURL.replace(/\/chat\/completions\/?$/, ""),
+      apiKey,
+      headers: { "x-opencode-session": "atoms-lite" },
+    });
+    return provider(this.env.MODEL_ID ?? "deepseek-v4.1-flash");
+  }
+
+  /** 首轮对话完成后，用一个短模型调用生成更可读的项目标题。 */
+  protected override onChatResponse(result: ChatResponseResult): void {
+    if (result.status !== "completed") return;
+    if (this.name === "demo") return;
+    this.ctx.waitUntil(this.maybeAutoNameProject(result.requestId));
+  }
+
+  private async maybeAutoNameProject(requestId: string): Promise<void> {
+    const projects = this.env.PROJECTS.get(
+      this.env.PROJECTS.idFromName("registry"),
+    );
+    const fail = async (error: unknown) => {
+      console.error(
+        "[agent.project.name_failed]",
+        JSON.stringify({
+          projectId: this.name,
+          requestId,
+          error: String(error).slice(0, 300),
+        }),
+      );
+      await projects
+        .fetch(`https://projects/projects/${this.name}/auto-name`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ source: "fallback" }),
+        })
+        .catch(() => undefined);
+    };
+
+    try {
+      const res = await projects.fetch(
+        `https://projects/projects/${this.name}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        project?: { prompt?: string; nameSource?: string };
+      };
+      const project = data.project;
+      if (!project) return;
+      if (project.nameSource && project.nameSource !== "derived") return;
+
+      const userTexts = this.messages
+        .filter((message) => message.role === "user")
+        .map((message) =>
+          message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n"),
+        )
+        .filter(Boolean);
+      if (!userTexts.length && !project.prompt) return;
+
+      const context = [
+        project.prompt ?? "",
+        ...userTexts.slice(-2),
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 1600);
+      const model = this.createModel();
+      if (!model) {
+        await fail("model not configured");
+        return;
+      }
+
+      const { text } = await generateText({
+        model,
+        system:
+          "你是一个项目命名助手。根据用户需求生成一个简短、具体的中文项目标题。要求：4-12 个汉字；不要引号、标点、emoji；不要“项目/应用/工具”等空泛词。只输出标题本身。",
+        prompt: context,
+        maxOutputTokens: 32,
+        temperature: 0.3,
+        maxRetries: 0,
+        abortSignal: AbortSignal.timeout(12_000),
+      });
+      const name = cleanProjectName(text);
+      if (!name) {
+        await fail("empty generated name");
+        return;
+      }
+
+      const update = await projects.fetch(
+        `https://projects/projects/${this.name}/auto-name`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name, source: "ai" }),
+        },
+      );
+      console.log(
+        "[agent.project.name]",
+        JSON.stringify({
+          projectId: this.name,
+          requestId,
+          name,
+          source: "ai",
+          ok: update.ok,
+        }),
+      );
+    } catch (error) {
+      await fail(error);
+    }
   }
 
   /** 给持久化消息补一个客户端可读的 createdAt，用于聊天时间分隔。 */
@@ -63,10 +193,9 @@ export class ChatAgent extends AIChatAgent<Env> {
       body?: Record<string, unknown>;
     },
   ): Promise<Response> {
-    const baseURL = this.env.MODEL_BASE_URL;
-    const apiKey = this.env.MODEL_API_KEY;
+    const model = this.createModel();
 
-    if (!baseURL || !apiKey) {
+    if (!model) {
       return Response.json(
         {
           error: "MODEL_NOT_CONFIGURED",
@@ -75,13 +204,6 @@ export class ChatAgent extends AIChatAgent<Env> {
         { status: 500 },
       );
     }
-
-    const provider = createOpenAICompatible({
-      name: "atoms-model",
-      baseURL: baseURL.replace(/\/chat\/completions\/?$/, ""),
-      apiKey,
-      headers: { "x-opencode-session": "atoms-lite" },
-    });
 
     // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
     const projectId = this.name;
@@ -143,7 +265,6 @@ export class ChatAgent extends AIChatAgent<Env> {
       capabilities,
     });
 
-    const model = provider(this.env.MODEL_ID ?? "deepseek-v4.1-flash");
     const tools = createTools({ ws, ctx, model });
     if (configured) {
       await ws.beginRun().catch((error) => {

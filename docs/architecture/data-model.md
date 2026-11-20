@@ -94,7 +94,8 @@ CREATE INDEX idx_projects_updated ON atoms_projects(updated_at DESC);
 | `deleted_at` | 软删除；级联清理由 GC 异步做 |
 
 > **v1 实际**：项目索引在 `Projects` DO 的 `atoms_projects`，字段为
-> `id / name / prompt / template / runtime / template_source / plan_reason / configured / created_at / updated_at`。
+> `id / name / prompt / template / runtime / template_source / name_source / plan_reason / configured / created_at / updated_at`。
+> `name_source` 为 `derived | ai | user | fallback | legacy`，用于避免自动命名覆盖用户改名。
 > 上表是接入 D1 后的目标 schema。
 
 ### 4.2 `atoms_sessions`

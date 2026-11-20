@@ -20,6 +20,7 @@ import {
   upgradeInstance,
   configureProject,
   switchRuntime,
+  renameProject,
 } from "@/lib/agent";
 import type { AskUserInput, AskUserPayload } from "@/components/workspace/ask-user-card";
 import type { ElementSelection } from "@/lib/element-selection";
@@ -176,6 +177,23 @@ export function Workspace({ projectId }: { projectId: string }) {
   const runState: RunState =
     status === "error" ? "error" : busy ? "running" : "idle";
 
+  // 首轮对话后 Agent 会异步生成项目名；在回合结束后轻量刷新两次以拿到新标题。
+  const userMessageCount = messages.filter(
+    (message) => message.role === "user"
+  ).length;
+  const autoNameRefreshCount = useRef(0);
+  useEffect(() => {
+    if (busy || userMessageCount === 0) return;
+    if (userMessageCount === autoNameRefreshCount.current) return;
+    autoNameRefreshCount.current = userMessageCount;
+    const timers = [1500, 5000].map((ms) =>
+      window.setTimeout(() => project.refresh(), ms)
+    );
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, [busy, userMessageCount, project.refresh]);
+
   const currentVersion =
     versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
   const versionNote = versions.loading
@@ -269,6 +287,14 @@ export function Workspace({ projectId }: { projectId: string }) {
     ]
   );
 
+  const renameProjectName = useCallback(
+    async (name: string) => {
+      await renameProject(projectId, name);
+      project.refresh();
+    },
+    [projectId, project.refresh]
+  );
+
   const respondContinue = useCallback(
     (id: string, cont: boolean) => {
       addToolOutput({
@@ -336,6 +362,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         snapshotError={workspaceMeta.data?.snapshotError ?? null}
         currentVersion={currentVersion}
         versionNote={versionNote}
+        onRename={renameProjectName}
       />
 
       <div className="flex min-h-0 flex-1 gap-1 p-2" style={layoutStyle}>

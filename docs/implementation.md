@@ -162,7 +162,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   服务重启会等待旧进程 down、新进程 ready，避免 iframe 读到旧进程的响应。
 - 版本创建与 `finish` 时自动快照，重启时从该项目的快照恢复。
 - 项目索引 `Projects` DO：保存
-  `id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at`；
+  `id/name/prompt/template/runtime/template_source/name_source/plan_reason/configured/created_at/updated_at`；
   读取时并发向各 WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
 - **运行环境切换**：`switch_runtime` 只允许单向升级（browser < container/basic < standard-1 < standard-2）。
   旧文件导出到 `atoms_migration_files`，目标工作区解压到 `_sandbox_migration/`；
@@ -176,6 +176,9 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   作为请求 body 的选择上下文发给 Agent；不写入消息历史。本地跨端口开发不可用，生产同源可用。
 - **设计审查**：`/design-review` 命令或 `design_review` 工具触发；先跑 Impeccable WASM detector 源码扫描，
   再交给只读设计子 agent。预览只保留元素选择，不再放设计检查按钮。
+- **项目自动命名**：首轮对话结束后，用一次短模型调用根据需求生成 4–12 字标题，
+  写入 `name_source=ai`；失败只标记 `fallback`，不阻塞对话。用户可在会话顶栏点项目名
+  重命名，写入 `name_source=user`，此后自动命名不会覆盖。
 - **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令；
   输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 插入命令名、Esc 关闭；
   选中后可继续补充要求，再按回车执行。

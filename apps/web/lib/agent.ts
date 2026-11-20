@@ -41,6 +41,7 @@ export type ProjectVersion = {
 export type TemplateId = "static" | "react-vite" | "fullstack-hono";
 
 export type TemplateSource = "rule" | "model" | "manual" | "fallback";
+export type ProjectNameSource = "derived" | "ai" | "user" | "fallback" | "legacy";
 export type RuntimeKind = "container" | "browser";
 export type TemplateChoice = "auto" | TemplateId;
 
@@ -51,6 +52,7 @@ export type ProjectSummary = {
   template: TemplateId;
   runtime: RuntimeKind;
   templateSource: TemplateSource;
+  nameSource: ProjectNameSource;
   planReason: string;
   configured: boolean;
   createdAt: number;

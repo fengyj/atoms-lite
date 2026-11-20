@@ -262,6 +262,7 @@ POC 数据：
 | `design_check` / `design_review` / `code_review` | ✅ |
 | `/design-review`、`/code-review`、`/polish` 命令 + `/` 菜单 | ✅ |
 | 会话时间分隔、ask_user 历史问答、步数上限确认卡、过程折叠 | ✅ |
+| 项目自动命名 + 会话页重命名 | ✅ |
 | 生产部署 | ✅ |
 
 ### 3.2 部分完成
