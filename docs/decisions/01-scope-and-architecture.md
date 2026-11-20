@@ -6,7 +6,7 @@
 
 | 项 | 决定 |
 |---|---|
-| 生成物 | **多文件项目**（Vite/React + SQLite 起步），不做单文件 HTML |
+| 生成物 | **多文件项目**：static / React-Vite / 全栈 Hono + SQLite，不做单文件 HTML |
 | 生成策略 | **模板优先**：预置基础项目，Agent 只改业务文件 |
 | PPT | **不做** |
 | 多角色 | v1 不实现运行时；**接口、字段、UI 入口预留** |
@@ -17,20 +17,20 @@
 ## 2. 运行时拓扑（2026-11-19 更新）
 
 ```
-Project（D1 元数据）
+Project（v1: Projects DO；目标: D1 元数据）
   ├─ WorkspaceDO（每项目一个）
   │    ├─ container（唯一持有者）
   │    ├─ 文件 / exec / 预览 / 快照
   │    ├─ 项目级写锁
   │    ├─ git 仓库 + 版本元数据
   │    └─ WorkspaceTools RPC
-  ├─ ChatAgent DO（会话；v1 一个；Builder）
+  ├─ ChatAgent DO（每项目；v1 一项目一会话，Builder）
   └─ Verifier DO（后续）
 ```
 
 - **沙箱跟项目，不跟会话**：否则每开一个会话就多一套容器与快照。
 - **角色不拥有容器**。所有沙箱操作由 `WorkspaceDO` 执行，角色通过 RPC 调用。
-- v1 只有 `WorkspaceDO` + `ChatAgent` 两个 DO；Verifier 后加。
+- v1 有 `Projects` + `WorkspaceDO` + `ChatAgent` 三个 DO；Verifier 后加。
 - 多会话 = 多个 ChatAgent DO 共享同一个 WorkspaceDO，写操作由 WorkspaceDO 的锁串行化。
 
 原因：POC-10 在本地验证了**子代理无法访问父对象的运行中容器**（`running: false`），
@@ -72,6 +72,6 @@ Project（D1 元数据）
 
 ## 6. 待定
 
-- `@cloudflare/sandbox` 与原始 `ctx.container` 的取舍（见 04）。
+- `@cloudflare/sandbox` 与原始 `ctx.container` 的取舍（见 04；v1 用 `ctx.container` + `Files`）。
 - 角色清单（见 02）。
-- 生产环境 Containers 与本地的一致性（见 04）。
+- 生产环境 Containers 与本地的一致性（见 04；v1 已跑通静态/React/全栈）。

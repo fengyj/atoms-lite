@@ -2,6 +2,11 @@
 
 审查范围：`apps/worker/src/workspace/do.ts`、`agent.ts`、`index.ts`、`Dockerfile`、`container/server.mjs`、`apps/web/lib/agent.ts`、`components/workspace/*`。
 
+> **后续变更（2026-11-20）**：本文是当时的审查快照。P1-3 的
+> `git reset --hard + git clean -fd` 已改为非破坏性回滚：
+> 先自动保存未提交改动，再 `git read-tree` 恢复目标树并生成新的 rollback commit。
+> 以 `docs/decisions/04-sandbox-and-versions.md` 为准。
+
 ## 已修复
 
 | 级别 | 问题 | 修复 |

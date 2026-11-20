@@ -1,5 +1,18 @@
 # atoms-lite 需求与设计
 
+> **实现状态（2026-11-20）**
+> 本文是完整产品设计/目标形态，不是 v1 的逐条实现清单。v1 已实现首页工作台、会话工作区、
+> 三种模板、browser/container 两种运行时、自动选型 + `ask_user`、文件/构建/预览/版本、
+> 非破坏性回滚后端、预览元素选择、`/design-review` 等命令、`design_check`/`design_review`、
+> 手动实例升级和 runtime 单向切换。
+>
+> v1 **未实现**：多角色与 `@`、多会话、附件/R2、D1、PPT、导出/发布、Artifacts 面板、
+> 版本回滚 UI、版本 diff、Workflow/Queues/LangGraph。技术实现也与本文早期设想有差异：
+> 使用 **Agents SDK + AI SDK**（不是 LangGraph）、**DO SQLite**（不是 D1）、
+> **Cloudflare 容器快照**（不是 R2 workspace 备份）、**两栏工作台 + tabs**（不是三栏）。
+>
+> 冲突时以 `README.md`、`docs/decisions/`、`docs/architecture/`、`docs/implementation.md` 为准。
+
 ## 1. 文档目标
 
 atoms-lite 是一个面向单用户的对话式创作平台。用户通过自然语言描述需求，智能体在隔离工作区中读写代码、执行命令、运行验证并启动预览，最终交付可运行的小型 Web 应用，以及 PPT 等结构化文件产物。
@@ -199,6 +212,8 @@ atoms-lite 以单机或单租户式部署假设运行，不实现注册、邀请
 - 在多角色模式中通过 `@角色名` 指定接手者
 - 查看角色列表、角色职责及当前角色状态
 
+> **v1 实际**：一项目一会话、单角色；多会话、`@角色`、角色状态面板为后续目标。
+
 消息和事件必须支持流式返回，长时间任务不得占用单次前端页面请求。
 
 `@` 仅表示消息的目标角色，不代表创建新的会话。用户可以通过 `@builder`、`@visual` 或 `@verifier` 等标识直接提出任务、追问和复核要求。被指定角色处理时，Coordinator 仍负责维护共同目标、上下文与最终完成判断。
@@ -221,6 +236,10 @@ atoms-lite 以单机或单租户式部署假设运行，不实现注册、邀请
 - `/role`：切换单角色/多角色模式或查看当前角色。
 - `/scope`：重新展示当前可交付范围、假设和超纲项。
 - `/export`：导出当前版本、源码包或指定产物。
+
+> **v1 现状**：已实现 `/design-review`、`/code-review`、`/polish`，输入 `/` 弹出菜单。
+> 上面其余命令是目标清单。当前未知 `/xxx` 仍会作为普通输入发送给模型，
+> 与「未知命令应明确提示」的目标还有差距。
 
 高风险或不可逆命令必须先展示影响范围并请求确认。删除会话、删除版本、还原旧版本与重置运行状态不应使用含义相同的命令名称，以免用户混淆。
 
@@ -446,6 +465,13 @@ Agent 不应：
 
 预览是项目工作区中的运行结果，不等同于已发布应用。
 
+> **v1 实际**：支持启动、刷新、地址栏导航、元素选择和状态探测；
+> 版本间切换预览、构建日志面板未实现。
+>
+> 元素选择会在同源 iframe 中收集 selector / tag / class / text / outerHTML / computed styles，
+> 通过请求 body 发送，并并入本轮 `<runtime_context>` 的 `selection_*` 字段；
+> 不写入消息正文，也不持久化到历史。
+
 ### 5.5.1 多类型预览
 
 预览窗口应根据产物类型选择渲染方式：
@@ -477,9 +503,12 @@ Git 版本操作遵循以下规则：
 - Agent 需要保留变更前状态，并通过结构化写文件工具或受控 Git 命令修改。
 - 一轮修改完成且基础验证通过后，创建用于平台版本记录的 commit。
 - 高风险操作前可创建短期 checkpoint commit。
-- 切换平台版本时，先恢复对应快照，再校验 Git commit 和工作区清洁状态。
+- 切换平台版本时**不恢复快照**，只回代码；恢复后校验 Git commit 和工作区状态。
 - 回滚优先通过“基于旧版本创建新提交”实现；不得直接要求用户执行强制 reset。
 - 同一版本快照不得被修改历史覆盖。
+
+> **v1 现状**：后端已实现非破坏性回滚（自动保存未提交改动 → `git read-tree` → 新 rollback commit），
+> 并有 Git HEAD / currentVersion 校验；版本列表、切换和回滚的 UI 仍未实现。
 
 用户看到的是版本列表、来源会话、diff 摘要和验证状态，Git hash 作为可选技术信息显示。
 
@@ -515,6 +544,10 @@ atoms-lite 只有两个主要页面：
 - 会话搜索、筛选和排序
 - 会话继续、重命名、删除等上下文操作
 
+> **v1 实际**：首页不展示角色/技术栈下拉，不提供附件入口；技术栈由需求自动推断。
+> 列表是**项目列表**（一项目一会话），支持打开、重命名、删除；搜索/筛选/排序未实现。
+> 项目数/版本数/最近保存等统计卡已移除。
+
 新会话输入区不只是单个裸输入框，还应支持多行需求、附件、模式选择和必要的发送控制，但不得引入与创作无关的导航和信息卡片。
 
 历史会话以当前用户的最近工作为中心，显示：
@@ -537,6 +570,9 @@ atoms-lite 只有两个主要页面：
 - **Artifacts 组件**：当前会话和项目产生的源码包、PPTX、图片、日志及其他文件。
 - **Sandbox 组件**：文件树、终端输出、进程、构建/测试状态和生命周期信息。
 - **版本组件**：查看历史版本、切换预览版本、回退和从旧版本继续。
+
+> **v1 实际**：工作台是两栏（对话 + 预览/工作区/终端/版本 tabs），没有独立 Artifacts 面板，
+> 没有角色状态面板和多角色视图；版本 tab 目前只读。
 
 #### 5.8.2.1 消息与文件渲染
 
@@ -602,7 +638,7 @@ Markdown 必须经过 HTML 清理，不允许消息内容执行任意脚本、�
 - 当前版本
 - Sandbox 状态
 - 返回首页
-- 导出当前产物
+- 导出当前产物（v1 未实现，入口已移除）
 
 ### 5.9 工作台布局
 
@@ -618,7 +654,7 @@ Markdown 必须经过 HTML 清理，不允许消息内容执行任意脚本、�
 
 窗口可以根据屏幕宽度采用分栏、标签页、抽屉或全屏切换，但这些能力必须始终容易到达。会话窗口是主要入口，预览窗口默认占据主要视觉区域，Artifacts、Sandbox 和版本信息按需展开。
 
-较宽屏幕建议采用三栏结构：
+较宽屏幕建议采用三栏结构（**目标形态；v1 实际为两栏 + 右侧 tabs**）：
 
 ```text
 左侧：会话对话
@@ -668,6 +704,10 @@ Markdown 必须经过 HTML 清理，不允许消息内容执行任意脚本、�
 可以使用高质量的默认字体、图标和布局资产，但不得依赖外部闭源模板。若用户提出具体品牌或设计要求，则以用户要求为准；否则不生成粗糙的默认脚手架页面。
 
 设计质量需要在验证阶段检查，而不是仅把“看起来美观”作为提示词措辞。
+
+> **v1 实现**：`design_check` 用 Impeccable WASM detector 做确定性源码扫描；
+> `design_review` 先跑 detector，再交给只读设计子 agent。
+> 目前只覆盖源码规则，不冒充渲染后的完整视觉回归。
 
 ## 6. 非功能需求
 
@@ -772,7 +812,10 @@ AI Elements 用于显示消息、工具调用、文件结果、执行状态和�
 - Cloudflare Workflows
 - LangGraph.js
 
-LangGraph.js 负责状态图、节点编排、工具循环、中断、恢复和多角色扩展。
+> **v1 实际**：Workers + Durable Objects + `agents`（Agents SDK）+ AI SDK；
+> 没有使用 LangGraph.js、Workflows 或 Queues。编排是单 Agent 工具循环，多角色编排为后续目标。
+
+目标形态中，LangGraph.js 负责状态图、节点编排、工具循环、中断、恢复和多角色扩展。
 
 ### 7.3 模型服务
 
@@ -809,9 +852,16 @@ OpenCode Go 作为模型服务层，向控制面提供稳定的模型调用接�
 - Cloudflare Queues：异步、可重试的后台工作
 - SQLite：生成应用在 Sandbox 中开发时的数据存储
 
+> **v1 实际**：项目索引在 `Projects` DO，工作区数据在 `WorkspaceDO`，聊天在 `ChatAgent` DO；
+> 没有 D1、R2、Queues。下面是目标形态。
+
 生成程序使用哪种生产数据库，应由用户需求和部署目标决定。未要求 Cloudflare 原生部署时，不默认引入 D1 专属代码。
 
 ## 8. 总体架构
+
+> **v1 实际架构见 [`docs/architecture/system-architecture.md`](architecture/system-architecture.md)**：
+> `Projects DO + ChatAgent DO + WorkspaceDO + Container`，不使用下面的 Session DO / LangGraph / D1 / R2 组合。
+> 下图保留为完整产品目标。
 
 ```text
 用户浏览器
@@ -930,6 +980,9 @@ Sandbox 应配置 inactivity timeout。一定时间未收到文件、命令、�
 
 ### 10.3 初始化
 
+> **v1 实际**：不使用 R2 归档；首次 `ensure()` 按模板 seed，容器恢复使用 Cloudflare 容器快照。
+> 下面的 R2 快照与 manifest 是目标设计。
+
 首次启动的 Sandbox 初始目录应包含：
 
 - atoms-lite 提供的基础工具
@@ -1024,6 +1077,9 @@ Secret Store
 
 ### 10.4 恢复
 
+> **v1 实际**：从 `atoms_snapshots` 读 `snapshot_id`，`start({ containerSnapshot })` 恢复；
+> 冷启动后校验 Git HEAD 与 currentVersion，再重启预览。没有 R2 解包步骤。
+
 每次使用工作区前执行统一的 `ensureWorkspace`：
 
 1. 获取会话对应的目标版本和 R2 快照。
@@ -1038,6 +1094,9 @@ Secret Store
 
 ### 10.5 保存
 
+> **v1 实际**：Git commit + `atoms_versions` 行 + Cloudflare 容器快照；
+> 第 3–5 步的“打包到 R2 / 写 D1”是后续目标。
+
 一次平台版本保存包含：
 
 1. 验证工作区变更和关键测试结果。
@@ -1050,6 +1109,9 @@ Secret Store
 R2 中的完整工作区快照属于持久备份；Cloudflare Sandbox 自带的备份恢复能力可作为短期 checkpoint。两者的内容可以相同，但前者由 atoms-lite 的版本模型长期管理。
 
 ## 11. 平台数据模型
+
+> **v1 实际**：只使用 DO SQLite（Projects / ChatAgent / WorkspaceDO）。
+> 下面的 D1/R2/DO 实体是目标设计；实际 schema 见 [`data-model.md`](architecture/data-model.md)。
 
 ### 11.1 D1
 

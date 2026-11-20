@@ -8,10 +8,11 @@
 |---|---|
 | **CF 快照**（`snapshotContainer`） | 唯一恢复路径，包含整个 rootfs（含 `node_modules`） |
 | **git commit** | 版本与代码历史，留在工作区内 |
-| **按需打包** | 用户点导出时生成 zip，排除 `node_modules`，不进恢复链路 |
+| **按需打包** | 用户点导出时生成 zip，排除 `node_modules`，不进恢复链路（导出为后续目标） |
 
-**不做**：pnpm store 缓存、预装基础镜像、安装加速。
-理由：都绑定具体语言生态（pnpm / pip / go mod），为 demo 维护多语言缓存不划算。
+**后续调整**：v1 为了解决首次构建稳定性和速度，改为镜像预装 `node_modules` + pnpm store；
+但恢复链路仍然只用官方快照，不使用 pnpm store 作为恢复机制。
+**不做**：多语言依赖缓存、按语言拆分的预装层。
 
 ### 实测数字
 
@@ -67,17 +68,19 @@ if (!container.running) {
 ## 4. 版本模型
 
 ```
-git commit   → 版本内容
-versions 行  → id / git_commit / parent_id / session_id / message_id / status / summary / created_at
+git commit   → 版本内容（browser runtime 为内容 SHA-256）
+versions 行  → id / git_commit / parent_id / status / summary / archived / created_at
 快照         → 仅用于容器重建，不用于版本切换
 ```
 
 - 列名用 `git_commit`，不能用 `commit`（SQLite 保留字）。
-- **回滚只回代码**：`git checkout <commit> -- .`，数据库不动。
-- 回滚通过**新提交**实现，禁止 `reset --hard`；分叉用 `git switch -c fork/<versionId>`。
+- **回滚只回代码**：先自动 commit 未提交改动，再用 `git read-tree --reset -u <target>`
+  恢复目标树，最后生成新的 rollback commit。
+- 回滚通过**新提交**实现，禁止 `reset --hard` / `git clean`；历史必须保留。
+- checkout 后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。
 - 版本列表只查元数据，容器睡着也能渲染。
 - 版本切换不能恢复快照，否则会连带回滚数据。
-- `git checkout` 不会删除后来新增的文件；彻底回滚需要按白名单 `git clean`，不要整目录清理（会删应用数据）。
+- `read-tree` 会恢复目标树并移除后来新增的已跟踪文件；未跟踪文件先被自动 commit，不会丢失。
 
 ## 5. 被否方案
 

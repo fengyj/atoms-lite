@@ -52,24 +52,28 @@ mock 只适合验证：文本流、停止、持久化、多会话、续传。
 
 | 项 | 决定 |
 |---|---|
-| 布局 | ≥1280 三栏；768–1279 两栏 + 抽屉；<768 单栏 + 底部标签 |
+| 布局 | v1 两栏（对话 + 工作台 tabs）；≥1280 可放宽对话栏，窄屏底部切换。三栏 + Artifacts 是后续目标 |
 | 组件 | AI Elements（vendored 源码，可直接改） |
 | token | 语义色 + 补充字号 `text-2xs/3xs` + 布局宽度 `w-chat/w-side` |
 | 硬编码 | 组件内禁止 hex / 任意值 / inline style |
 | 代码高亮 | shiki 按需加载（3 语言 + 单主题），失败回退纯文本 |
-| 本地化 | 建议 `lib/i18n.ts` 消息表 + `t()`；不引入 next-intl |
+| 本地化 | v1 直接写中文；`lib/i18n.ts` 消息表为后续目标 |
 | 预览 | 示例应用必须响应式（预览面板宽度有限） |
 
 ## 5. 可观测性
 
+> **v1 现状**：没有自建 `atoms_run_events` 表；当前依赖框架消息/工具调用记录和 Workers Logs。
+> 下面是目标设计。
+
 - 自建 `atoms_run_events`：`run_id / seq / type / at / data`。
 - 记录 `run.started`、`model.finished`（含 usage）、`run.finished`、`run.failed`。
-- 实测按 runId 还原时间线 **18ms**。
+- PoC 实测按 runId 还原时间线 **18ms**。
 - 生产环境接 `wrangler tail` / Workers Logs；敏感字段不落日志。
 
-## 6. 待办
+## 6. 后续验证（原待办，2026-11-20 更新）
 
-- `pnpm build` 生产构建尚未验证。
-- B6：`useAgent` 面板状态与对话并行尚未验证。
-- 真实 Vite 应用的生成 + 构建 + 预览闭环尚未端到端验证。
-- 多文件生成的真实 token/耗时基线尚未测。
+- [x] `pnpm build` 生产构建已验证。
+- [x] 真实 Vite 应用的生成 + 构建 + 预览闭环已验证。
+- [x] 多文件生成的真实耗时/token 基线已记录（约 3 分钟，单次约 40k tokens 量级）。
+- [ ] B6：`useAgent` 面板状态与对话并行尚未单独压测。
+- [ ] 附件/R2、多角色、导出仍未接入。

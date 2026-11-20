@@ -1,6 +1,6 @@
 # A/B/C 实现记录（单角色 · 多运行时生成器）
 
-状态：**已实现并部署**（2026-11-19）
+状态：**已实现并部署**（2026-11-19；2026-11-20 文档校对）
 
 ## 1. 范围
 
@@ -15,8 +15,9 @@
 - 项目创建时根据需求自动选择模板并持久化
 - 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
 
-A/B 完成三种模板与构建/预览闭环；C 完成智能选型、手动覆盖、browser-static 运行时、
-依赖安装与开放 egress。Next.js 已明确不支持（容器实例与构建时间不匹配）。
+A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-static 运行时、
+依赖安装与开放 egress。首页不再提供手动技术栈下拉；API 仍保留 `preferredTemplate`
+参数用于调试/兼容。Next.js 已明确不支持（容器实例与构建时间不匹配）。
 D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（快照保留）。
 
 ## 2. 组成
@@ -50,10 +51,9 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 **首页 `/`**
 
 - 左侧边栏：品牌、工作台/我的项目/模板/设置、最近项目、当前模式
-- Hero：品牌标记 + 原子轨道背景（SVG/CSS，无图片请求；粒子点阵）
-- 主区：聚焦式需求输入（多行、模式选择、附件占位、⌘/Ctrl+Enter）
+- Hero：品牌标记 + 原子轨道背景（SVG/CSS，无图片请求；电子沿三条轨道运行）
+- 主区：聚焦式需求输入（多行、⌘/Ctrl+Enter；技术栈自动推断，不展示 runtime 下拉）
 - 示例需求：五子棋 / 待办清单 / 作品集主页
-- 概况：项目数、版本数、最近保存时间、沙箱策略（按需启动）
 - 我的项目：真实版本数据（commit、summary、文件数、保存时间）+ 打开工作区
 - 提交需求 → `POST /api/projects` 创建项目 → 跳转 `/sessions/:id?prompt=...`
 - 项目卡直接展示真实版本摘要、commit、保存时间与版本数
@@ -86,19 +86,18 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **模型 planner**：规则拿不准且没有显式技术栈时，调用一次短模型
   （`planner.ts`，严格枚举，12s 超时，0 重试）选择最小模板；失败回退规则。
   显式技术栈/后端信号、五子棋/个人主页等明确静态需求不调用模型。
-- **手动覆盖**：首页输入区可选择「自动选型 / Static / React / 全栈」；
-  手动指定时跳过规则与 planner。
 - **选型可观测**：项目保存 `templateSource`（rule/model/manual/fallback）与
   `planReason`；项目卡 badge 的 tooltip 显示原因，模型选择的 badge 带 Sparkles。
+  首页只走自动选型；`manual` 仅保留在 API 路径，不再有 UI 入口。
 - **pending / configured**：自动选型项目创建时 `configured=0`，只保存建议模板；
   第一轮由 `ask_user` 确认需求和技术栈，客户端调用 `/configure` 后才挂载文件/构建工具。
-  手动选模板的项目直接 `configured=1`。
+  通过 API 手动指定模板的项目直接 `configured=1`。
 - **模板配置**：配置写入 WorkspaceDO 的 `atoms_project_config`，不启动容器；
   首次 `ensure()` 按模板播种。配置后、第一次写入前可以重新配置。
 - **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
   新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
-- **设计流程**：新项目/大改版先写 `DESIGN.md`（方向与布局、tokens、共享状态、媒体），
-  再实现；首屏内容初始可见，避免默认紫蓝渐变和居中卡片堆叠。
+- **设计流程**：提示词要求先确定视觉方向和布局，再实现；首屏内容初始可见，
+  避免默认紫蓝渐变和居中卡片堆叠。当前没有自动生成 `DESIGN.md` 的步骤。
 - **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `pnpm install --frozen-lockfile` 安装，
   工作区用软链复用，Agent 不需要也不能执行 pnpm install。
 - 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
@@ -130,10 +129,6 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **destroy**：清空业务表后立即写回最小默认行（workspace/config/runtime_status），
   同 ID 再次访问不会因 constructor 初始化时机 500。
 - 每个项目一个 WorkspaceDO + 一个容器；沙箱空闲 **5 分钟**回收。
-- **实时连接**：前端 `useAgent` 显式使用 `cf-websocket`（Hibernation API）；
-  Agents SDK 默认用 `ctx.acceptWebSocket`，空闲时 DO 可休眠，不持续计 duration。
-  未使用 `capnweb` transport，也没有 `agent.stub`/`agent.call`，不会把 DO 钉在内存里。
-  ChatAgent 与 WorkspaceDO 是两个 DO；后者只在工具/容器活跃时工作，容器 5 分钟空闲回收。
 - **运行时**：
   - `browser`（新 static 项目）：文件、版本、依赖都在 DO SQLite；预览由 Worker 直接服务；
     不创建容器，不做 5 分钟回收；版本用内容 SHA-256 而不是 git。
@@ -147,8 +142,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   - 浏览器静态项目不支持 TS/JSX/React 编译；HTML 资源必须相对路径。
 - **镜像**：改为 `node:24-bookworm-slim`（Debian/glibc），安装 git/procps/pnpm；
   pnpm store 层缓存；依赖安装与构建可复现；最终镜像删除 npm/npx。
-- **实例**：自动升级方案见 `docs/decisions/07-instance-auto-upgrade.md`（尚未实现）。
-  Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
+- **实例**：自动升级方案见 `docs/decisions/07-instance-auto-upgrade.md`（自动升级未实现，
+  手动升级已实现）。Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
   `container.start({ instance })` 支持预定义档位。默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），
   可升级 `standard-1`（1/2 vCPU / 4 GiB / 8 GB）→ `standard-2`（1 vCPU / 6 GiB / 12 GB），
   不支持降级；升级前快照、destroy、从快照启动，数据保留。
@@ -166,8 +161,9 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 手动刷新在预览已就绪时只重载 iframe（URL 带 cache-buster），不重启服务；
   服务重启会等待旧进程 down、新进程 ready，避免 iframe 读到旧进程的响应。
 - 版本创建与 `finish` 时自动快照，重启时从该项目的快照恢复。
-- 项目索引 `Projects` DO：保存 `id/name/prompt/createdAt`，读取时并发向各
-  WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
+- 项目索引 `Projects` DO：保存
+  `id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at`；
+  读取时并发向各 WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
 - **Runtime 切换**：`switch_runtime` 只允许单向升级（browser < container/basic < standard-1 < standard-2）。
   旧文件导出到 `atoms_migration_files`，目标工作区解压到 `_sandbox_migration/`；
   模型通过 `list/read/copy/finish_migration` 选择性迁移。该目录从 git、文件树、预览和版本排除。
@@ -181,7 +177,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **设计审查**：`/design-review` 命令或 `design_review` 工具触发；先跑 Impeccable WASM detector 源码扫描，
   再交给只读设计子 agent。预览只保留元素选择，不再放设计检查按钮。
 - **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令；
-  输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 执行、Esc 关闭。
+  输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 插入命令名、Esc 关闭；
+  选中后可继续补充要求，再按回车执行。
 - **首页精简**：移除角色/技术栈下拉、统计卡和底部「新建项目」卡；技术栈由需求自动推断。
 - **回滚**：先自动保存未提交改动，再用 `git read-tree` 恢复目标树并生成新的 rollback commit/version；
   checkout 后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。
@@ -190,7 +187,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   降级为 `ensurePreview()`，避免重启信号永远无人消费导致 60 秒超时。
 - 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
   只在启动/加载阶段短轮询，就绪后停止。
-- 版本 = git commit + `atoms_versions` 行；版本列表在容器停止时仍可读。
+- 版本 = git commit（browser 项目为内容哈希）+ `atoms_versions` 行；版本列表在容器停止时仍可读。
 - 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
 - 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
@@ -303,7 +300,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 工作区标题 `待办清单 · atoms-lite`，预览地址 `/previews/prj_3e5dee2fc07e/`。
 - 约 3 分钟生成完成，新项目版本 1 条（`0fed082`），预览标题「待办清单」。
 - 同时检查五子棋项目：仍为 **2 个版本**（`50fff0b`），预览标题仍是「五子棋 · Gomoku」。
-- 首页同时显示两个项目，项目数 2、版本数 3。
+- 首页同时显示两个项目；项目卡显示各自的版本摘要。
 - 无 console / page 错误。
 
 ### 交互细节（生产）
@@ -393,8 +390,8 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - Workspace 是 Durable Object；容器通过 `scheduling_policy: durable_object` 绑定到 DO。
   实例默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），可在运行期升级到 standard-1/standard-2；
   升级不可降级。更重的 React/Next 项目仍建议构建服务。
-- 导出按钮禁用；产物 tab 空态；回滚没有 UI。
-- 模板依赖为白名单预装；不能在线安装新的 pnpm 包。
+- 导出未实现（入口已移除）；产物 tab 空态；回滚后端已支持非破坏性 checkout，但没有 UI。
+- 模板依赖为镜像预装；新增依赖可通过 `install_packages` 安装（browser 走 esm.sh，container 走 pnpm）。
 - ChatAgent 的 `create_version` 可能被模型调用两次；已做幂等，不会插重复版本。
 - 预览的 HMR 未验证（静态站点不需要）。
 

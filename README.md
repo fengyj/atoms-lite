@@ -2,7 +2,7 @@
 
 对话式应用生成平台 —— 面试笔试 Demo。
 
-当前状态：**A/B 完成**。首页工作台输入需求即可创建独立项目，并按需求自动选择模板：
+当前状态：**v1 可演示（A/B/C 完成）**。首页工作台输入需求即可创建独立项目，并按需求自动选择模板：
 
 - Static：多文件静态站点，**browser runtime**（DO SQLite + esm.sh importmap，无容器）
 - React：React + TypeScript + Vite + Tailwind + shadcn/ui + HashRouter（容器）
@@ -12,17 +12,20 @@
 
 页面：
 
-- `/` 首页工作台（需求输入、技术栈自动选型/手动覆盖、示例、项目概况、最近项目）
+- `/` 首页工作台（需求输入、技术栈自动选型、示例、最近项目）
 - `/sessions/:projectId` 会话工作区（左侧对话；右侧工作台：预览 / 工作区 / 终端 / 版本）
-- 每个项目有独立容器、文件、git 历史、版本和 Agent 会话
+- 每个项目有独立的文件、版本和 Agent 会话；容器 runtime 另有独立容器与 git 历史
 - 首页项目卡支持重命名、删除；工作台分「预览 / 工作区 / 终端 / 版本」四个 tab
 - 工作区 tab 左侧文件树、右侧源码查看器（行号 + 语法高亮）
 - 对话栏支持拖动调整宽度，刷新后保持
 - 沙箱懒启动：打开项目只读缓存与版本；发送需求、同步文件或点击启动预览才拉起容器
 - 容器实例默认 basic，可在工作区升级到 standard-1 / standard-2（不可降级）
-- 新项目/大改版会先写 `DESIGN.md`，再实现页面；默认首页在 `src/pages/Index.tsx`
 - 自动选型项目先通过对话卡片确认需求/技术栈（runtime 对用户隐藏）；支持单向切换 runtime 并迁移旧文件
-- Agent 支持 `ask_user` 问卷卡片、只读 `subagent` / `code_review` / `design_review`
+- Agent 支持 `ask_user` 问卷卡片、只读 `subagent` / `code_review` / `design_review`，
+  以及 Impeccable WASM detector 驱动的 `design_check`
+- 输入框支持 `/design-review`、`/code-review`、`/polish` 命令；输入 `/` 弹出命令菜单
+- 预览支持元素选择；选中元素会并入本轮 `<runtime_context>`，不污染消息历史
+- 预览刷新按运行时区分：static / React 直接读磁盘，全栈项目才重启 Node 进程
 
 - 实现记录：`docs/implementation.md`
 - 系统架构：`docs/architecture/system-architecture.md`
@@ -50,9 +53,9 @@
 ```
 apps/
   web/          Next.js 前端（首页工作台 + 会话工作区 + /design gallery）
-  worker/       Cloudflare Worker（ChatAgent + WorkspaceDO + 容器沙箱）
+  worker/       Cloudflare Worker（ChatAgent + WorkspaceDO + Projects DO + 容器沙箱）
 packages/
-  contracts/    共享契约（待实现）
+  contracts/    共享契约（zod schema、类型、限制常量）
 docs/
   poc/          PoC 的假设、过程、结论
   decisions/    已定的实现决策（ADR）
@@ -82,6 +85,9 @@ NEXT_PUBLIC_WORKER_HOST= pnpm --filter @atoms-lite/web build
 cd apps/worker
 wrangler secret put MODEL_API_KEY -c wrangler.prod.jsonc
 wrangler deploy -c wrangler.prod.jsonc
+
+# 只改 Worker 代码、没有容器变更时，可绕开 Cloudflare 容器设置 API 的临时 404：
+wrangler deploy -c wrangler.prod.jsonc --containers-rollout=none
 ```
 
 其它：
@@ -97,9 +103,9 @@ pnpm build
 - [x] Next.js + Tailwind v4 可启动
 - [x] 设计 token + 两栏工作台 shell + 组件 gallery（`/design`）
 - [x] AI Elements 组件接入（含本地化、shiki 按需高亮）
-- [x] 容器启停、预览 HTTP/WS 代理、快照恢复、版本回滚（PoC 验证）
-- [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证）
-- [x] 运行事件表与时间线（PoC 验证）
+- [x] 容器启停、预览 HTTP/WS 代理、快照恢复、非破坏性版本回滚（PoC + 生产验证）
+- [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证；v1 一项目一会话，审批未接线）
+- [x] 运行事件表与时间线（PoC 验证；v1 未单独建 `atoms_run_events`）
 - [x] **单角色生成闭环**：需求 → 工具写文件 → 预览 → 版本
 - [x] **首页 + 会话页**：首页提交需求后进入工作区并自动发送
 - [x] **多项目**：每次需求创建独立项目，项目之间互不影响
@@ -111,12 +117,10 @@ pnpm build
 
 ## 未实现（按计划推进）
 
-- [ ] 版本回滚 UI / 导出 / 产物
+- [ ] 版本回滚 UI（后端已支持非破坏性 checkout）/ 导出 / 产物
 - [ ] 附件与 R2
-- [ ] D1 项目/会话元数据
-- [x] 在线安装新依赖（pnpm + npmmirror，容器 runtime；镜像最终不含 npm）
+- [ ] D1 项目/会话元数据与真实发布（当前全栈数据靠容器快照）
 - [ ] Next.js（已明确不支持：实例与构建时间不匹配）
-- [ ] D1/R2 与真实发布（当前全栈数据靠容器快照）
 - [ ] 多角色（v1 不做，接口预留）
 - [ ] 访问门禁与预算上限
 

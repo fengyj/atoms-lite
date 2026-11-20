@@ -3,6 +3,9 @@
 审查范围：模板（static / react-vite / fullstack-hono）、Dockerfile、boot supervisor、
 WorkspaceDO、Projects、Agent prompt、预览面板。
 
+> **后续变更（2026-11-20）**：checkout 已改为非破坏性回滚（自动保存 + `git read-tree`），
+> 不再使用 `git clean`；文档见 `docs/decisions/04-sandbox-and-versions.md`。
+
 ## 已修复
 
 | 级别 | 问题 | 修复 |

@@ -1,14 +1,14 @@
 # 09. Runtime 生命周期与 Agent 工具
 
-状态：**已实现**（2026-11-19）
+状态：**已实现**（2026-11-19；2026-11-20 补充预览刷新与 selection）
 
 ## 1. Runtime 不在创建时确定
 
-项目创建分两种：
+项目创建默认走**自动选型**：
 
-- **手动选模板**：创建即 `configured=1`，runtime 固定。
-- **自动选型**：创建为 `configured=0`，只保存 planner/规则的建议模板；
+- 自动选型：创建为 `configured=0`，只保存 planner/规则的建议模板；
   不 seed、不启动容器。项目卡显示「待确认」。
+- API 仍接受 `preferredTemplate`（manual）用于调试/兼容；首页不再提供手动技术栈下拉。
 
 首轮对话处于 `pending`，模型只有 `ask_user` 工具：
 
@@ -33,6 +33,7 @@
 - configured / template / runtime
 - 容器状态、实例档位、版本数
 - migration 状态
+- 预览选中元素（`selection_*` 字段；没有选中时 `selection: none`）
 - capabilities
 
 工具定义只在 configure/switch 时变化，频率很低，对 prompt 缓存影响可接受。
@@ -94,7 +95,8 @@ browser < container/basic < container/standard-1 < container/standard-2
 
 - `subagent({ role, task, files?, maxFindings? })`
 - `code_review`：固定 `code_reviewer` rubric
-- `design_review`：固定 `design_reviewer` rubric
+- `design_review`：固定 `design_reviewer` rubric；先跑 `design_check` detector，
+  再把确定性 findings 交给只读设计子 agent
 
 约束：
 
@@ -109,7 +111,15 @@ browser < container/basic < container/standard-1 < container/standard-2
   避免双容器成本和预览路由复杂度。
 - 旧版本只保留展示，不保证可回滚到旧 runtime。
 - 迁移期间旧环境仍可能被快照；`finish_migration` 前不要创建版本。
-- 自动升级实例仍只支持手动触发（见 07）。
+- 实例自动升级未实现；手动升级已实现（见 07）。
+
+## 6.1 预览刷新
+
+`start_preview` 只负责「服务可用 + 让新产物生效」：
+
+- `kind: static`（static / react-vite）：静态 server 每次请求读磁盘，build 后刷新 iframe 即可；
+- `kind: node`（全栈）：长驻进程，必须重启才能加载新的服务端代码；
+- 旧快照没有 preview supervisor 时降级为 `ensurePreview()`，不再等待永远不会发生的 down。
 
 ## 7. 预览元素选择
 

@@ -1,7 +1,12 @@
 # 数据模型与存储
 
-状态：**v1 设计基线**（2026-11-19）
+状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对）
 权威类型：`packages/contracts`；本文说明**这些数据存在哪、表怎么建、为什么这么建**。
+
+> **实现状态**：第 4、5、7 节是目标设计（D1 / R2 / Run / Task）。v1 实际只使用 DO SQLite：
+> `Projects` DO 保存项目索引，`WorkspaceDO` 保存版本/文件/快照/runtime/migration；
+> `ChatAgent` 只使用框架 `cf_*` 表。实际字段见 4.1 注、5 节开头注、6.1–6.4。
+> 与代码冲突时以代码和 `docs/implementation.md` 为准。
 
 ---
 
@@ -9,19 +14,18 @@
 
 | 存储 | 存什么 | 为什么 |
 |---|---|---|
-| **D1** | 项目、会话、产物索引、导出记录 | 需要**跨项目**列表与查询；DO 无法全局查询 |
-| **DO SQLite（Projects，v1 临时）** | 项目索引：`id/name/prompt/createdAt` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
-| **DO SQLite（ChatAgent）** | Run、Run 事件、审批、任务（v1） | 与会话强相关，写入频繁，要求原子顺序 |
-| **DO SQLite（WorkspaceDO）** | 版本、写锁、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖 | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
-| **Projects DO** | 项目索引增加 `template`（static / react-vite / fullstack-hono） | 初始化时决定模板；后续 Phase C 接 D1 |
-| **R2** | 附件二进制、导出包、完整日志 | 大对象，不适合放进 SQLite |
+| **D1（目标，未接入）** | 项目、会话、产物索引、导出记录 | 需要**跨项目**列表与查询；DO 无法全局查询 |
+| **DO SQLite（Projects）** | v1 项目索引：`id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
+| **DO SQLite（ChatAgent）** | 消息、流、压缩（框架表）；Run/审批/任务为目标设计 | 与会话强相关，写入频繁，要求原子顺序 |
+| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖、migration | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
+| **R2（目标，未接入）** | 附件二进制、导出包、完整日志 | 大对象，不适合放进 SQLite |
 | **平台快照** | 容器 rootfs | 停/起恢复，由 Cloudflare 管理，不进 R2 |
 | **Secret Store** | 模型密钥、第三方凭据 | 不进入 DB、日志、沙箱 |
 
 原则：
 
 - **关系型元数据进 SQL**，不把整个项目塞进一个 JSON；
-- **大对象进 R2**，DB 只存 key 与摘要；
+- **大对象进 R2（目标）**，DB 只存 key 与摘要；
 - **框架表只读**：`cf_*` 前缀由 Agents SDK 管理，业务表统一 `atoms_` 前缀。
 
 ---
@@ -45,10 +49,13 @@ erDiagram
 ```
 
 说明：`RUNS ||--o{ RUNS : parent` 是 Run 树（单角色为单节点，多角色为父子）。
+**该 ER 图是目标设计**；v1 实际只有 `atoms_projects`、`atoms_versions`、`atoms_snapshots` 等 DO 表。
 
 ---
 
 ## 3. 约定
+
+> v1 实际表见 6.4；多数表没有 `deleted_at`，删除项目是删索引 + 清理 DO 存储。
 
 | 项 | 约定 |
 |---|---|
@@ -61,7 +68,7 @@ erDiagram
 
 ---
 
-## 4. D1 表
+## 4. D1 表（目标，未接入）
 
 ### 4.1 `atoms_projects`
 
@@ -85,6 +92,10 @@ CREATE INDEX idx_projects_updated ON atoms_projects(updated_at DESC);
 | `current_version_id` | 当前工作版本；回滚只改它指向的版本，不改历史 |
 | `runtime_config` | 启动命令/端口/env/secretRefs；恢复容器时按它重建进程 |
 | `deleted_at` | 软删除；级联清理由 GC 异步做 |
+
+> **v1 实际**：项目索引在 `Projects` DO 的 `atoms_projects`，字段为
+> `id / name / prompt / template / runtime / template_source / plan_reason / configured / created_at / updated_at`。
+> 上表是接入 D1 后的目标 schema。
 
 ### 4.2 `atoms_sessions`
 
@@ -168,7 +179,11 @@ CREATE TABLE atoms_deployments (
 
 ---
 
-## 5. ChatAgent DO 表
+## 5. ChatAgent DO 表（目标，未接入）
+
+> **目标设计（未实现）**：v1 的 ChatAgent 只使用 Agents SDK 的框架表（消息、流、压缩），
+> 没有自建 `atoms_runs` / `atoms_run_events` / `atoms_approvals` / `atoms_tasks`。
+> 下面四张表是多角色与 Run 时间线落地时再建的 schema。
 
 ### 5.1 `atoms_runs`
 
@@ -238,7 +253,7 @@ CREATE INDEX idx_approvals_run ON atoms_approvals(run_id, created_at);
 
 说明：审批状态必须落库，刷新页面后仍能恢复。
 
-### 5.4 `atoms_tasks`（v1 单角色也写，便于后续迁移）
+### 5.4 `atoms_tasks`（目标，未实现）
 
 ```sql
 CREATE TABLE atoms_tasks (
@@ -293,28 +308,26 @@ cf_ai_chat_agent_tool_*
 ```sql
 CREATE TABLE atoms_versions (
   id         TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  parent_id  TEXT,
   git_commit TEXT NOT NULL,             -- 不能命名为 commit（SQLite 保留字）
-  status     TEXT NOT NULL,             -- draft | verified | failed
-  summary    TEXT NOT NULL DEFAULT '',
-  message_id TEXT,
+  parent_id  TEXT,
+  summary    TEXT NOT NULL,
+  status     TEXT NOT NULL,             -- draft | failed
+  archived   INTEGER NOT NULL DEFAULT 0, -- runtime 切换后旧版本不再允许 checkout
   created_at INTEGER NOT NULL
 );
-
-CREATE INDEX idx_versions_project ON atoms_versions(project_id, created_at DESC);
-CREATE INDEX idx_versions_session ON atoms_versions(session_id, created_at);
 ```
 
 | 字段 | 说明 |
 |---|---|
-| `git_commit` | 版本内容真相；列名避开 `commit` |
+| `git_commit` | 版本内容真相；列名避开 `commit`；browser 项目存内容 SHA-256 |
 | `parent_id` | 版本链；回滚生成新 commit，父指向当前版本 |
-| `message_id` | 哪条消息产生的，用于时间线追溯 |
-| `status` | `verified` 表示构建/健康检查通过 |
+| `status` | 创建后为 `draft`；build 或快照失败时标为 `failed` |
+| `archived` | runtime 切换后旧版本只展示，不允许再 checkout |
 
-### 6.2 `atoms_locks`
+> DO 本身按项目寻址，因此没有 `project_id`；v1 也没有 `session_id` / `message_id`。
+> 这是与早期设计稿的差异。
+
+### 6.2 `atoms_locks`（目标，未实现）
 
 ```sql
 CREATE TABLE atoms_locks (
@@ -325,7 +338,7 @@ CREATE TABLE atoms_locks (
 );
 ```
 
-说明：v1 串行执行；租约 + 心跳，任务结束/取消即删除。
+v1 串行执行，当前代码没有建这张表；多角色/并行写时再落地。
 
 ### 6.3 `atoms_snapshots`
 
@@ -333,22 +346,40 @@ CREATE TABLE atoms_locks (
 CREATE TABLE atoms_snapshots (
   project_id  TEXT PRIMARY KEY,         -- 每项目滚动保留一份
   snapshot_id TEXT NOT NULL,
-  size_bytes  INTEGER,
-  created_at  INTEGER NOT NULL,
-  note        TEXT
+  created_at  INTEGER NOT NULL
 );
 ```
 
 | 字段 | 说明 |
 |---|---|
-| `snapshot_id` | Cloudflare 快照 ID；**只用于停/起恢复** |
-| `size_bytes` | 生产是增量 diff（实测 2.5KB），本地是整机 rootfs |
+| `snapshot_id` | Cloudflare 容器快照 ID；**只用于停/起恢复** |
+| 体积/备注 | v1 不落库；本地是整机 rootfs，生产是增量 diff |
 
 > 版本切换**不使用**快照；只有容器重建时才 restore。
 
+### 6.4 v1 实际其他表
+
+除版本/快照外，WorkspaceDO 还建了这些表：
+
+| 表 | 用途 |
+|---|---|
+| `atoms_workspace` | `id`, `current_version_id`；当前版本指针 |
+| `atoms_project_config` | `id`, `template`, `runtime`, `instance_tier`, `configured`, `updated_at` |
+| `atoms_runtime_status` | `snapshot_error`, `snapshot_at`, `active_run`, `run_started_at` |
+| `atoms_files` | 文件列表缓存：`path`, `size`, `updated_at` |
+| `atoms_file_content` | browser runtime 文件内容 |
+| `atoms_file_versions` | browser runtime 按版本保存的文件内容 |
+| `atoms_dependencies` | browser runtime 的 importmap 依赖 |
+| `atoms_migration` | runtime 切换任务与来源/目标/归档统计 |
+| `atoms_migration_files` | 迁移暂存的二进制文件 |
+
+ChatAgent 的消息、流、压缩使用 Agents SDK 的 `cf_*` 框架表，不另建业务表。
+
 ---
 
-## 7. R2 布局
+## 7. R2 布局（目标，未接入）
+
+v1 没有 R2 依赖；附件、导出和完整日志都在后续接入。
 
 ```
 projects/{projectId}/
@@ -379,29 +410,35 @@ projects/{projectId}/
 
 ### 9.1 创建版本
 
+v1 实际：
+
 ```
 1. 校验工作区（build/health）
-2. git commit
-3. 写入 atoms_versions（git_commit + parent + message_id）
-4. 更新 atoms_projects.current_version_id
-5. 发 version.created 事件
+2. git add -A && git commit
+3. 写入 atoms_versions（git_commit + parent + summary + status）
+4. 更新 atoms_workspace.current_version_id
+5. 创建/更新 Cloudflare 容器快照
 ```
 
+目标形态还会更新 D1 `atoms_projects.current_version_id` 并发 `version.created` 事件。
 若第 3 步失败，会产生"有 commit 无版本"的孤儿；恢复时用 `git log` 对账并补行。
 
 ### 9.2 快照与恢复
+
+v1 使用 Cloudflare 容器快照，不使用 R2：
 
 ```
 1. wal_checkpoint(TRUNCATE)
 2. snapshotContainer()
 3. 写 atoms_snapshots（成功后）
 4. 停止容器
-恢复：读 snapshot_id → start({ containerSnapshot }) → 重启预览
+恢复：读 snapshot_id → start({ containerSnapshot }) → 校验 Git HEAD → 重启预览
 ```
 
 快照失败时不写行，避免"有指针无快照"。
+R2 完整工作区备份是后续目标，用于跨实例/长期恢复。
 
-### 9.3 附件
+### 9.3 附件（目标，未实现）
 
 ```
 上传：Worker → 计算 sha256 → R2 put → atoms_artifacts

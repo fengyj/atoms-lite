@@ -1,15 +1,17 @@
 # atoms-lite 系统架构
 
-状态：**v1 设计基线**（2026-11-19）
+状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对）
 相关文档：`docs/decisions/`（实现约束）、`docs/poc/`（验证记录）
 
+> 本文描述目标架构。当前 v1 实际使用 **Projects DO + ChatAgent DO + WorkspaceDO + Container**，
+> **D1 / R2 / Queues / 多角色尚未接入**；实现细节与验证记录以 `docs/implementation.md` 为准。
 > 与 `docs/atoms-lite-需求与设计.md` 第 8 章（总体架构）冲突时，以本文为准。
 
 ---
 
 ## 1. 目标与边界
 
-atoms-lite 是一个对话式应用生成平台：用户用自然语言描述需求，Agent 在隔离工作区中读写代码、执行命令、构建并启动预览，最终产出一个可运行的多文件 Web 应用，并支持版本回滚与导出。
+atoms-lite 是一个对话式应用生成平台：用户用自然语言描述需求，Agent 在隔离工作区中读写代码、执行命令、构建并启动预览，最终产出一个可运行的多文件 Web 应用，并支持版本回滚。导出/发布是后续目标。
 
 **架构边界**：
 
@@ -30,22 +32,25 @@ flowchart LR
   web["Web 应用<br/>Next.js + AI Elements"]
   api["Worker 控制面<br/>路由 / 鉴权 / 代理"]
   chat["ChatAgent DO<br/>会话 + Agent 循环"]
+  projects["Projects DO<br/>项目索引"]
   ws["WorkspaceDO<br/>容器 / 文件 / 锁 / 版本"]
   sandbox["Sandbox Container<br/>生成的应用"]
   model["模型服务<br/>OpenAI 兼容端点"]
 
-  d1[("D1<br/>项目 / 会话 / 产物")]
-  r2[("R2<br/>附件 / 导出")]
-  dosql[("DO SQLite<br/>消息 / 事件 / 版本")]
+  d1[("D1<br/>目标，未接入")]
+  r2[("R2<br/>目标，未接入")]
+  dosql[("DO SQLite<br/>v1 实际存储")]
 
   user --> web
   web <-->|"WebSocket + UIMessage 流"| api
   api --> chat
+  api --> projects
   api -->|"预览代理 /previews/*"| ws
   chat -->|"AI SDK"| model
   chat -->|"WorkspaceTools RPC"| ws
   ws --> sandbox
   chat --- dosql
+  projects --- dosql
   ws --- dosql
   api --- d1
   ws --- r2
@@ -53,8 +58,10 @@ flowchart LR
 
 要点：
 
-- **Web 与 Worker 是两个部署单元**，开发时是两个进程，生产可同域或分域。
-- **ChatAgent 与 WorkspaceDO 是两个 DO**：前者管会话与 Agent，后者管容器与工作区。
+- **Web 与 Worker 代码上是两个包**，开发时是两个进程；生产 Web 静态导出由 Worker assets 提供，
+  也可以拆成独立部署。
+- **ChatAgent 与 WorkspaceDO 是两个业务 DO**：前者管会话与 Agent，后者管容器与工作区；
+  另有单例 `Projects` DO 负责项目索引。
 - 角色不直接持有容器（见第 5 节）。
 
 ---
@@ -65,7 +72,8 @@ flowchart LR
 flowchart TB
   subgraph edge["Cloudflare 边缘"]
     worker["Worker<br/>控制面"]
-    chat["ChatAgent DO<br/>每会话一个"]
+    chat["ChatAgent DO<br/>每项目一个（v1 一会话）"]
+    projects["Projects DO<br/>项目索引"]
     ws["WorkspaceDO<br/>每项目一个"]
     d1[("D1")]
     r2[("R2")]
@@ -75,8 +83,9 @@ flowchart TB
     c1["Sandbox 实例<br/>开发服务器 / 文件 / SQLite"]
   end
 
-  web["Web<br/>独立部署"] --> worker
+  web["Web<br/>静态导出 / 可选独立部署"] --> worker
   worker --> chat
+  worker --> projects
   worker --> ws
   ws --> c1
   chat --> model["模型服务"]
@@ -86,9 +95,10 @@ flowchart TB
 
 | 单元 | 数量 | 职责 |
 |---|---|---|
-| Web | 1 | 只负责渲染与交互，不持有业务状态 |
-| Worker | 1 | 路由、鉴权、预览代理、SSE/WS |
-| ChatAgent DO | 每会话 1 | Agent 循环、上下文、工具、审批、事件 |
+| Web | 1 | 只负责渲染与交互，不持有业务状态；生产作为 Worker assets 部署 |
+| Worker | 1 | 路由、预览代理、WebSocket；鉴权/门禁为后续目标 |
+| Projects DO | 1 | v1 项目索引（替代 D1 的项目列表）；读取时向各 WorkspaceDO 补齐版本摘要 |
+| ChatAgent DO | 每项目 1 | Agent 循环、上下文、工具、审批、事件；v1 一项目一会话 |
 | WorkspaceDO | 每项目 1 | 容器生命周期、文件、执行、写锁、git、版本、快照 |
 | Sandbox | 每项目 1（按需启动） | 运行生成的应用 |
 
@@ -103,14 +113,14 @@ flowchart TB
     w2["对话面板<br/>AI Elements"]
     w3["预览面板<br/>iframe + 刷新"]
     w4["Sandbox 面板<br/>文件树 / 终端"]
-    w5["产物 / 版本面板"]
+    w5["版本面板<br/>产物为目标"]
     w6["传输层<br/>useAgentChat / useAgent"]
   end
 
   subgraph worker["apps/worker"]
     r1["HTTP / WS 路由"]
     r2["预览代理"]
-    r3["鉴权 / 访问门禁"]
+    r3["鉴权 / 访问门禁（目标）"]
     a1["ChatAgent"]
     a2["工具注册表"]
     a3["上下文组装"]
@@ -159,7 +169,7 @@ flowchart TB
 |---|---|---|
 | Web 对话面板 | 渲染消息/工具/审批，发送输入 | 不持久化、不调模型 |
 | Web 预览面板 | iframe、刷新、错误提示 | 不执行代码 |
-| Worker 路由 | 连接、路由、鉴权、代理 | 不跑 Agent |
+| Worker 路由 | 连接、路由、预览代理 | 不跑 Agent；鉴权/门禁为后续 |
 | ChatAgent | 模型循环、工具选择、上下文、事件 | 不直接操作容器 |
 | WorkspaceDO | 容器、文件、exec、锁、版本、快照 | 不做模型调用 |
 | Sandbox | 运行生成应用 | 不持有平台密钥 |
@@ -175,15 +185,15 @@ flowchart TB
   ui["Web 对话"] -->|UIMessage| agent["ChatAgent"]
   agent --> ctx["上下文组装<br/>消息 + 摘要 + 引用"]
   ctx --> loop["AI SDK loop<br/>streamText / ToolLoopAgent"]
-  loop --> tools["工具注册表<br/>read / write / patch / exec / preview / version"]
+  loop --> tools["工具注册表<br/>read_file / write_file / edit_file / exec / build<br/>start_preview / create_version / install_packages<br/>design_check / design_review / ask_user / switch_runtime"]
   tools -->|"WorkspaceTools RPC"| ws["WorkspaceDO"]
   ws --> fs["文件 / git / SQLite"]
   ws --> proc["进程 / 预览端口"]
   loop --> stream["UIMessage 流"]
   stream --> ui
-  loop --> events["RunEvent → atoms_run_events"]
-  loop --> approval["审批门禁"]
-  loop --> runs["Run 记录"]
+  loop --> events["RunEvent（目标，当前未建表）"]
+  loop --> approval["审批门禁（目标）"]
+  loop --> runs["Run 记录（目标）"]
 ```
 
 - 编排使用 **Agents SDK + AI SDK**，不引入 LangGraph。
@@ -239,6 +249,9 @@ flowchart LR
 
 ### 5.4 Run 与 Drill-in
 
+> **目标设计**：v1 没有 `atoms_runs` / `atoms_run_events` 表，也没有 drill-in UI。
+> 下面结构用于多角色和可观测性落地。
+
 ```
 Run
   ├─ id / role / sessionId / taskId
@@ -257,10 +270,11 @@ Run
 
 | 存储 | 内容 |
 |---|---|
-| **D1** | 项目、会话元数据、产物索引、导出记录 |
-| **DO SQLite（ChatAgent）** | 消息、流式分片、压缩记录、Run 事件 |
-| **DO SQLite（WorkspaceDO）** | 版本元数据、写锁、任务（后续） |
-| **R2** | 附件、导出包、日志 |
+| **D1（目标，未接入）** | 项目、会话元数据、产物索引、导出记录 |
+| **DO SQLite（Projects）** | v1 项目索引：项目名、prompt、模板、runtime、configured、时间 |
+| **DO SQLite（ChatAgent）** | 消息、流式分片、压缩记录；框架 `cf_*` 表 |
+| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、browser 文件/版本/依赖、migration |
+| **R2（目标，未接入）** | 附件、导出包、日志 |
 | **平台快照** | 容器 rootfs（用于停/起恢复，不作为版本） |
 | **Secret Store** | 模型密钥、第三方凭据（不进入 sandbox） |
 
@@ -274,18 +288,20 @@ Run
 
 1. 用户消息 → ChatAgent → 模型（带工具）。
 2. 工具调用 → `WorkspaceDO` → 容器内写文件 / 执行命令。
-3. 构建成功后启动 dev server，`WorkspaceDO` 暴露端口。
+3. 构建成功后确保 preview 服务可用；static / React 由静态 server 读磁盘，全栈 Node 进程需要重启。
 4. Worker 通过 `/previews/:project/*` 代理到容器。
-5. 成功后创建版本（git commit + 元数据行）。
+5. 成功后创建版本（git commit + 元数据行；browser 项目用内容哈希）。
 
 ### 7.2 版本与回滚
 
-- 版本 = git commit + 一行元数据（`git_commit`，不是 `commit`）。
-- 回滚 = 基于旧 commit 创建新提交，禁止 `reset --hard`。
+- 版本 = git commit + 一行元数据（`git_commit`，不是 `commit`）；browser 项目用内容 SHA-256。
+- 回滚 = 先自动保存未提交改动，再用 `git read-tree` 恢复目标树，创建新的 rollback commit；
+  禁止 `reset --hard` / `git clean` 破坏历史。
+- checkout 后校验 Git HEAD 与 currentVersion，避免快照与版本指针不一致。
 - 版本切换不恢复快照（只回代码，不回数据）。
 - 容器停止时版本列表仍可渲染（只查元数据）。
 
-### 7.3 附件
+### 7.3 附件（目标，未实现）
 
 - 二进制存 R2，消息只存 `artifactId`。
 - 模型调用前才物化为 data URL。
@@ -312,8 +328,9 @@ Run
 - 生成代码视为不可信：只在容器内运行，不接触平台密钥。
 - 路径规范化，禁止越出 `/workspace`；命令走程序+参数策略。
 - 预览与主站同源时有逃逸风险：iframe 加 `sandbox`，生产应使用独立子域。
-- 附件做 MIME/大小/文件名校验；上传目录只读。
+- 附件做 MIME/大小/文件名校验；上传目录只读（附件尚未接入）。
 - 日志不记录密钥、完整 prompt 与用户附件内容。
+- **v1 演示版没有鉴权与预算上限**；Worker 路由中的鉴权/门禁为后续目标。
 
 ---
 
@@ -344,9 +361,10 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 |---|---|
 | 生产 Containers 一致性 | 已验证（静态、React、全栈模板均在生产跑通） |
 | 多文件生成闭环 | 已完成（模型 → 工具 → 构建 → 预览 → 版本） |
-| 构建型模板 | 依赖镜像预装；新增 npm 依赖仍受限 |
+| 构建型模板 | 依赖镜像预装；新增 npm 依赖可通过 `install_packages` 在线安装 |
 | 全栈数据 | 容器 SQLite + 快照保留；长期持久化需 D1/R2 |
 | 写冲突方案 | v1 串行；锁模型已设计，未实现 |
 | B6 面板事件并行 | 未验证 |
 | 成本控制 | 单次约 40k tokens（单文件基线），需 maxSteps + 预算上限 |
-| 附件 API | 框架无公开接口，走自研 R2 |
+| 附件 API | 未实现；当前没有 R2 接入 |
+| D1 / R2 / Queues | 目标设计，v1 未接入 |
