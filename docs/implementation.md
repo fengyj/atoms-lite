@@ -283,6 +283,11 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   预览 iframe 正常渲染，开始/暂停/重置可操作。
 - 全栈：构建约 4–22 秒；Hono 服务 `/healthz` 与 `/api/items`；
   前端在预览路径下用相对 `./api/…` 调用，新增任务、刷新后仍在。
+- 全栈模板为“双适配器”结构：`server/app.js` 导出 `createApp(db)`，本地用
+  `server/index.js` + `node:sqlite`，发布用 `server/worker.js` + D1；
+  建表/改表写在 `migrations/*.sql`，本地启动和 D1 发布共用。
+- `pnpm build` 除了 `dist/`，还会用 rolldown 生成 `.atoms-lite/worker.js`；
+  发布时 Worker 脚本内嵌 `dist` 资源，不依赖 R2 或 Assets API。
 - 全栈 Agent 生成：给任务增加高/中/低优先级，SQLite 增加 `priority`、
   旧表自动迁移，API 与前端标签/筛选更新，版本创建成功。
 - 生产同一套模板也通过：React 模板渲染、全栈 SSR 静态页 + API 写入成功。
@@ -291,6 +296,38 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   （`running:false`）再启动预览，任务仍在（`快照持久化验证2`）。
 - 旧快照兼容：容器 entrypoint 内联判断 `/opt/preview/boot.sh`，
   旧快照没有该文件时回退到静态 `server.mjs`。
+
+### 版本发布（本地/生产实测）
+
+- 发布入口在「版本」tab：每个版本有「发布 / 重新发布」按钮；没有构建产物的旧版本按钮禁用。
+- 发布成功后该版本显示「已发布」badge；发布另一个版本时 badge 自动移动，访问地址不变。
+- 项目首次发布时生成固定的 6 位 slug：
+  - 域名 `<slug>.atoms-lite.fengyj.me`
+  - Worker `atoms-lite-<slug>`
+  - D1 `atoms_lite_<slug>`
+- 静态项目：把 `dist`（或 browser 文件）内嵌进 Worker，发布到 workers.dev / 自定义域名。
+- 全栈项目：先把 `migrations/*.sql` 应用到项目固定的 D1，再上传
+  `.atoms-lite/worker.js`；D1 binding 名为 `DB`。
+- 本地实测：
+  - static 项目发布成功，返回 `https://atoms-lite-<slug>.fengyj-30b.workers.dev`，
+    再发布 v2 后 badge 从 v1 移到 v2。
+  - fullstack 项目发布成功，自动创建 D1 并应用 `0001_init.sql`，
+    部署记录 `schemaVersion = 0001_init.sql`。
+- 生产实测（`6456ca5b`）：
+  - 静态项目发布成功：`https://z02kvj.atoms-lite.fengyj.me`，`domainError = null`；
+    自定义域名直接返回 200。再发布 v2 后，地址不变、内容更新、badge 移到 v2。
+  - 全栈项目发布成功：`https://czr71n.atoms-lite.fengyj.me`；
+    D1 依次应用 `0001_init.sql`、`0002_add_note.sql`，
+    `PRAGMA table_info(items)` 可见新列，原有数据保留。
+  - 回滚阻断：D1 已应用 `0002` 后再发布会缺该 migration 的 v1，
+    返回「该版本不包含数据库已应用的迁移 0002_add_note.sql」；
+    线上仍保持 v2，站点继续可用。
+- 自定义域名绑定使用 `PUT /accounts/:id/workers/domains`（wrangler 也是 PUT）。
+  之前用 POST 会得到 `405 Method not allowed for this authentication scheme`，不是权限不足。
+- 当前生产 secret 里的 token 来自 wrangler OAuth，命令能正常调用；但 OAuth access token
+  约 1 小时过期，生产长期使用建议换成 API Token（或定期刷新 secret）。
+- 测试创建的 Worker/D1/自定义域名和测试项目均已清理；
+  删除项目会同时删除 Worker、D1 和域名绑定。
 
 ### 懒启动（本地实测）
 
@@ -402,8 +439,15 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 旧项目（旧 Alpine/npm 快照）仍可预览/构建，但安装新包需要新建项目。
 - 浏览器静态运行时的预览与主站同源，生成代码仍应视为不可信；没有容器级 CPU/内存隔离。
 - 容器 egress 已开放，生成代码可以访问互联网；演示环境需注意滥用和供应链风险。
-- 全栈数据靠容器快照保留（写入后 10 秒内快照）；不是真正的外部数据库，
-  多实例/长期持久化应换 D1。快照失败会标记版本/顶栏，但不自动重试。
+- 全栈预览数据靠容器快照保留（写入后 10 秒内快照）；**发布后的全栈应用使用 D1**，
+  两者是不同数据库。快照失败会标记版本/顶栏，但不自动重试。
+- D1 迁移只向前执行：旧版本切换发布时，如果目标版本缺少 D1 已应用的 migration 会被阻断，
+  不会自动 down migration。需要回滚数据库时只能手工处理。
+- 发布以项目为单位固定域名/Worker/D1；同一项目不能并行发布多个版本。
+- 自定义域名绑定失败时自动降级 workers.dev；绑定成功与否记录在 `domain_error`。
+  生产 secret 当前使用 wrangler OAuth token，会约 1 小时过期，长期应换 API Token。
+- 发布产物存在 WorkspaceDO 的 `atoms_build_files`，单版本上限约 12 MiB；
+  超过后版本不可发布。大应用后续应改为 R2 或 Assets。
 - 平台对话附件未实现（无 UI、无 R2）；生成应用内部的用户上传由生成应用写入容器，
   随快照保留，不经过平台 R2。D1/R2 是规模化后的存储层。
 - **安全边界**：演示版无鉴权，预览 iframe 与主站同源（`allow-same-origin`），
@@ -434,7 +478,16 @@ pnpm dev:web      # :3000（需 NEXT_PUBLIC_WORKER_HOST=http://localhost:8787）
 NEXT_PUBLIC_WORKER_HOST= pnpm --filter @atoms-lite/web build
 cd apps/worker
 wrangler secret put MODEL_API_KEY -c wrangler.prod.jsonc
+wrangler secret put CLOUDFLARE_API_TOKEN -c wrangler.prod.jsonc
 wrangler deploy -c wrangler.prod.jsonc
 ```
+
+`CLOUDFLARE_API_TOKEN` 需要长期有效，权限至少包含：
+
+- Account：Workers Scripts:Edit、D1:Edit
+- Zone：Workers Routes:Edit、DNS:Edit、Zone:Read
+
+`CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_ZONE_ID` / `CLOUDFLARE_WORKERS_SUBDOMAIN`
+已写在 `wrangler.prod.jsonc` 的 `vars` 中。
 
 域名：`atoms-lite.fengyj.me`（Custom Domain）。

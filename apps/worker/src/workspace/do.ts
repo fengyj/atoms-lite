@@ -482,6 +482,7 @@ export class Workspace extends DurableObject<Env> {
     )`);
 
     for (const statement of [
+      "ALTER TABLE atoms_deployments ADD COLUMN domain_error TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
       "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
@@ -2464,7 +2465,9 @@ export default {
       const created = await this.cf<{ id: string }>(
         `/accounts/${account}/workers/domains`,
         {
-          method: "POST",
+          // Workers Domains API 用 PUT 做 attach/upsert；POST 会返回
+          // 405 Method not allowed for this authentication scheme。
+          method: "PUT",
           body: JSON.stringify({
             zone_id: zone,
             hostname: target.hostname,

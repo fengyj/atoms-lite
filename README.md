@@ -45,6 +45,7 @@
 | 语言 | TypeScript | 6.0.3 |
 | 包管理 | pnpm | 11.6.0 |
 | 构建 / 本地运行时 | Wrangler（workerd） | 4.164.0 |
+| 发布 | Cloudflare Workers + D1 + Workers Domains | — |
 
 版本是刻意锁定的：`agents` 与 `@cloudflare/ai-chat` 都处于 0.x，`ai` 7 刚稳定。
 四者的 peer 约束已核对通过，**演示前不要升级**。
@@ -72,7 +73,7 @@ spikes/         一次性验证代码（不属于 workspace）
 
 ```bash
 pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # 填 MODEL_*
+cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # 填 MODEL_*；发布还需 CLOUDFLARE_API_TOKEN
 
 # 两个终端
 pnpm dev:worker    # :8787
@@ -85,6 +86,7 @@ NEXT_PUBLIC_WORKER_HOST=http://localhost:8787 pnpm dev:web   # :3000
 NEXT_PUBLIC_WORKER_HOST= pnpm --filter @atoms-lite/web build
 cd apps/worker
 wrangler secret put MODEL_API_KEY -c wrangler.prod.jsonc
+wrangler secret put CLOUDFLARE_API_TOKEN -c wrangler.prod.jsonc
 wrangler deploy -c wrangler.prod.jsonc
 
 # 只改 Worker 代码、没有容器变更时，可绕开 Cloudflare 容器设置 API 的临时 404：
@@ -114,15 +116,17 @@ pnpm build
 - [x] 沙箱懒启动 + 文件列表 SQL 缓存
 - [x] browser-static 运行时（无容器静态预览、SQLite 文件/版本、esm.sh 依赖）
 - [x] 依赖安装工具（browser: importmap；container: pnpm add + 开放 egress）
+- [x] **版本发布**：版本窗口发布到 Cloudflare Workers；项目固定域名/Worker/D1，
+      版本切换更新 badge；全栈项目自动应用 D1 migration
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）
 
 - [ ] 版本回滚 UI（后端已支持非破坏性 checkout）/ 导出 / 产物
 - [ ] 多用户、身份认证与权限管理
-- [ ] 部署到 Cloudflare（生成物的公网发布；其他环境更后）
+- [ ] 发布环境扩展（预发/多区域；当前只有项目级生产环境）
 - [ ] 附件与 R2
-- [ ] D1 项目/会话元数据与真实发布（当前全栈数据靠容器快照）
+- [ ] D1 项目/会话元数据（平台索引；发布应用的 D1 已接入）
 - [ ] Next.js（已明确不支持：实例与构建时间不匹配）
 - [ ] 多角色（v1 不做，接口预留）
 - [ ] 访问门禁与预算上限
@@ -138,6 +142,10 @@ pnpm build
 - 演示版没有鉴权；预览 iframe 与主站同源，生成代码按不可信处理。
   生产化需要独立预览域 + 访问门禁。
 - 容器 egress 已开放；生成代码可以访问互联网，需注意滥用与供应链风险。
+- 发布用 D1 迁移只向前执行；目标版本缺少已应用 migration 时发布会失败，不会自动回滚数据库。
+- 自定义域名绑定走 Workers Domains API 的 `PUT`；当前 wrangler OAuth token 可用，
+  但约 1 小时过期，生产长期使用建议换长期 `CLOUDFLARE_API_TOKEN` 或定期刷新 secret。
+- 发布产物存在 DO SQLite，单版本上限约 12 MiB；更大的应用需要 R2/Assets。
 - 旧 Alpine/npm 快照仍可预览；安装新包请使用新项目（最终镜像只有 pnpm）。
 - Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
 - 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。

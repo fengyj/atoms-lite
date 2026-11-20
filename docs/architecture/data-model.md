@@ -1,6 +1,6 @@
 # 数据模型与存储
 
-状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对）
+状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对，含版本发布）
 权威类型：`packages/contracts`；本文说明**这些数据存在哪、表怎么建、为什么这么建**。
 
 > **实现状态**：第 4、5、7 节是目标设计（D1 / R2 / Run / Task）。v1 实际只使用 DO SQLite：
@@ -17,7 +17,8 @@
 | **D1（目标，未接入）** | 项目、会话、产物索引、导出记录 | 需要**跨项目**列表与查询；DO 无法全局查询 |
 | **DO SQLite（Projects）** | v1 项目索引：`id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
 | **DO SQLite（ChatAgent）** | 消息、流、压缩（框架表）；Run/审批/任务为目标设计 | 与会话强相关，写入频繁，要求原子顺序 |
-| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖、migration | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
+| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖、migration、构建产物、发布记录 | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
+| **Cloudflare D1（发布产物）** | 每个已发布全栈项目的业务数据库 | 生成应用需要真正的外部数据库；平台元数据仍不放在 D1 |
 | **R2（目标，未接入）** | 附件二进制、导出包、完整日志 | 大对象，不适合放进 SQLite |
 | **平台快照** | 容器 rootfs | 停/起恢复，由 Cloudflare 管理，不进 R2 |
 | **Secret Store** | 模型密钥、第三方凭据 | 不进入 DB、日志、沙箱 |
@@ -166,6 +167,9 @@ CREATE TABLE atoms_exports (
 说明：导出包默认 7 天过期，由 GC 删除 R2 对象。
 
 ### 4.5 `atoms_deployments`（可选，v1 不做）
+
+> 该表在 D1 中仍未实现。v1 的发布记录改存在 WorkspaceDO 的 `atoms_deployments`，
+> 见 6.5；D1 只用于已发布应用的业务数据。
 
 ```sql
 CREATE TABLE atoms_deployments (
@@ -365,18 +369,77 @@ CREATE TABLE atoms_snapshots (
 | 表 | 用途 |
 |---|---|
 | `atoms_workspace` | `id`, `current_version_id`；当前版本指针 |
-| `atoms_project_config` | `id`, `template`, `runtime`, `instance_tier`, `configured`, `updated_at` |
+| `atoms_project_config` | `id`, `template`, `runtime`, `instance_tier`, `configured`, `updated_at`；发布相关列见 6.5 |
 | `atoms_runtime_status` | `snapshot_error`, `snapshot_at`, `active_run`, `run_started_at` |
 | `atoms_files` | 文件列表缓存：`path`, `size`, `updated_at` |
 | `atoms_file_content` | browser runtime 文件内容 |
 | `atoms_file_versions` | browser runtime 按版本保存的文件内容 |
+| `atoms_build_files` | 发布用构建产物（base64 + content type + size） |
+| `atoms_deployments` | 版本发布记录与当前线上版本 |
 | `atoms_dependencies` | browser runtime 的 importmap 依赖 |
 | `atoms_migration` | runtime 切换任务与来源/目标/归档统计 |
 | `atoms_migration_files` | 迁移暂存的二进制文件 |
 
 ChatAgent 的消息、流、压缩使用 Agents SDK 的 `cf_*` 框架表，不另建业务表。
 
-### 6.5 v1 的文件与附件边界
+### 6.5 发布产物、部署记录与发布目标
+
+发布以**项目**为单位：每个项目固定一个子域名、一个 Worker 和一个 D1；
+切换版本只更新 Worker 脚本与 D1 迁移，不创建新域名。
+
+```sql
+CREATE TABLE atoms_build_files (
+  version_id   TEXT NOT NULL,
+  path         TEXT NOT NULL,           -- dist/**、migrations/**、.atoms-lite/worker.js
+  content_b64  TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  PRIMARY KEY (version_id, path)
+);
+
+CREATE TABLE atoms_deployments (
+  id             TEXT PRIMARY KEY,
+  version_id     TEXT NOT NULL,
+  provider       TEXT NOT NULL,          -- cloudflare
+  worker_name    TEXT NOT NULL,
+  d1_name        TEXT,
+  d1_id          TEXT,
+  hostname       TEXT NOT NULL,
+  domain_id      TEXT,
+  status         TEXT NOT NULL,          -- deploying | ready | failed
+  url            TEXT,
+  schema_version TEXT,                   -- 最后一个 D1 migration 文件名
+  domain_error   TEXT,                   -- 自定义域名绑定失败原因
+  error          TEXT,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+```
+
+`atoms_project_config` 另加 6 个发布列，首次发布时一次性写入并在后续版本复用：
+
+| 列 | 说明 |
+|---|---|
+| `publish_slug` | 6 位随机字符；项目内稳定 |
+| `publish_worker` | `atoms-lite-<slug>` |
+| `publish_d1_name` | `atoms_lite_<slug>` |
+| `publish_d1_id` | D1 UUID；首次发布时创建 |
+| `publish_hostname` | `<slug>.atoms-lite.fengyj.me` |
+| `publish_domain_id` | Cloudflare Workers Domain ID；绑定成功后保存 |
+
+规则：
+
+- `atoms_build_files` 在创建版本时写入；browser 版本收集当前文件，container 版本收集
+  `dist/`、`migrations/` 和 `.atoms-lite/worker.js`。总量超过 12 MiB 时跳过，版本标记为不可发布。
+- 当前线上版本 = 最新一条 `status = 'ready'` 的部署记录；版本列表据此返回 `published` 与 `deploymentUrl`。
+- 发布失败只更新当前部署记录，不影响上一条 `ready` 记录，因此线上版本保持不变。
+- 旧版本没有构建产物时 `hasArtifacts = false`，UI 禁用发布。
+- 自定义域名绑定失败不阻断发布：部署仍为 `ready`，URL 降级为
+  `https://<worker>.<workers-subdomain>.workers.dev`，原因写入 `domain_error`，UI 显示警告。
+- D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.1）。
+- 删除项目时删除 Worker、D1 和已绑定的自定义域名；失败只记日志，不阻塞删除。
+
+### 6.6 v1 的文件与附件边界
 
 | 数据 | v1 位置 | 说明 |
 |---|---|---|
@@ -431,7 +494,8 @@ v1 实际：
 2. git add -A && git commit
 3. 写入 atoms_versions（git_commit + parent + summary + status）
 4. 更新 atoms_workspace.current_version_id
-5. 创建/更新 Cloudflare 容器快照
+5. 写入 atoms_build_files（browser: 当前文件；container: dist/ + migrations/ + Worker bundle）
+6. 创建/更新 Cloudflare 容器快照
 ```
 
 目标形态还会更新 D1 `atoms_projects.current_version_id` 并发 `version.created` 事件。
@@ -466,6 +530,28 @@ R2 完整工作区备份是后续目标，用于跨实例/长期恢复。
 - 每个 run 结束时写 `usage_json`；
 - 子 run 的 usage 加到父 run（幂等：按 runId 只加一次）；
 - 任务与项目的预算检查读汇总值。
+
+### 9.5 发布版本
+
+```
+1. 读取 version 的 atoms_build_files；为空则拒绝
+2. 取/生成项目固定的 publish_slug / Worker / D1 / hostname
+3. 全栈：确保 D1 存在，应用目标版本中的缺失 migration
+   - 如果 D1 已应用 migration 不在目标版本中，拒绝（不回滚数据库）
+4. 生成 Worker 脚本：
+   - fullstack：.atoms-lite/worker.js + 嵌入 ASSETS
+   - 其他：由 dist 文件生成静态 Worker
+5. PUT /accounts/:account/workers/scripts/:worker（D1 binding）
+6. 绑定自定义域名；失败则保留 workers.dev URL 并记录 domain_error
+7. 写 atoms_deployments(status = 'ready')
+```
+
+一致性：
+
+- 先迁移 D1、再替换 Worker；迁移失败则 Worker 不变，旧版本继续服务。
+- 迁移成功后 Worker 上传失败时，数据库会处于“新 schema + 旧代码”状态；
+  v1 接受这个窗口，依赖 forward-only migration 的向后兼容。
+- 同一项目同时只允许一个发布（WorkspaceDO 的 exclusive 队列）。
 
 ---
 
