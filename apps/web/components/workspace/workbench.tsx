@@ -30,6 +30,7 @@ import {
   formatClock,
   formatSize,
   previewUrl,
+  prepareVersionArtifacts,
   publishVersion,
   shortCommit,
   type Endpoint,
@@ -68,17 +69,19 @@ export function WorkbenchPanel({
 
   const handlePublish = async (version: WorkspaceVersion) => {
     if (publishingId) return;
-    if (version.hasArtifacts !== true) {
-      setPublishError("该版本没有构建产物，请重新构建并创建版本后再发布。");
-      return;
-    }
+    const missingArtifacts = version.hasArtifacts !== true;
     const confirmed = window.confirm(
-      `发布版本 ${shortCommit(version.gitCommit)}？\n\n如果已有发布版本，会替换线上版本；访问地址保持不变。`,
+      missingArtifacts
+        ? `版本 ${shortCommit(version.gitCommit)} 还没有发布产物。\n\n发布前会先重新构建并生成产物，然后发布。继续？`
+        : `发布版本 ${shortCommit(version.gitCommit)}？\n\n如果已有发布版本，会替换线上版本；访问地址保持不变。`,
     );
     if (!confirmed) return;
     setPublishingId(version.id);
     setPublishError(null);
     try {
+      if (missingArtifacts) {
+        await prepareVersionArtifacts(projectId, version.id);
+      }
       await publishVersion(projectId, version.id);
       versions.refresh();
     } catch (error) {
@@ -697,11 +700,11 @@ function VersionRow({
           size="sm"
           variant={version.published ? "outline" : "default"}
           className="ml-auto h-7 gap-1.5 px-2 text-2xs"
-          disabled={publishing || version.hasArtifacts !== true}
+          disabled={publishing}
           title={
             version.hasArtifacts === true
               ? "发布这个版本"
-              : "该版本没有构建产物，需要重新构建"
+              : "发布前会先重新构建并生成产物"
           }
           onClick={() => void onPublish(version)}
         >
@@ -711,15 +714,21 @@ function VersionRow({
             <Rocket className="size-3" />
           )}
           {publishing
-            ? "发布中…"
+            ? version.hasArtifacts === true
+              ? "发布中…"
+              : "构建并发布中…"
             : version.published
               ? "重新发布"
-              : "发布"}
+              : version.hasArtifacts === true
+                ? "发布"
+                : "构建并发布"}
         </Button>
       </div>
       {version.hasArtifacts !== true ? (
         <p className="mt-1 text-3xs text-muted-foreground">
-          此版本没有构建产物，重新构建后再发布。
+          {version.current
+            ? "此版本还没有发布产物；发布时会先重新构建。"
+            : "旧版本没有发布产物；请先切换到该版本，或基于当前版本创建新版本。"}
         </p>
       ) : null}
       {version.published && version.domainError ? (

@@ -25,6 +25,13 @@
 - 全栈：上传 rolldown 生成的 Worker bundle，内嵌 dist 资源，绑定 D1 `DB`。
 - 不引入 R2，也不依赖 Workers Assets API。
 
+旧版本补齐：
+
+- 发布前如果目标版本没有 `atoms_build_files`，自动尝试补齐。
+- browser：从该版本的 `atoms_file_versions` 重建，旧版本也可以直接发布。
+- container：只有当前版本能重新 build 并收集；旧版本提示先切换或创建新版本。
+- 旧 fullstack 模板没有 `.atoms-lite/worker.js` 时，提示新建项目或迁移模板。
+
 D1 迁移：
 
 - 发布前应用目标版本中缺失的 `migrations/*.sql`。

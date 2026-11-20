@@ -150,6 +150,30 @@ export type WorkspaceDeployment = {
   error?: string | null;
 };
 
+export type WorkspaceArtifacts = {
+  prepared: boolean;
+  files: number;
+};
+
+export async function prepareVersionArtifacts(
+  projectId: string,
+  versionId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceArtifacts> {
+  const res = await fetch(`${projectApiUrl(projectId)}/versions/artifacts`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+    signal,
+  });
+  const data = (await json<{ artifacts?: WorkspaceArtifacts }>(
+    res,
+    "prepare version artifacts"
+  )) as { artifacts?: WorkspaceArtifacts };
+  if (!data.artifacts) throw new Error("prepare did not return artifacts");
+  return data.artifacts;
+}
+
 export async function publishVersion(
   projectId: string,
   versionId: string,

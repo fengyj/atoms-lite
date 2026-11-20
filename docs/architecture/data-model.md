@@ -437,7 +437,10 @@ CREATE TABLE atoms_deployments (
   `dist/`、`migrations/` 和 `.atoms-lite/worker.js`。总量超过 12 MiB 时跳过，版本标记为不可发布。
 - 当前线上版本 = 最新一条 `status = 'ready'` 的部署记录；版本列表据此返回 `published` 与 `deploymentUrl`。
 - 发布失败只更新当前部署记录，不影响上一条 `ready` 记录，因此线上版本保持不变。
-- 旧版本没有构建产物时 `hasArtifacts = false`，UI 禁用发布。
+- 旧版本没有构建产物时 `hasArtifacts = false`，但不再禁用发布：发布会先尝试补齐。
+  - browser：从该版本的 `atoms_file_versions` 重建产物，旧版本也可以发布。
+  - container：只有当前版本可以重新 build 后收集；旧版本会提示先切换或创建新版本。
+  - 旧 fullstack 模板（没有 `.atoms-lite/worker.js`）会提示新建项目或迁移到新模板。
 - 自定义域名绑定失败不阻断发布：部署仍为 `ready`，URL 降级为
   `https://<worker>.<workers-subdomain>.workers.dev`，原因写入 `domain_error`，UI 显示警告。
 - D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.5）。

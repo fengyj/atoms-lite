@@ -1017,6 +1017,9 @@ export class Workspace extends DurableObject<Env> {
       const current = this.latestVersion();
 
       if (current?.gitCommit === hash) {
+        if (this.buildFileCount(current.id) === 0) {
+          await this.collectBrowserBuild(current.id, files);
+        }
         return {
           versionId: current.id,
           gitCommit: hash,
@@ -2493,7 +2496,90 @@ export default {
     );
   }
 
+  private buildFileCount(versionId: string): number {
+    return this.ctx.storage.sql
+      .exec<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM atoms_build_files WHERE version_id = ?",
+        versionId,
+      )
+      .one().n;
+  }
+
+  /**
+   * 旧版本可能是在发布功能上线前创建的，没有 atoms_build_files。
+   * 发布前按需补齐：
+   * - browser：从该版本的 atoms_file_versions 重建；
+   * - container：只有当前版本可以重新 build 后收集，旧版本需要新建版本。
+   */
+  private async prepareVersionArtifacts(versionId: string): Promise<{
+    prepared: boolean;
+    files: number;
+  }> {
+    const version = this.ctx.storage.sql
+      .exec<VersionDbRow>("SELECT * FROM atoms_versions WHERE id = ?", versionId)
+      .toArray()[0];
+    if (!version) throw new Error("version not found");
+    if (version.archived === 1) {
+      throw new Error("archived version cannot be published");
+    }
+
+    const existing = this.buildFileCount(versionId);
+    if (existing > 0) return { prepared: false, files: existing };
+
+    if (this.runtime() === "browser") {
+      return this.exclusive(async () => {
+        const files = this.ctx.storage.sql
+          .exec<{ path: string; content: string }>(
+            "SELECT path, content FROM atoms_file_versions WHERE version_id = ? ORDER BY path",
+            versionId,
+          )
+          .toArray();
+        if (!files.length) {
+          throw new Error("该版本没有文件快照，无法生成发布产物");
+        }
+        await this.collectBrowserBuild(versionId, files);
+        return { prepared: true, files: files.length };
+      });
+    }
+
+    if (this.currentVersionId() !== versionId) {
+      throw new Error(
+        "旧版本没有构建产物：请先切换到该版本并重新构建，或基于当前版本创建新版本后再发布。",
+      );
+    }
+
+    const build = await this.build();
+    if (build.exitCode !== 0) {
+      throw new Error(
+        `构建失败：${(build.stderr || build.stdout || "unknown").slice(0, 300)}`,
+      );
+    }
+
+    return this.exclusive(async () => {
+      await this.ensure();
+      if (this.template() === "fullstack-hono") {
+        const worker = await this.sh(
+          `cd ${WORKSPACE} && [ -f .atoms-lite/worker.js ] && echo yes || true`,
+        );
+        if (!worker.stdout.includes("yes")) {
+          throw new Error(
+            "该版本使用旧全栈模板，缺少 Worker bundle；请新建项目（或迁移到新模板）后再发布。",
+          );
+        }
+      }
+      await this.collectContainerBuild(versionId);
+      const files = this.buildFileCount(versionId);
+      if (files === 0) {
+        throw new Error(
+          "构建完成，但没有找到可发布的产物（dist / Worker bundle）。",
+        );
+      }
+      return { prepared: true, files };
+    });
+  }
+
   private async deployVersion(versionId: string) {
+    await this.prepareVersionArtifacts(versionId);
     return this.exclusive(async () => {
       const version = this.ctx.storage.sql
         .exec<VersionDbRow>("SELECT * FROM atoms_versions WHERE id = ?", versionId)
@@ -2851,6 +2937,15 @@ export default {
 
       await this.syncFilesCacheSafe();
       if (!buildError) {
+        const fullstack = this.template() === "fullstack-hono";
+        const worker = fullstack
+          ? await this.sh(
+              `cd ${WORKSPACE} && [ -f .atoms-lite/worker.js ] && echo yes || true`,
+            )
+          : null;
+        if (!fullstack || worker?.stdout.includes("yes")) {
+          await this.collectContainerBuild(id);
+        }
         await this.reloadPreview();
       }
       const snapshot = await this.takeSnapshot();
@@ -3599,6 +3694,19 @@ export default {
           { error: "preview runs as the container entrypoint; stop the container instead" },
           { status: 400 },
         );
+      }
+
+      if (path === "/versions/artifacts" && request.method === "POST") {
+        const body = (await request.json()) as { versionId?: string };
+        if (!body.versionId) {
+          return Response.json(
+            { error: "versionId is required" },
+            { status: 400 },
+          );
+        }
+        return Response.json({
+          artifacts: await this.prepareVersionArtifacts(body.versionId),
+        });
       }
 
       if (path === "/publish" && request.method === "POST") {

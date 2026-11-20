@@ -146,6 +146,7 @@ pnpm build
 - 自定义域名绑定走 Workers Domains API 的 `PUT`；当前 wrangler OAuth token 可用，
   但约 1 小时过期，生产长期使用建议换长期 `CLOUDFLARE_API_TOKEN` 或定期刷新 secret。
 - 发布产物存在 DO SQLite，单版本上限约 12 MiB；更大的应用需要 R2/Assets。
+- 旧静态版本没有产物时发布会从版本快照自动重建；旧容器版本需重新构建并创建新版本。
 - 旧 Alpine/npm 快照仍可预览；安装新包请使用新项目（最终镜像只有 pnpm）。
 - Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
 - 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。
