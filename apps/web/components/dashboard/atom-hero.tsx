@@ -7,11 +7,6 @@ const ORBIT = {
   ry: 108,
 };
 
-const INNER_ORBIT = {
-  rx: 232,
-  ry: 82,
-};
-
 function ellipsePath(rx: number, ry: number, reverse = false) {
   const start = `M${360 - rx},360`;
   const sweep = reverse ? 1 : 0;
@@ -34,7 +29,8 @@ function useReducedMotion() {
 
 /**
  * 首页背景：原子轨道 + 粒子点阵。
- * 电子沿轨道运行，鼠标移动时有轻微视差；纯 SVG / CSS，无图片请求。
+ * 三条轨道分别旋转 -28° / 34° / 96°，每个电子只走自己那条线；
+ * 鼠标移动时有轻微视差。纯 SVG / CSS，无图片请求。
  * prefers-reduced-motion 下关闭电子动画和视差。
  */
 export function AtomHero() {
@@ -103,55 +99,27 @@ export function AtomHero() {
               rx={ORBIT.rx}
               ry={ORBIT.ry}
               stroke="currentColor"
-              strokeOpacity="0.22"
-              strokeWidth="1.2"
-            />
-            <ellipse
-              cx="360"
-              cy="360"
-              rx={INNER_ORBIT.rx}
-              ry={INNER_ORBIT.ry}
-              stroke="currentColor"
               strokeOpacity="0.3"
               strokeWidth="1.2"
             />
 
             {!reduced ? (
-              <>
-                <g className="atom-electron text-success">
-                  <animateMotion
-                    dur="16s"
-                    begin="-3s"
-                    repeatCount="indefinite"
-                    path={ellipsePath(ORBIT.rx, ORBIT.ry)}
-                  />
-                  <circle r="9" fill="currentColor" opacity="0.14" />
-                  <circle
-                    r="3"
-                    fill="currentColor"
-                    filter="url(#atom-electron-glow)"
-                  />
-                  <circle r="1.1" fill="white" opacity="0.9" />
-                </g>
-
-                <g className="atom-electron text-primary">
-                  <animateMotion
-                    dur="9s"
-                    begin="-6s"
-                    repeatCount="indefinite"
-                    path={ellipsePath(INNER_ORBIT.rx, INNER_ORBIT.ry, true)}
-                  />
-                  <circle r="7" fill="currentColor" opacity="0.12" />
-                  <circle
-                    r="2.4"
-                    fill="currentColor"
-                    filter="url(#atom-electron-glow)"
-                  />
-                  <circle r="0.9" fill="white" opacity="0.85" />
-                </g>
-              </>
+              <g className="atom-electron text-success">
+                <animateMotion
+                  dur="16s"
+                  begin="-3s"
+                  repeatCount="indefinite"
+                  path={ellipsePath(ORBIT.rx, ORBIT.ry)}
+                />
+                <circle r="9" fill="currentColor" opacity="0.14" />
+                <circle
+                  r="3"
+                  fill="currentColor"
+                  filter="url(#atom-electron-glow)"
+                />
+                <circle r="1.1" fill="white" opacity="0.9" />
+              </g>
             ) : null}
-
           </g>
 
           <g transform="rotate(34 360 360)">
@@ -182,7 +150,36 @@ export function AtomHero() {
                 <circle r="1.2" fill="white" opacity="0.9" />
               </g>
             ) : null}
+          </g>
 
+          <g transform="rotate(96 360 360)">
+            <ellipse
+              cx="360"
+              cy="360"
+              rx={ORBIT.rx}
+              ry={ORBIT.ry}
+              stroke="currentColor"
+              strokeOpacity="0.34"
+              strokeWidth="1.2"
+            />
+
+            {!reduced ? (
+              <g className="atom-electron text-primary">
+                <animateMotion
+                  dur="13s"
+                  begin="-7s"
+                  repeatCount="indefinite"
+                  path={ellipsePath(ORBIT.rx, ORBIT.ry)}
+                />
+                <circle r="8" fill="currentColor" opacity="0.14" />
+                <circle
+                  r="2.8"
+                  fill="currentColor"
+                  filter="url(#atom-electron-glow)"
+                />
+                <circle r="1" fill="white" opacity="0.85" />
+              </g>
+            ) : null}
           </g>
 
           <g className="atom-nucleus">
