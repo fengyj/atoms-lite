@@ -4,12 +4,14 @@
 > 本文是完整产品设计/目标形态，不是 v1 的逐条实现清单。v1 已实现首页工作台、会话工作区、
 > 三种模板、browser/container 两种运行时、自动选型 + `ask_user`、文件/构建/预览/版本、
 > 非破坏性回滚后端、预览元素选择、`/design-review` 等命令、`design_check`/`design_review`、
-> 手动实例升级和运行环境（runtime）单向切换。
+> 手动实例升级、运行环境（runtime）单向切换，以及**版本发布到 Cloudflare Workers
+> （全栈项目使用 D1、支持自定义域名）**。
 >
-> v1 **未实现**：多角色与 `@`、多会话、附件/R2、D1、PPT、导出/发布、Artifacts 面板、
-> 版本回滚 UI、版本 diff、Workflow/Queues/LangGraph。技术实现也与本文早期设想有差异：
-> 使用 **Agents SDK + AI SDK**（不是 LangGraph）、**DO SQLite**（不是 D1）、
-> **Cloudflare 容器快照**（不是 R2 workspace 备份）、**两栏工作台 + tabs**（不是三栏）。
+> v1 **未实现**：多角色与 `@`、多会话、附件/R2、平台级 D1 元数据、PPT、源码导出、
+> Artifacts 面板、版本回滚 UI、版本 diff、Workflow/Queues/LangGraph。
+> 技术实现也与本文早期设想有差异：使用 **Agents SDK + AI SDK**（不是 LangGraph）、
+> **平台元数据用 DO SQLite / 发布应用用 D1**、**Cloudflare 容器快照**（不是 R2 workspace 备份）、
+> **两栏工作台 + tabs**（不是三栏）。
 >
 > 冲突时以 `README.md`、`docs/decisions/`、`docs/architecture/`、`docs/implementation.md` 为准。
 
@@ -516,11 +518,18 @@ Git 版本操作遵循以下规则：
 
 基础交付形式为：
 
-- 导出源码
-- 下载指定版本压缩包
+- 导出源码（未实现）
+- 下载指定版本压缩包（未实现）
 - 在 atoms-lite 内运行预览
+- **发布到 Cloudflare Workers**（已实现）
+  - 每个项目固定 `<slug>.atoms-lite.fengyj.me`
+  - 静态/React 项目把构建产物内嵌到独立 Worker
+  - 全栈项目创建独立 D1，并按 `migrations/*.sql` 向前迁移
+  - 版本面板显示当前已发布版本；切换版本只更新部署内容
+  - 自定义域名失败时降级 workers.dev
 
-完整外部一键发布的优先级低于核心创作闭环。架构仍需保存发布记录和目标版本，以便后续接入 Cloudflare 或其他发布方式。
+发布记录绑定 `versionId`，保存在 WorkspaceDO；平台仍然保留源码和版本。
+一键发布先只支持 Cloudflare，其他云厂商/自托管和源码导出仍后置。
 
 ### 5.8 页面结构
 
@@ -1096,6 +1105,8 @@ Secret Store
 
 > **v1 实际**：Git commit + `atoms_versions` 行 + Cloudflare 容器快照；
 > 第 3–5 步的“打包到 R2 / 写 D1”是后续目标。
+> 发布是另一条流程：创建版本时把 `dist` / `migrations` / Worker bundle 收集到
+> `atoms_build_files`，发布时上传 Worker，并对全栈项目的 D1 应用缺失 migration。
 
 一次平台版本保存包含：
 
@@ -1110,7 +1121,8 @@ R2 中的完整工作区快照属于持久备份；Cloudflare Sandbox 自带的�
 
 ## 11. 平台数据模型
 
-> **v1 实际**：只使用 DO SQLite（Projects / ChatAgent / WorkspaceDO）。
+> **v1 实际**：平台元数据只使用 DO SQLite（Projects / ChatAgent / WorkspaceDO）。
+> 发布后的全栈应用使用独立 D1，但那属于生成应用的业务数据，不是平台数据模型。
 > 下面的 D1/R2/DO 实体是目标设计；实际 schema 见 [`data-model.md`](architecture/data-model.md)。
 
 ### 11.1 D1

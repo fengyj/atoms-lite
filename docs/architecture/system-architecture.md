@@ -1,10 +1,12 @@
 # atoms-lite 系统架构
 
-状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对）
+状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对，含版本发布）
 相关文档：`docs/decisions/`（实现约束）、`docs/poc/`（验证记录）
 
 > 本文描述目标架构。当前 v1 实际使用 **Projects DO + ChatAgent DO + WorkspaceDO + Container**，
-> **D1 / R2 / Queues / 多角色尚未接入**；实现细节与验证记录以 `docs/implementation.md` 为准。
+> 并支持把版本发布到 **Cloudflare Workers**；全栈项目发布时使用 **D1**。
+> **平台元数据仍未使用 D1/R2/Queues，多角色尚未接入**；实现细节与验证记录以
+> `docs/implementation.md` 为准。
 > 不熟悉 Cloudflare 的读者可以先看第 12 节「Cloudflare 服务说明」，尤其是 Durable Objects。
 
 > **术语**：**模板（template）** 指 `static` / `react-vite` / `fullstack-hono`；
@@ -16,7 +18,7 @@
 
 ## 1. 目标与边界
 
-atoms-lite 是一个对话式应用生成平台：用户用自然语言描述需求，Agent 在隔离工作区中读写代码、执行命令、构建并启动预览，最终产出一个可运行的多文件 Web 应用，并支持版本回滚。导出/发布是后续目标。
+atoms-lite 是一个对话式应用生成平台：用户用自然语言描述需求，Agent 在隔离工作区中读写代码、执行命令、构建并启动预览，最终产出一个可运行的多文件 Web 应用，并支持版本回滚和发布到 Cloudflare Workers（全栈项目使用 D1）。
 
 **架构边界**：
 
@@ -41,8 +43,9 @@ flowchart LR
   ws["WorkspaceDO<br/>容器 / 文件 / 锁 / 版本"]
   sandbox["Sandbox Container<br/>生成的应用"]
   model["模型服务<br/>OpenAI 兼容端点"]
+  pub["Published Worker<br/>+ 自定义域名"]
 
-  d1[("D1<br/>目标，未接入")]
+  d1[("D1<br/>已发布应用数据库")]
   r2[("R2<br/>目标，未接入")]
   dosql[("DO SQLite<br/>v1 实际存储")]
 
@@ -54,10 +57,11 @@ flowchart LR
   chat -->|"AI SDK"| model
   chat -->|"WorkspaceTools RPC"| ws
   ws --> sandbox
+  ws -->|"发布 API"| pub
+  pub --- d1
   chat --- dosql
   projects --- dosql
   ws --- dosql
-  api --- d1
   ws --- r2
 ```
 
@@ -80,8 +84,9 @@ flowchart TB
     chat["ChatAgent DO<br/>每项目一个（v1 一会话）"]
     projects["Projects DO<br/>项目索引"]
     ws["WorkspaceDO<br/>每项目一个"]
-    d1[("D1")]
-    r2[("R2")]
+    d1[("D1<br/>已发布应用")]
+    r2[("R2<br/>目标，未接入")]
+    pub["Published Worker<br/>每项目一个"]
   end
 
   subgraph containers["Cloudflare Containers"]
@@ -93,8 +98,9 @@ flowchart TB
   worker --> projects
   worker --> ws
   ws --> c1
+  ws -->|"发布"| pub
+  pub --- d1
   chat --> model["模型服务"]
-  worker --- d1
   ws --- r2
 ```
 
@@ -104,8 +110,10 @@ flowchart TB
 | Worker | 1 | 路由、预览代理、WebSocket；鉴权/门禁为后续目标 |
 | Projects DO | 1 | v1 项目索引（替代 D1 的项目列表）；读取时向各 WorkspaceDO 补齐版本摘要 |
 | ChatAgent DO | 每项目 1 | Agent 循环、上下文、工具、审批、事件；v1 一项目一会话 |
-| WorkspaceDO | 每项目 1 | 容器生命周期、文件、执行、写锁、git、版本、快照 |
+| WorkspaceDO | 每项目 1 | 容器生命周期、文件、执行、写锁、git、版本、快照、发布 |
 | Sandbox | 每项目 1（按需启动） | 运行生成的应用 |
+| Published Worker | 每项目 1 | 发布后的生成应用；静态资源内嵌，全栈绑定项目 D1 |
+| 项目 D1 | 每个已发布全栈项目 1 | 生成应用的业务数据库 |
 
 ---
 
@@ -118,7 +126,7 @@ flowchart TB
     w2["对话面板<br/>AI Elements"]
     w3["预览面板<br/>iframe + 刷新"]
     w4["Sandbox 面板<br/>文件树 / 终端"]
-    w5["版本面板<br/>产物为目标"]
+    w5["版本面板<br/>发布 / badge"]
     w6["传输层<br/>useAgentChat / useAgent"]
   end
 
@@ -135,6 +143,7 @@ flowchart TB
     x2["WorkspaceTools RPC"]
     x3["文件 / 执行 / 预览端口"]
     x4["写锁 / 版本 / 快照"]
+    x5["发布<br/>Worker / D1 / 域名"]
   end
 
   subgraph sandbox["Sandbox Container"]
@@ -162,6 +171,8 @@ flowchart TB
   x2 --> x1
   x1 --> x3
   x1 --> x4
+  x1 --> x5
+  x5 -->|"Cloudflare API"| cf["Workers / D1 / Domains"]
   x3 --> s1
   x3 --> s4
   x4 --> s2
@@ -176,7 +187,7 @@ flowchart TB
 | Web 预览面板 | iframe、刷新、错误提示 | 不执行代码 |
 | Worker 路由 | 连接、路由、预览代理 | 不跑 Agent；鉴权/门禁为后续 |
 | ChatAgent | 模型循环、工具选择、上下文、事件 | 不直接操作容器 |
-| WorkspaceDO | 容器、文件、exec、锁、版本、快照 | 不做模型调用 |
+| WorkspaceDO | 容器、文件、exec、锁、版本、快照、发布 | 不做模型调用 |
 | Sandbox | 运行生成应用 | 不持有平台密钥 |
 
 ---
@@ -275,13 +286,13 @@ Run
 
 | 存储 | 内容 |
 |---|---|
-| **D1（目标，未接入）** | 项目、会话元数据、产物索引、导出记录 |
+| **D1（已发布应用）** | 每个已发布全栈项目一个业务数据库；平台项目/会话元数据仍未接入 |
 | **DO SQLite（Projects）** | v1 项目索引：项目名、prompt、模板、runtime、configured、时间 |
 | **DO SQLite（ChatAgent）** | 消息、流式分片、压缩记录；框架 `cf_*` 表 |
-| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、browser 文件/版本/依赖、migration |
+| **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、browser 文件/版本/依赖、migration、构建产物、发布记录 |
 | **R2（目标，未接入）** | 附件、导出包、日志 |
 | **平台快照** | 容器 rootfs（用于停/起恢复，不作为版本） |
-| **Secret Store** | 模型密钥、第三方凭据（不进入 sandbox） |
+| **Secret Store** | 模型密钥、Cloudflare 发布 token（不进入 sandbox） |
 
 > 框架自建表使用 `cf_*` 前缀；业务表使用 `atoms_` 前缀，禁止修改框架表结构。
 
@@ -313,6 +324,20 @@ Run
 - 需要被生成应用使用时，投放到 `/workspace/public/uploads/`。
 - 跨角色通过 `ContextRef` 引用，不传 base64。
 
+### 7.4 发布版本
+
+1. 版本创建时收集构建产物到 `atoms_build_files`：
+   static 收集 dist/browser 文件；fullstack 额外收集 `migrations/` 和 `.atoms-lite/worker.js`。
+2. 发布时读取项目固定的目标：slug、Worker、D1、hostname（`atoms_project_config`）。
+3. 全栈项目先把目标版本缺失的 migration 应用到 D1；如果 D1 已应用的 migration
+   不在目标版本中，拒绝发布。
+4. 上传 Worker：
+   - static/React：把 dist 资源内嵌到生成的 Worker 脚本。
+   - fullstack：上传 `.atoms-lite/worker.js`，脚本内嵌 dist 资源，绑定 `DB`。
+5. 通过 Workers Domains API（`PUT`）绑定 `<slug>.atoms-lite.fengyj.me`；
+   失败时降级到 workers.dev，并把原因写进部署记录。
+6. 写 `atoms_deployments`；最新 `status = ready` 即当前线上版本，版本面板显示 badge。
+
 ---
 
 ## 8. 失败与降级
@@ -324,6 +349,9 @@ Run
 | 容器启动失败 | 工具全部失败 | 显式报错，不回退到空工作区 |
 | 快照丢失 | 恢复失败 | 报错并提供导出/重建路径 |
 | 预览不可达 | iframe 空白 | 显示错误与刷新入口；必要时降级为静态预览 |
+| 发布 Worker / D1 失败 | 部署记录 `failed` | 保留上一条 `ready` 版本，版本面板显示错误 |
+| 目标版本缺 D1 已应用 migration | 发布被拒绝 | 不自动回滚数据库；提示需新版本或手工处理 |
+| 自定义域名绑定失败 | 部署仍 `ready`，URL 为 workers.dev | 记录 `domain_error`，UI 显示警告 |
 | 写锁超时 | 任务排队过久 | 租约过期回收 + 队列 FIFO |
 
 ---
@@ -367,12 +395,14 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 | 生产 Containers 一致性 | 已验证（静态、React、全栈模板均在生产跑通） |
 | 多文件生成闭环 | 已完成（模型 → 工具 → 构建 → 预览 → 版本） |
 | 构建型模板 | 依赖镜像预装；新增 npm 依赖可通过 `install_packages` 在线安装 |
-| 全栈数据 | 容器 SQLite + 快照保留；长期持久化需 D1/R2 |
+| 全栈数据 | 预览/开发使用容器 SQLite + 快照；发布后的应用使用独立 D1 |
+| 版本发布 | 已完成 static/React/fullstack 的 Workers + D1 + 自定义域名发布与清理 |
+| 发布环境 | 只有项目级生产环境；预发、多区域、回滚数据库未支持 |
 | 写冲突方案 | v1 串行；锁模型已设计，未实现 |
 | B6 面板事件并行 | 未验证 |
 | 成本控制 | 单次约 40k tokens（单文件基线），需 maxSteps + 预算上限 |
 | 附件 API | 未实现；当前没有 R2 接入 |
-| D1 / R2 / Queues | 目标设计，v1 未接入 |
+| R2 / Queues | 目标设计，v1 未接入；D1 仅用于已发布应用 |
 
 ---
 
@@ -385,17 +415,18 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 
 | Cloudflare 服务 | 它是什么 | 最接近的其他云服务 | 本项目怎么用 |
 |---|---|---|---|
-| **Workers** | 边缘运行的 V8 isolate，请求级无状态计算 | AWS Lambda / Cloud Functions / Edge Functions | HTTP 路由、预览代理、静态资源 API |
+| **Workers** | 边缘运行的 V8 isolate，请求级无状态计算 | AWS Lambda / Cloud Functions / Edge Functions | 平台路由、预览代理；也为每个发布项目上传独立 Worker |
 | **Durable Objects** | 有唯一 ID、单实例、带持久化存储和 WebSocket 的有状态对象 | 没有完全等价的单一服务；最接近 Actor 模型（Akka / Orleans）、Azure Durable Entities | 每个项目一个 `WorkspaceDO`、一个 `ChatAgent`；单例 `Projects` |
-| **DO SQLite** | 每个 DO 内嵌的事务型 SQLite | 每个分片一份小数据库 / LibSQL / 嵌入式 SQLite | 项目索引、版本、文件缓存、快照指针 |
+| **DO SQLite** | 每个 DO 内嵌的事务型 SQLite | 每个分片一份小数据库 / LibSQL / 嵌入式 SQLite | 项目索引、版本、文件缓存、快照指针、构建产物、发布记录 |
 | **Containers** | 由 DO 调度和持有的长驻容器 | ECS / Cloud Run / Fly Machines | 运行生成的应用，执行 build / shell / 预览服务 |
-| **D1** | 托管 SQLite，面向关系型元数据 | Aurora Serverless / Turso / 托管 SQLite | **v1 未接入**；目标用于跨项目元数据 |
+| **D1** | 托管 SQLite，面向关系型元数据 | Aurora Serverless / Turso / 托管 SQLite | 每个已发布全栈项目一个业务库；平台元数据未接入 |
 | **R2** | S3 兼容对象存储，出站流量免费 | AWS S3 / GCS | **v1 未接入**；目标用于附件、导出包、日志 |
 | **KV** | 边缘最终一致键值存储 | DynamoDB / Redis（但一致性模型不同） | 未使用 |
 | **Queues** | 至少一次投递的消息队列 | SQS / Pub/Sub | 未使用 |
 | **Workflows** | 持久化多步工作流 | Step Functions / Temporal | 未使用 |
-| **Assets** | 静态站点托管 | S3 + CloudFront | 托管 Next.js 静态导出 |
-| **Secrets** | Worker 加密环境变量 | Secrets Manager / SSM Parameter Store | 模型 API Key |
+| **Assets** | 静态站点托管 | S3 + CloudFront | 托管平台 Web；发布项目的静态资源内嵌在各自 Worker |
+| **Workers Domains** | 给 Worker 绑定自定义域名，自动管理 DNS/证书 | 负载均衡 + 证书管理 | `<slug>.atoms-lite.fengyj.me` |
+| **Secrets** | Worker 加密环境变量 | Secrets Manager / SSM Parameter Store | 模型 API Key、Cloudflare 发布 token |
 | **DO Alarms** | DO 内的定时回调 | EventBridge Scheduler / cron | 全栈写入后延迟 10s 触发快照 |
 
 ### 12.2 Durable Objects 特殊在哪
@@ -448,6 +479,8 @@ flowchart LR
   chat["ChatAgent DO<br/>每项目一个"]
   ws["WorkspaceDO<br/>每项目一个"]
   box["Container<br/>生成的应用"]
+  pub["Published Worker<br/>发布后的应用"]
+  d1[("D1<br/>发布后的业务库")]
 
   browser <-->|"WebSocket"| worker
   worker --> projects
@@ -455,6 +488,8 @@ flowchart LR
   worker -->|"/previews/*"| ws
   chat -->|"RPC：工具调用"| ws
   ws --> box
+  ws -->|"发布"| pub
+  pub --- d1
 ```
 
 | 对象 | 为什么是 DO | 不用 DO 会怎样 |
@@ -462,12 +497,14 @@ flowchart LR
 | `ChatAgent` | 会话消息、流式状态、WebSocket、模型循环需要稳定身份 | 需要外部会话表 + 连接网关 + 续传逻辑 |
 | `WorkspaceDO` | 同一项目的写操作必须串行；容器生命周期需要唯一持有者 | 需要分布式锁、容器注册表、额外协调服务 |
 | `Projects` | v1 的项目列表只需要一个单例索引 | 可以直接用 D1；规模大时应该迁移 |
+| `Published Worker` | 发布后独立于平台和容器运行，请求不再经过 WorkspaceDO | 只能靠容器常驻提供公网访问，成本和可靠性都更差 |
 
-### 12.4 为什么 v1 没有用 D1 / R2 / Queues / Workflows
+### 12.4 为什么平台元数据没有用 D1 / R2 / Queues / Workflows
 
 不是这些服务不需要，而是当前规模可以更简单：
 
-- **D1**：单用户、少量项目，`Projects` DO 足够提供列表；D1 的价值在多用户、全局查询和规模化。
+- **D1**：平台侧单用户、少量项目，`Projects` DO 足够提供列表；D1 的价值在多用户、全局查询和规模化。
+  注意：**发布后的全栈应用已经使用 D1**，那是生成应用的业务库，不是平台元数据。
 - **R2**：平台附件和导出还没实现；生成应用内部的用户上传由应用自己写入容器，随快照保留。
 - **Queues / Workflows**：当前 Agent 是单轮工具循环，构建和快照都在请求生命周期内完成；
   引入异步队列会多一套任务状态和重试语义。
@@ -476,8 +513,8 @@ flowchart LR
 代价也明确：
 
 - 单例 `Projects` DO 是热点，首页需要 N 次 DO 读取；
-- DO SQLite 有单对象存储/吞吐上限，不适合放大量二进制；
-- 容器快照不是长期数据库，跨实例恢复应换 D1/R2。
+- DO SQLite 有单对象存储/吞吐上限，不适合放大量二进制（发布产物上限约 12 MiB/版本）；
+- 容器快照不是长期数据库，跨实例恢复应换 D1/R2；发布后的全栈应用已改用 D1。
 
 ### 12.5 常见误区
 
@@ -487,3 +524,5 @@ flowchart LR
 - **“Container 就是 Lambda”**：Container 是长驻的，有磁盘和进程；Lambda 是短时函数。
 - **“R2 是文件系统”**：R2 是对象存储，不适合随机读写、追加写和文件锁。
 - **“D1 可以替代 DO”**：D1 解决全局关系型查询，不提供单对象的串行协调和 WebSocket。
+- **“发布 Worker 就是平台 Worker”**：发布后的应用是独立 Worker（全栈还绑定独立 D1），
+  和 `atoms-lite` 控制面 Worker 分离；删除项目时按 domain → Worker → D1 顺序清理。

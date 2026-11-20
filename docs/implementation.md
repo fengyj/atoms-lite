@@ -1,6 +1,6 @@
 # A/B/C 实现记录（单角色 · 多运行时生成器）
 
-状态：**已实现并部署**（2026-11-19；2026-11-20 文档校对）
+状态：**已实现并部署**（2026-11-19；2026-11-20 文档校对，含版本发布）
 
 ## 1. 范围
 
@@ -10,7 +10,8 @@
 - **三种项目模板、两种运行时**：
   - `static` + **browser**：Web 文件存 DO SQLite，平台直接服务，无容器；依赖通过 esm.sh importmap
   - `react-vite` + container：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui + HashRouter（`src/pages/Index.tsx`）
-  - `fullstack-hono` + container：上面的前端 + Hono + `node:sqlite` 后端
+  - `fullstack-hono` + container：上面的前端 + 共享 Hono API（`server/app.js`）+
+    `node:sqlite`（本地）/ D1（发布）双适配器 + `migrations/*.sql`
   - 旧静态项目仍使用 container 运行环境（兼容）
 - 项目创建时根据需求自动选择模板并持久化
 - 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
@@ -18,16 +19,20 @@
 A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-static 运行时、
 依赖安装与开放 egress。首页不再提供手动技术栈下拉；API 仍保留 `preferredTemplate`
 参数用于调试/兼容。Next.js 已明确不支持（容器实例与构建时间不匹配）。
-D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（快照保留）。
+
+版本发布已接入：项目可固定发布到 Cloudflare Workers + 自定义域名；全栈项目
+同时创建 D1 并应用 `migrations/*.sql`。R2 和平台级 D1 元数据仍未接入；
+预览数据仍存在容器内 SQLite（快照保留），与发布后的 D1 是两套数据库。
 
 ## 2. 组成
 
 | 组件 | 位置 |
 |---|---|
 | ChatAgent | `apps/worker/src/agent.ts`（AIChatAgent + AI SDK tools，每项目 1 个实例） |
-| WorkspaceDO | `apps/worker/src/workspace/do.ts`（每项目 1 个：容器/文件/版本/快照） |
+| WorkspaceDO | `apps/worker/src/workspace/do.ts`（每项目 1 个：容器/文件/版本/快照/发布） |
 | 项目索引 | `apps/worker/src/projects.ts`（`Projects` DO，项目元数据 + 版本摘要） |
 | Workspace 客户端 | `apps/worker/src/workspace/client.ts` |
+| 发布 | WorkspaceDO → Cloudflare Workers / D1 / Workers Domains API |
 | Worker 路由 | `apps/worker/src/index.ts` |
 | 沙箱镜像 | `apps/worker/Dockerfile` + `container/` + `container/templates/*` |
 | 运行时 supervisor | `apps/worker/container/boot.sh`（静态 / Node 单服务） |
@@ -69,6 +74,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - **工作区**：左侧文件树（目录折叠、文件图标、大小），右侧源码查看器
   （行号 + 语法高亮）；选择文件会读取内容，容器项目读取时会启动沙箱
 - **终端**：从消息里的 `exec` / `build` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
+- **版本**：版本列表带「发布 / 重新发布」按钮；已发布版本显示 badge，
+  发布失败保留上一个线上版本，自定义域名失败时显示 workers.dev 警告
 - 对话栏支持拖动调整宽度；双击把手恢复默认值，宽度写入 localStorage
 - 站内图标文件：`app/icon.svg`（favicon）、`app/apple-icon.png`、页内 `BrandMark`；
   生成项目的图标库约定见 `docs/decisions/07-generated-project-icons.md`
@@ -210,10 +217,21 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 预览状态由 `GET /api/projects/:id/preview/status` 探测（`running` / `ready`）；
   只在启动/加载阶段短轮询，就绪后停止。
 - 版本 = git commit（browser 项目为内容哈希）+ `atoms_versions` 行；版本列表在容器停止时仍可读。
+- **版本发布**：`POST /api/projects/:id/publish` 把指定版本发布到 Cloudflare。
+  - 项目级固定目标：6 位 slug、Worker `atoms-lite-<slug>`、D1 `atoms_lite_<slug>`、
+    域名 `<slug>.atoms-lite.fengyj.me`，保存在 `atoms_project_config`。
+  - 构建产物在创建版本时写入 `atoms_build_files`；发布记录写入 `atoms_deployments`，
+    最新 `status=ready` 即当前线上版本。
+  - 全栈：先对 D1 应用目标版本缺失的 `migrations/*.sql`，再上传
+    `.atoms-lite/worker.js`（内嵌 dist 资源，D1 binding 名为 `DB`）。
+  - 迁移只在 D1 已应用 migration 都包含在目标版本中时执行；否则拒绝，
+    避免旧 Worker 配新 schema。
+  - 自定义域名用 `PUT /accounts/:id/workers/domains` 绑定；失败自动降级 workers.dev，
+    原因写入 `domain_error`，不改变部署 `ready` 状态。
 - 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
 - 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
-  （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,preview/*}`；
+  （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,publish,deployments,preview/*}`；
   预览 `/previews/:id/*`。
 - 删除项目会删除索引行，并尽力销毁对应 WorkspaceDO（容器 + DO 存储）
   与 ChatAgent 的会话存储。
@@ -449,7 +467,8 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 发布产物存在 WorkspaceDO 的 `atoms_build_files`，单版本上限约 12 MiB；
   超过后版本不可发布。大应用后续应改为 R2 或 Assets。
 - 平台对话附件未实现（无 UI、无 R2）；生成应用内部的用户上传由生成应用写入容器，
-  随快照保留，不经过平台 R2。D1/R2 是规模化后的存储层。
+  随快照保留，不经过平台 R2。平台级 D1/R2 仍是规模化后的存储层；
+  已发布全栈应用使用独立 D1。
 - **安全边界**：演示版无鉴权，预览 iframe 与主站同源（`allow-same-origin`），
   生成代码必须视为不可信；生产化需要独立预览域 + 访问门禁。
   当前已在 Worker 层拦截 `/previews/:id/.git/*`，并限制 Agent 的 exec 白名单。

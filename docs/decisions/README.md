@@ -24,6 +24,7 @@
 | [06-instance-auto-upgrade](06-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
 | [07-generated-project-icons](07-generated-project-icons.md) | 生成项目的图标库选择与使用约定 |
 | [08-execution-environment-and-agent-tools](08-execution-environment-and-agent-tools.md) | pending/configured、动态工具、运行环境单向切换与迁移、ask_user、subagent |
+| [09-version-publishing](09-version-publishing.md) | 项目级 Worker/D1/域名、构建产物、forward-only migration、发布记录与清理 |
 
 ## 约定
 

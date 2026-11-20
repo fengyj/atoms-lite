@@ -3,9 +3,10 @@
 状态：**v1 设计基线**（2026-11-19；2026-11-20 与实现校对，含版本发布）
 权威类型：`packages/contracts`；本文说明**这些数据存在哪、表怎么建、为什么这么建**。
 
-> **实现状态**：第 4、5、7 节是目标设计（D1 / R2 / Run / Task）。v1 实际只使用 DO SQLite：
+> **实现状态**：第 4、5、7 节是目标设计（D1 / R2 / Run / Task）。平台元数据实际只使用
+> DO SQLite（发布后的全栈应用另用独立 D1）：
 > `Projects` DO 保存项目索引，`WorkspaceDO` 保存版本/文件/快照/runtime/migration；
-> `ChatAgent` 只使用框架 `cf_*` 表。实际字段见 4.1 注、5 节开头注、6.1–6.4。
+> `ChatAgent` 只使用框架 `cf_*` 表。实际字段见 4.1 注、5 节开头注、6.1–6.5。
 > 与代码冲突时以代码和 `docs/implementation.md` 为准。
 
 ---
@@ -14,7 +15,7 @@
 
 | 存储 | 存什么 | 为什么 |
 |---|---|---|
-| **D1（目标，未接入）** | 项目、会话、产物索引、导出记录 | 需要**跨项目**列表与查询；DO 无法全局查询 |
+| **D1（平台元数据目标；发布应用已使用）** | 平台项目、会话、产物索引、导出记录；已发布全栈应用的业务库另建独立 D1 | 需要**跨项目**列表与查询；DO 无法全局查询 |
 | **DO SQLite（Projects）** | v1 项目索引：`id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
 | **DO SQLite（ChatAgent）** | 消息、流、压缩（框架表）；Run/审批/任务为目标设计 | 与会话强相关，写入频繁，要求原子顺序 |
 | **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖、migration、构建产物、发布记录 | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
@@ -56,7 +57,7 @@ erDiagram
 
 ## 3. 约定
 
-> v1 实际表见 6.4；多数表没有 `deleted_at`，删除项目是删索引 + 清理 DO 存储。
+> v1 实际表见 6.4–6.5；多数表没有 `deleted_at`，删除项目是删索引 + 清理 DO 存储。
 
 | 项 | 约定 |
 |---|---|
@@ -69,7 +70,10 @@ erDiagram
 
 ---
 
-## 4. D1 表（目标，未接入）
+## 4. D1 表（平台元数据目标；发布应用已使用 D1）
+
+> 本节描述的是**平台元数据**（项目、会话、产物、导出）的目标 D1 表，仍未接入。
+> 版本发布已经为每个全栈项目创建独立 D1，用于生成应用的业务数据；那不属于本节。
 
 ### 4.1 `atoms_projects`
 
@@ -436,7 +440,7 @@ CREATE TABLE atoms_deployments (
 - 旧版本没有构建产物时 `hasArtifacts = false`，UI 禁用发布。
 - 自定义域名绑定失败不阻断发布：部署仍为 `ready`，URL 降级为
   `https://<worker>.<workers-subdomain>.workers.dev`，原因写入 `domain_error`，UI 显示警告。
-- D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.1）。
+- D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.5）。
 - 删除项目时按 domain → Worker → D1 的顺序删除；Worker 还绑定自定义域名时
   Cloudflare 会拒绝删除脚本。失败只记日志，不阻塞删除。
 
