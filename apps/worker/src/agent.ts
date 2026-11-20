@@ -189,15 +189,21 @@ export class ChatAgent extends AIChatAgent<Env> {
       stopWhen: stepCountIs(maxSteps),
       // 到达单轮步数上限时，不再静默停止：强制模型调用确认卡，
       // 让用户决定是否继续，避免必须手动发送“继续”。
-      prepareStep: ({ stepNumber, steps }) =>
-        configured &&
-        stepNumber >= maxSteps - 1 &&
-        steps.at(-1)?.finishReason === "tool-calls"
+      prepareStep: ({ stepNumber, steps }) => {
+        const last = steps.at(-1);
+        const finished = last?.toolCalls?.some(
+          (call) => call.toolName === "finish",
+        );
+        return configured &&
+          !finished &&
+          stepNumber >= maxSteps - 1 &&
+          last?.finishReason === "tool-calls"
           ? {
               toolChoice: { type: "tool", toolName: "confirm_continue" },
               activeTools: ["confirm_continue"],
             }
-          : {},
+          : {};
+      },
       onFinish: async (finish) => {
         let snapshotOk: boolean | null = null;
         try {
