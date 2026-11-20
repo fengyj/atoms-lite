@@ -188,7 +188,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   刷新或重新进入项目仍可见。
 - **结构化日志**：`[agent.turn.start/finish/abort/error]` 包含
   `projectId`、`requestId`、`continuation`、模板/运行环境、steps、finishReason、
-  token 用量和耗时，便于按项目/回合过滤；流中断恢复使用
+  token 用量和耗时；工具失败时 `[workspace.call.failed]` 也带
+  `projectId` / `requestId`，便于按项目/回合过滤。流中断恢复使用
   `chatStreamStallTimeoutMs` + `chatRecovery.terminalMessage`。
 - **首页精简**：移除角色/技术栈下拉、统计卡和底部「新建项目」卡；技术栈由需求自动推断。
 - **回滚**：先自动保存未提交改动，再用 `git read-tree` 恢复目标树并生成新的 rollback commit/version；

@@ -85,7 +85,8 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
     const projectId = this.name;
-    const ws = new WorkspaceClient(this.env, projectId);
+    const requestId = options?.requestId ?? "unknown";
+    const ws = new WorkspaceClient(this.env, projectId, { requestId });
     const meta = await ws.meta().catch(() => null);
     const configured = meta?.configured !== false;
     const template = meta?.template ?? "static";
@@ -167,7 +168,6 @@ export class ChatAgent extends AIChatAgent<Env> {
       : template === "static"
         ? MAX_AGENT_STEPS
         : MAX_AGENT_STEPS_BUILD;
-    const requestId = options?.requestId ?? "unknown";
     const turnLog = {
       projectId,
       requestId,

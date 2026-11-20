@@ -37,16 +37,28 @@ export type BuildResult = {
  */
 export class WorkspaceClient {
   private readonly stub: DurableObjectStub;
+  private readonly projectId: string;
+  private readonly requestId?: string;
 
-  constructor(env: Env, name = "demo") {
+  constructor(
+    env: Env,
+    name = "demo",
+    trace?: { requestId?: string },
+  ) {
     const id = env.WORKSPACE.idFromName(name);
     this.stub = env.WORKSPACE.get(id);
+    this.projectId = name;
+    this.requestId = trace?.requestId;
   }
 
   private async call<T>(path: string, body?: unknown): Promise<T> {
     const res = await this.stub.fetch(`https://workspace${path}`, {
       method: body === undefined ? "GET" : "POST",
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-atoms-project-id": this.projectId,
+        ...(this.requestId ? { "x-atoms-request-id": this.requestId } : {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
@@ -63,6 +75,16 @@ export class WorkspaceClient {
         data && typeof data === "object" && "error" in data
           ? String((data as { error: unknown }).error)
           : `workspace ${path} failed (${res.status})`;
+      console.error(
+        "[workspace.call.failed]",
+        JSON.stringify({
+          projectId: this.projectId,
+          requestId: this.requestId ?? null,
+          path,
+          status: res.status,
+          error: message.slice(0, 300),
+        }),
+      );
       throw new Error(message);
     }
 
