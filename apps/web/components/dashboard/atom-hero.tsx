@@ -112,9 +112,8 @@ export function AtomHero() {
               rx={INNER_ORBIT.rx}
               ry={INNER_ORBIT.ry}
               stroke="currentColor"
-              strokeOpacity="0.28"
+              strokeOpacity="0.3"
               strokeWidth="1.2"
-              strokeDasharray="4 9"
             />
 
             {!reduced ? (
@@ -184,18 +183,6 @@ export function AtomHero() {
               </g>
             ) : null}
 
-          </g>
-
-          <g transform="rotate(96 360 360)">
-            <ellipse
-              cx="360"
-              cy="360"
-              rx={ORBIT.rx}
-              ry={ORBIT.ry}
-              stroke="currentColor"
-              strokeOpacity="0.18"
-              strokeWidth="1.1"
-            />
           </g>
 
           <g className="atom-nucleus">
