@@ -139,6 +139,11 @@
   ::selection {
     @apply bg-primary/25;
   }
+
+  input,
+  textarea {
+    caret-color: var(--primary);
+  }
 }
 
 /* 细滚动条，避免面板里出现系统粗条 */

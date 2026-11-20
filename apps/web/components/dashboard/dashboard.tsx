@@ -12,7 +12,6 @@ import {
   LayoutGrid,
   Loader2,
   MoreHorizontal,
-  Paperclip,
   Pencil,
   Plus,
   Settings,
@@ -248,20 +247,7 @@ export function Dashboard() {
         <main className="relative isolate mx-auto w-full max-w-5xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
           <AtomHero />
           <div className="max-w-2xl">
-            <div className="mb-5 flex items-center gap-3">
-              <span className="grid size-11 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-                <BrandMark className="size-6" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold tracking-tight">
-                  atoms-lite
-                </p>
-                <p className="mt-0.5 text-2xs font-medium tracking-widest text-primary uppercase">
-                  Build with words
-                </p>
-              </div>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h1 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
               把一个想法变成可运行的应用
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
@@ -270,7 +256,7 @@ export function Dashboard() {
             </p>
           </div>
 
-          <div className="mt-7 rounded-xl border border-border bg-card p-3 shadow-sm">
+          <div className="mt-7 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
             <Textarea
               ref={textareaRef}
               value={prompt}
@@ -285,22 +271,10 @@ export function Dashboard() {
               className="min-h-28 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
             />
             <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-2.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled
-                className="gap-1.5"
-                title="附件功能即将开放"
-              >
-                <Paperclip className="size-3.5" />
-                附件
-              </Button>
-              <span className="ml-auto hidden text-2xs text-muted-foreground sm:inline">
-                ⌘ / Ctrl + Enter 发送
-              </span>
+              <span className="text-2xs text-muted-foreground">⌘ / Ctrl + Enter 发送</span>
               <Button
                 size="sm"
-                className="gap-1.5"
+                className="ml-auto gap-1.5"
                 disabled={!prompt.trim() || creating}
                 onClick={() => void submit(prompt)}
               >
@@ -312,6 +286,14 @@ export function Dashboard() {
                 {creating ? "创建中…" : "开始生成"}
               </Button>
             </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+            <span>描述需求</span>
+            <span aria-hidden="true">→</span>
+            <span>自动生成与预览</span>
+            <span aria-hidden="true">→</span>
+            <span>保存可回滚版本</span>
           </div>
 
           {createError ? (
@@ -340,7 +322,7 @@ export function Dashboard() {
           <section id="projects" className="mt-10 scroll-mt-20">
             <div className="flex items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold tracking-tight">
+                <h2 className="text-balance text-base font-semibold tracking-tight">
                   我的项目
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -363,8 +345,17 @@ export function Dashboard() {
                 />
               ))}
 
+              {projects.loading && list.length === 0
+                ? [0, 1].map((index) => (
+                    <div
+                      key={index}
+                      className="h-[104px] animate-pulse rounded-xl border border-border bg-card/60"
+                    />
+                  ))
+                : null}
+
               {list.length === 0 && !projects.loading ? (
-                <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-6 text-center">
+                <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-6 text-center md:col-span-2">
                   <FolderKanban className="size-5 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">
                     还没有项目，输入一个需求创建第一个。
@@ -483,7 +474,7 @@ function ProjectCard({
   const version = project.currentVersion;
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/50">
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-xl hover:shadow-black/20">
       <a href={`/sessions/${encodeURIComponent(project.id)}`} className="block">
         <div className="flex items-start gap-3 p-4 pr-10">
           <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">

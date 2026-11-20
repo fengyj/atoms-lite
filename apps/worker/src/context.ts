@@ -121,36 +121,42 @@ export function renderRuntimeContext(ctx: RuntimeContext): string {
   } else {
     lines.push("migration: none");
   }
-  lines.push(`capabilities: ${ctx.capabilities.join(", ")}`);
-  lines.push("</runtime_context>");
   if (ctx.selection) {
     const selection = ctx.selection;
+    // 选中元素并入 runtime_context，避免在用户消息后追加独立标签。
     lines.push(
-      "<selected_element>",
-      `selector: ${selection.selector}`,
-      `tag: ${selection.tag}`,
-      ...(selection.id ? [`id: ${selection.id}`] : []),
+      "selection: user-selected element",
+      `selection_selector: ${selection.selector}`,
+      `selection_tag: ${selection.tag}`,
+      ...(selection.id ? [`selection_id: ${selection.id}`] : []),
       ...(selection.classes?.length
-        ? [`classes: ${selection.classes.join(" ")}`]
+        ? [`selection_classes: ${selection.classes.join(" ")}`]
         : []),
       ...(selection.text
-        ? [`text: ${selection.text.slice(0, 300)}`]
+        ? [`selection_text: ${selection.text.slice(0, 300)}`]
         : []),
       ...(selection.styles
         ? [
-            `styles: ${Object.entries(selection.styles)
+            `selection_styles: ${Object.entries(selection.styles)
               .slice(0, 20)
               .map(([key, value]) => `${key}=${String(value).slice(0, 100)}`)
               .join("; ")}`,
           ]
         : []),
       ...(selection.outerHTML
-        ? [`outerHTML: ${selection.outerHTML.slice(0, 3000)}`]
+        ? [
+            `selection_html: ${selection.outerHTML
+              .slice(0, 3000)
+              .replace(/<\/runtime_context>/gi, "&lt;/runtime_context&gt;")}`,
+          ]
         : []),
-      ...(selection.url ? [`page: ${selection.url}`] : []),
-      "</selected_element>",
+      ...(selection.url ? [`selection_page: ${selection.url}`] : []),
     );
+  } else {
+    lines.push("selection: none");
   }
+  lines.push(`capabilities: ${ctx.capabilities.join(", ")}`);
+  lines.push("</runtime_context>");
   return lines.join("\n");
 }
 

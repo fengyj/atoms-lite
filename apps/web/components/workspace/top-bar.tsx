@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronLeft, Cpu, Download } from "lucide-react";
+import { ChevronLeft, Cpu } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,6 +103,8 @@ export function TopBar({
 
       <Badge
         variant="secondary"
+        role="status"
+        aria-live="polite"
         className="hidden gap-1.5 rounded-full font-normal whitespace-nowrap sm:inline-flex"
       >
         <span className={cn("size-1.5 rounded-full", run.dot)} />
@@ -112,13 +114,15 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-1.5">
         {configured && runtime !== "browser" ? (
           <>
-            <Badge
-              variant="outline"
-              className="hidden font-mono text-3xs font-normal sm:inline-flex"
-              title="当前容器实例"
-            >
-              {instanceTier}
-            </Badge>
+            {instanceTier !== "basic" ? (
+              <Badge
+                variant="outline"
+                className="hidden font-mono text-3xs font-normal sm:inline-flex"
+                title="当前容器实例"
+              >
+                {instanceTier}
+              </Badge>
+            ) : null}
             {instanceTier !== "standard-2" ? (
               <Button
                 variant="ghost"
@@ -172,16 +176,6 @@ export function TopBar({
             {versionNote}
           </span>
         ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="hidden gap-1.5 sm:inline-flex"
-          disabled
-          title="导出功能即将开放"
-        >
-          <Download className="size-3.5" />
-          导出
-        </Button>
       </div>
       <Dialog open={confirmUpgrade} onOpenChange={setConfirmUpgrade}>
         <DialogContent>

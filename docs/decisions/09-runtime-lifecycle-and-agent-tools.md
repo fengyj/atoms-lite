@@ -119,7 +119,8 @@ browser < container/basic < container/standard-1 < container/standard-2
   text、outerHTML、关键 computed styles、位置和页面 URL。
 - 通过 `sendMessage(..., { body: { selection } })` 作为请求上下文发送；
   不写入消息正文，也不持久化到历史。
-- `onChatMessage` 把 `<selected_element>` 附到模型上下文，提示词要求优先局部修改。
+- `onChatMessage` 把 selection 字段并入同一份 `<runtime_context>`（`selection_*` 键），
+  提示词要求优先局部修改；不再追加独立的 `<selected_element>` 标签。
 - 本地开发时 Web 与 Worker 不同源，选择器会提示无法读取 DOM；生产同源可用。
 - 这是 Live Mode 的轻量替代：先做「选中 + 对话修改」，不做三变体热替换。
 
