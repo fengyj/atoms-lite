@@ -68,7 +68,7 @@ export function AtomHero() {
     <div
       ref={rootRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+      className="atom-hero pointer-events-none absolute inset-0 -z-10 overflow-hidden"
     >
       <div className="atom-grid absolute inset-0" />
       <div className="atom-halo" />
@@ -112,9 +112,9 @@ export function AtomHero() {
               rx={INNER_ORBIT.rx}
               ry={INNER_ORBIT.ry}
               stroke="currentColor"
-              strokeOpacity="0.16"
-              strokeWidth="1.1"
-              strokeDasharray="2 12"
+              strokeOpacity="0.28"
+              strokeWidth="1.2"
+              strokeDasharray="4 9"
             />
 
             {!reduced ? (
@@ -153,10 +153,6 @@ export function AtomHero() {
               </>
             ) : null}
 
-            <g className="text-success">
-              <circle cx="660" cy="360" r="14" fill="currentColor" opacity="0.14" />
-              <circle cx="660" cy="360" r="5.5" fill="currentColor" />
-            </g>
           </g>
 
           <g transform="rotate(34 360 360)">
@@ -188,10 +184,6 @@ export function AtomHero() {
               </g>
             ) : null}
 
-            <g className="text-chart-4">
-              <circle cx="60" cy="360" r="13" fill="currentColor" opacity="0.14" />
-              <circle cx="60" cy="360" r="5" fill="currentColor" />
-            </g>
           </g>
 
           <g transform="rotate(96 360 360)">

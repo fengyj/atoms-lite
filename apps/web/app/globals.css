@@ -179,6 +179,12 @@
  * 首页原子背景：轨道缓慢旋转，粒子点阵从中心向右上淡出
  * --------------------------------------------------------------- */
 
+/* 右侧不再是硬切：背景层在容器边缘淡出，保留 bleed 但不出现直线截断。 */
+.atom-hero {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, black 8rem);
+  mask-image: linear-gradient(to left, transparent 0, black 8rem);
+}
+
 .atom-grid {
   background-image: radial-gradient(
     circle,
