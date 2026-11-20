@@ -5,6 +5,7 @@
 
 > 本文描述目标架构。当前 v1 实际使用 **Projects DO + ChatAgent DO + WorkspaceDO + Container**，
 > **D1 / R2 / Queues / 多角色尚未接入**；实现细节与验证记录以 `docs/implementation.md` 为准。
+> 不熟悉 Cloudflare 的读者可以先看第 12 节「Cloudflare 服务说明」，尤其是 Durable Objects。
 > 与 `docs/atoms-lite-需求与设计.md` 第 8 章（总体架构）冲突时，以本文为准。
 
 ---
@@ -368,3 +369,117 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 | 成本控制 | 单次约 40k tokens（单文件基线），需 maxSteps + 预算上限 |
 | 附件 API | 未实现；当前没有 R2 接入 |
 | D1 / R2 / Queues | 目标设计，v1 未接入 |
+
+---
+
+## 12. Cloudflare 服务说明
+
+这一节给不熟悉 Cloudflare 的读者做对照。重点解释 **Durable Objects（DO）**：
+它是这套架构里最不像传统云服务的部件，也是 `ChatAgent`、`WorkspaceDO`、`Projects` 的基础。
+
+### 12.1 一张表看懂
+
+| Cloudflare 服务 | 它是什么 | 最接近的其他云服务 | 本项目怎么用 |
+|---|---|---|---|
+| **Workers** | 边缘运行的 V8 isolate，请求级无状态计算 | AWS Lambda / Cloud Functions / Edge Functions | HTTP 路由、预览代理、静态资源 API |
+| **Durable Objects** | 有唯一 ID、单实例、带持久化存储和 WebSocket 的有状态对象 | 没有完全等价的单一服务；最接近 Actor 模型（Akka / Orleans）、Azure Durable Entities | 每个项目一个 `WorkspaceDO`、一个 `ChatAgent`；单例 `Projects` |
+| **DO SQLite** | 每个 DO 内嵌的事务型 SQLite | 每个分片一份小数据库 / LibSQL / 嵌入式 SQLite | 项目索引、版本、文件缓存、快照指针 |
+| **Containers** | 由 DO 调度和持有的长驻容器 | ECS / Cloud Run / Fly Machines | 运行生成的应用，执行 build / shell / 预览服务 |
+| **D1** | 托管 SQLite，面向关系型元数据 | Aurora Serverless / Turso / 托管 SQLite | **v1 未接入**；目标用于跨项目元数据 |
+| **R2** | S3 兼容对象存储，出站流量免费 | AWS S3 / GCS | **v1 未接入**；目标用于附件、导出包、日志 |
+| **KV** | 边缘最终一致键值存储 | DynamoDB / Redis（但一致性模型不同） | 未使用 |
+| **Queues** | 至少一次投递的消息队列 | SQS / Pub/Sub | 未使用 |
+| **Workflows** | 持久化多步工作流 | Step Functions / Temporal | 未使用 |
+| **Assets** | 静态站点托管 | S3 + CloudFront | 托管 Next.js 静态导出 |
+| **Secrets** | Worker 加密环境变量 | Secrets Manager / SSM Parameter Store | 模型 API Key |
+| **DO Alarms** | DO 内的定时回调 | EventBridge Scheduler / cron | 全栈写入后延迟 10s 触发快照 |
+
+### 12.2 Durable Objects 特殊在哪
+
+传统云服务通常把「计算、状态、锁、连接、定时任务」拆成不同产品：
+
+```text
+Lambda + Redis（锁/状态） + RDS（数据） + API Gateway WebSocket + SQS + Cron
+```
+
+DO 把这些收进一个原语：
+
+```text
+一个 ID
+  ├─ 单实例、单线程执行
+  ├─ 内嵌事务型 SQLite
+  ├─ WebSocket 连接与休眠
+  ├─ Alarms 定时回调
+  ├─ RPC 调用其他 DO
+  └─ 可绑定一个 Container
+```
+
+关键特性：
+
+- **按 ID 路由到唯一实例**：`idFromName(projectId)` 保证同一个项目永远落到同一个 DO。
+  不需要外部服务做服务发现或一致性哈希。
+- **单线程 + 强一致**：同一个 DO 内的请求串行执行，天然适合做「单写者」。
+  本项目用它把同一项目的工具调用、版本创建、checkout 串行化，避免并发写 git。
+- **状态和计算在一起**：`WorkspaceDO` 既保存版本/快照指针，又持有容器；
+  不需要「先查数据库，再调另一个服务操作容器」的分布式协调。
+- **WebSocket 可休眠**：`ChatAgent` 可以保持会话连接，空闲时休眠，消息到达再唤醒；
+  比「API Gateway WebSocket + 外部会话表」少一层状态同步。
+- **Alarms**：可以在未来某个时间点唤醒自己，本项目用它做全栈写入后的延迟快照。
+- **RPC**：`ChatAgent` 可以直接调用 `WorkspaceDO` 的工具方法，不需要经过公网。
+
+它**不是**什么：
+
+- 不是数据库：DO SQLite 是每个对象内嵌的库，不是全局可查询的数据库。
+- 不是容器：Container 是被 DO 调度和持有的执行环境，DO 本身不跑生成代码。
+- 不是万能全局锁：单对象吞吐有上限；项目多了要按项目/会话分片，不能把所有项目塞进一个 DO。
+- 不是 Lambda：DO 有稳定身份和持久状态，生命周期比一次请求长。
+
+### 12.3 本项目里的对象划分
+
+```mermaid
+flowchart LR
+  browser["浏览器"]
+  worker["Worker<br/>路由 / 预览代理 / Assets"]
+  projects["Projects DO<br/>单例项目索引"]
+  chat["ChatAgent DO<br/>每项目一个"]
+  ws["WorkspaceDO<br/>每项目一个"]
+  box["Container<br/>生成的应用"]
+
+  browser <-->|"WebSocket"| worker
+  worker --> projects
+  worker --> chat
+  worker -->|"/previews/*"| ws
+  chat -->|"RPC：工具调用"| ws
+  ws --> box
+```
+
+| 对象 | 为什么是 DO | 不用 DO 会怎样 |
+|---|---|---|
+| `ChatAgent` | 会话消息、流式状态、WebSocket、模型循环需要稳定身份 | 需要外部会话表 + 连接网关 + 续传逻辑 |
+| `WorkspaceDO` | 同一项目的写操作必须串行；容器生命周期需要唯一持有者 | 需要分布式锁、容器注册表、额外协调服务 |
+| `Projects` | v1 的项目列表只需要一个单例索引 | 可以直接用 D1；规模大时应该迁移 |
+
+### 12.4 为什么 v1 没有用 D1 / R2 / Queues / Workflows
+
+不是这些服务不需要，而是当前规模可以更简单：
+
+- **D1**：单用户、少量项目，`Projects` DO 足够提供列表；D1 的价值在多用户、全局查询和规模化。
+- **R2**：平台附件和导出还没实现；生成应用内部的用户上传由应用自己写入容器，随快照保留。
+- **Queues / Workflows**：当前 Agent 是单轮工具循环，构建和快照都在请求生命周期内完成；
+  引入异步队列会多一套任务状态和重试语义。
+- **KV**：没有需要最终一致、超低延迟的全局配置。
+
+代价也明确：
+
+- 单例 `Projects` DO 是热点，首页需要 N 次 DO 读取；
+- DO SQLite 有单对象存储/吞吐上限，不适合放大量二进制；
+- 容器快照不是长期数据库，跨实例恢复应换 D1/R2。
+
+### 12.5 常见误区
+
+- **“DO 就是数据库”**：DO 是带状态的计算对象，SQLite 只是它的一种存储能力。
+- **“DO 就是容器”**：容器是 DO 管理的执行环境；DO 负责身份、状态和协调。
+- **“Worker 是常驻服务器”**：Worker 是请求级 isolate，不能依赖进程内全局状态。
+- **“Container 就是 Lambda”**：Container 是长驻的，有磁盘和进程；Lambda 是短时函数。
+- **“R2 是文件系统”**：R2 是对象存储，不适合随机读写、追加写和文件锁。
+- **“D1 可以替代 DO”**：D1 解决全局关系型查询，不提供单对象的串行协调和 WebSocket。
