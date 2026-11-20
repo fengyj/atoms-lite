@@ -181,18 +181,21 @@ export function Workspace({ projectId }: { projectId: string }) {
   const userMessageCount = messages.filter(
     (message) => message.role === "user"
   ).length;
+  const projectNameSource = project.data?.nameSource;
   const autoNameRefreshCount = useRef(0);
   useEffect(() => {
     if (busy || userMessageCount === 0) return;
     if (userMessageCount === autoNameRefreshCount.current) return;
     autoNameRefreshCount.current = userMessageCount;
-    const timers = [1500, 5000].map((ms) =>
+    if (projectNameSource && projectNameSource !== "derived") return;
+    // 命名是异步的：多刷几次，拿到 AI 标题后 nameSource 会变成 ai，effect 会清理剩余定时器。
+    const timers = [2000, 6000, 12000, 18000].map((ms) =>
       window.setTimeout(() => project.refresh(), ms)
     );
     return () => {
       for (const timer of timers) window.clearTimeout(timer);
     };
-  }, [busy, userMessageCount, project.refresh]);
+  }, [busy, userMessageCount, projectNameSource, project.refresh]);
 
   const currentVersion =
     versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
