@@ -615,7 +615,7 @@ export class Workspace extends DurableObject<Env> {
    * 旧工作区继续用 `.atoms/`，新工作区用 `.atoms-lite/`，
    * 避免在旧项目里创建未被其 .gitignore 覆盖的新目录。
    */
-  private async signalPreviewRestart(): Promise<void> {
+  private async signalPreviewRestart(): Promise<string> {
     const newer = await this.run([
       "test",
       "-f",
@@ -630,7 +630,9 @@ export class Workspace extends DurableObject<Env> {
       ]);
       if (older.exitCode === 0) dir = ".atoms";
     }
-    await this.sh(`mkdir -p ${WORKSPACE}/${dir} && touch ${WORKSPACE}/${dir}/restart`);
+    const signalPath = `${WORKSPACE}/${dir}/restart`;
+    await this.sh(`mkdir -p ${WORKSPACE}/${dir} && touch ${signalPath}`);
+    return signalPath;
   }
 
   private cachedFiles(): FileEntry[] {

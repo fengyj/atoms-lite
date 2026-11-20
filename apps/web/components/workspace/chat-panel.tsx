@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import {
   Crosshair,
@@ -43,8 +44,10 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
+  PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -206,80 +209,217 @@ export function ChatPanel({
         </Conversation>
 
         <div className="border-t border-border p-3">
-          {selection ? (
-            <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1.5 text-2xs">
-              <Crosshair className="size-3 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1 truncate font-mono">
-                已选中 {selection.selector}
-              </span>
-              {selection.text ? (
-                <span className="hidden min-w-0 max-w-32 truncate text-muted-foreground sm:block">
-                  {selection.text}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                aria-label="取消选中元素"
-                onClick={onClearSelection}
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ) : null}
-          <PromptInput onSubmit={handleSubmit}>
-            <PromptInputBody>
-              <PromptInputTextarea
-                placeholder={
-                  selection
-                    ? "描述想怎么改选中的元素…"
-                    : "描述你想做的应用，或粘贴需求…"
-                }
-              />
-            </PromptInputBody>
-            <PromptInputFooter className="justify-between">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5 text-xs text-muted-foreground"
-                    disabled={busy}
-                  >
-                    <Slash className="size-3.5" />
-                    命令
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  {COMMANDS.map((command) => (
-                    <DropdownMenuItem
-                      key={command.name}
-                      className="flex flex-col items-start gap-0.5"
-                      onSelect={() => onSubmitText(command.prompt)}
-                    >
-                      <span className="flex w-full items-center gap-2">
-                        <code className="font-mono text-2xs text-primary">
-                          {command.name}
-                        </code>
-                        <span className="text-xs">{command.label}</span>
-                      </span>
-                      <span className="text-3xs text-muted-foreground">
-                        {command.description}
-                      </span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <PromptInputSubmit status={busy ? "streaming" : status} />
-            </PromptInputFooter>
-          </PromptInput>
+          <PromptInputProvider>
+            <PromptComposer
+              busy={busy}
+              status={status}
+              selection={selection}
+              onClearSelection={onClearSelection}
+              submit={handleSubmit}
+              onSubmitText={onSubmitText}
+            />
+          </PromptInputProvider>
         </div>
       </div>
     </Panel>
   );
 }
 
+function PromptComposer({
+  busy,
+  status,
+  selection,
+  onClearSelection,
+  submit,
+  onSubmitText,
+}: {
+  busy: boolean;
+  status: ChatStatus;
+  selection?: ElementSelection | null;
+  onClearSelection?: () => void;
+  submit: (message: { text: string }) => void;
+  onSubmitText: (text: string) => void;
+}) {
+  const { textInput } = usePromptInputController();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  const value = textInput.value.trim();
+  const menuOpen =
+    !dismissed &&
+    !busy &&
+    value.startsWith("/") &&
+    !value.includes(" ") &&
+    !value.includes("\n");
+  const matches = menuOpen
+    ? COMMANDS.filter(
+        (command) =>
+          command.name.startsWith(value.toLowerCase()) ||
+          (value.length > 1 && command.label.includes(value.slice(1)))
+      )
+    : [];
+  const active = Math.min(activeIndex, Math.max(0, matches.length - 1));
+
+  const runCommand = (command: (typeof COMMANDS)[number]) => {
+    if (busy) return;
+    textInput.clear();
+    setDismissed(true);
+    setActiveIndex(0);
+    onSubmitText(command.prompt);
+  };
+
+  return (
+    <div className="relative">
+      {menuOpen ? (
+        <div
+          role="listbox"
+          aria-label="命令"
+          className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-lg border border-border bg-popover shadow-xl shadow-black/30"
+        >
+          <div className="border-b border-border px-3 py-1.5 text-3xs text-muted-foreground">
+            命令
+          </div>
+          {matches.length === 0 ? (
+            <p className="px-3 py-2.5 text-xs text-muted-foreground">
+              没有匹配的命令
+            </p>
+          ) : (
+            matches.map((command, index) => (
+              <button
+                key={command.name}
+                type="button"
+                role="option"
+                aria-selected={index === active}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => runCommand(command)}
+                className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${
+                  index === active ? "bg-accent" : ""
+                }`}
+              >
+                <span className="flex w-full items-center gap-2">
+                  <code className="font-mono text-2xs text-primary">
+                    {command.name}
+                  </code>
+                  <span className="text-xs">{command.label}</span>
+                </span>
+                <span className="text-3xs text-muted-foreground">
+                  {command.description}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {selection ? (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1.5 text-2xs">
+          <Crosshair className="size-3 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate font-mono">
+            已选中 {selection.selector}
+          </span>
+          {selection.text ? (
+            <span className="hidden min-w-0 max-w-32 truncate text-muted-foreground sm:block">
+              {selection.text}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            aria-label="取消选中元素"
+            onClick={onClearSelection}
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ) : null}
+
+      <PromptInput onSubmit={submit}>
+        <PromptInputBody>
+          <PromptInputTextarea
+            placeholder={
+              selection
+                ? "描述想怎么改选中的元素…"
+                : "描述你想做的应用，输入 / 查看命令…"
+            }
+            onChange={() => {
+              setDismissed(false);
+              setActiveIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (menuOpen && matches.length > 0) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActiveIndex((index) => (index + 1) % matches.length);
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveIndex(
+                    (index) => (index - 1 + matches.length) % matches.length
+                  );
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDismissed(true);
+                  return;
+                }
+                if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+                  event.preventDefault();
+                  const selected = matches[active];
+                  if (selected) runCommand(selected);
+                  return;
+                }
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+        </PromptInputBody>
+        <PromptInputFooter className="justify-between">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-xs text-muted-foreground"
+                disabled={busy}
+              >
+                <Slash className="size-3.5" />
+                命令
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              {COMMANDS.map((command) => (
+                <DropdownMenuItem
+                  key={command.name}
+                  className="flex flex-col items-start gap-0.5"
+                  onSelect={() => runCommand(command)}
+                >
+                  <span className="flex w-full items-center gap-2">
+                    <code className="font-mono text-2xs text-primary">
+                      {command.name}
+                    </code>
+                    <span className="text-xs">{command.label}</span>
+                  </span>
+                  <span className="text-3xs text-muted-foreground">
+                    {command.description}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <PromptInputSubmit status={busy ? "streaming" : status} />
+        </PromptInputFooter>
+      </PromptInput>
+    </div>
+  );
+}
 
 /** 工具卡片只展示关键信息，避免把整个文件内容铺满对话 */
 function truncate(value: string, max = 1200) {
