@@ -251,8 +251,8 @@ export function Dashboard() {
               把一个想法变成可运行的应用
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话。
-              技术栈会根据需求自动选择，不需要你理解底层运行环境。
+              每个需求都会创建一个独立项目：自己的文件、预览、历史版本和对话。
+              不用选技术栈，直接描述你想要的应用就行。
             </p>
           </div>
 
