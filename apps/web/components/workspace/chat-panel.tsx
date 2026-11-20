@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import {
   Crosshair,
@@ -140,8 +140,15 @@ export function ChatPanel({
       return;
     }
     if (!trimmed) return;
-    const command = COMMANDS.find((item) => item.name === trimmed);
-    onSubmitText(command?.prompt ?? trimmed);
+    const [name, ...rest] = trimmed.split(/\s+/);
+    const command = COMMANDS.find((item) => item.name === name);
+    if (!command) {
+      onSubmitText(trimmed);
+      return;
+    }
+    // 命令后面的文字直接追加到指令后，不加额外标签。
+    const extra = rest.join(" ").trim();
+    onSubmitText(extra ? `${command.prompt}\n\n${extra}` : command.prompt);
   };
 
   return (
@@ -216,7 +223,6 @@ export function ChatPanel({
               selection={selection}
               onClearSelection={onClearSelection}
               submit={handleSubmit}
-              onSubmitText={onSubmitText}
             />
           </PromptInputProvider>
         </div>
@@ -231,16 +237,15 @@ function PromptComposer({
   selection,
   onClearSelection,
   submit,
-  onSubmitText,
 }: {
   busy: boolean;
   status: ChatStatus;
   selection?: ElementSelection | null;
   onClearSelection?: () => void;
   submit: (message: { text: string }) => void;
-  onSubmitText: (text: string) => void;
 }) {
   const { textInput } = usePromptInputController();
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
 
@@ -260,24 +265,28 @@ function PromptComposer({
     : [];
   const active = Math.min(activeIndex, Math.max(0, matches.length - 1));
 
-  const runCommand = (command: (typeof COMMANDS)[number]) => {
+  const insertCommand = (command: (typeof COMMANDS)[number]) => {
     if (busy) return;
-    textInput.clear();
-    setDismissed(true);
+    // 只插入命令名，给用户补充范围/约束的机会；再按一次回车才执行。
+    textInput.setInput(`${command.name} `);
+    setDismissed(false);
     setActiveIndex(0);
-    onSubmitText(command.prompt);
+    requestAnimationFrame(() => {
+      wrapRef.current?.querySelector("textarea")?.focus();
+    });
   };
 
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       {menuOpen ? (
         <div
           role="listbox"
           aria-label="命令"
           className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-lg border border-border bg-popover shadow-xl shadow-black/30"
         >
-          <div className="border-b border-border px-3 py-1.5 text-3xs text-muted-foreground">
-            命令
+          <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-3xs text-muted-foreground">
+            <span>命令</span>
+            <span>选中后可继续输入</span>
           </div>
           {matches.length === 0 ? (
             <p className="px-3 py-2.5 text-xs text-muted-foreground">
@@ -292,7 +301,7 @@ function PromptComposer({
                 aria-selected={index === active}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => runCommand(command)}
+                onClick={() => insertCommand(command)}
                 className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${
                   index === active ? "bg-accent" : ""
                 }`}
@@ -369,7 +378,7 @@ function PromptComposer({
                 if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
                   event.preventDefault();
                   const selected = matches[active];
-                  if (selected) runCommand(selected);
+                  if (selected) insertCommand(selected);
                   return;
                 }
               }
@@ -399,7 +408,7 @@ function PromptComposer({
                 <DropdownMenuItem
                   key={command.name}
                   className="flex flex-col items-start gap-0.5"
-                  onSelect={() => runCommand(command)}
+                  onSelect={() => insertCommand(command)}
                 >
                   <span className="flex w-full items-center gap-2">
                     <code className="font-mono text-2xs text-primary">

@@ -1592,6 +1592,22 @@ export class Workspace extends DurableObject<Env> {
     await this.sh(`node -e 'const fs=require("fs");for(const pid of fs.readdirSync("/proc")){if(!/^[0-9]+$/.test(pid)||pid==="1"||Number(pid)===process.pid)continue;let cmd="";let cwd="";try{cmd=fs.readFileSync("/proc/"+pid+"/cmdline","utf8").replace(/\\0/g," ");cwd=fs.readlinkSync("/proc/"+pid+"/cwd")}catch{continue}if(cwd.startsWith("/workspace")&&cmd.includes("node")){try{process.kill(Number(pid),"SIGKILL")}catch{}}}'`);
   }
 
+  /**
+   * 按运行时类型刷新预览：
+   * - static（含 react-vite 的 dist）：server 每次请求都读磁盘，build 后不需要重启进程。
+   * - node（全栈）：长驻进程，必须重启才能加载新的服务端代码。
+   * 旧快照没有 runtime.json 时按 static 处理。
+   */
+  private async reloadPreview(): Promise<void> {
+    if (this.runtime() === "browser") return;
+    const config = await this.runtimeConfig();
+    if (config.kind === "node") {
+      await this.restartPreview();
+      return;
+    }
+    await this.ensurePreview();
+  }
+
   /** 让 supervisor 重新读取 runtime.json；用于 seed、build 和 start_preview。 */
   private async restartPreview(): Promise<void> {
     const pid1 = await this.pid1Command();
@@ -1892,7 +1908,7 @@ export class Workspace extends DurableObject<Env> {
 
       this.ensurePromise = null;
       await this.ensure();
-      await this.restartPreview();
+      await this.reloadPreview();
       return { tier: next, upgraded: true };
     });
   }
@@ -2129,7 +2145,7 @@ export class Workspace extends DurableObject<Env> {
 
       await this.syncFilesCacheSafe();
       if (!buildError) {
-        await this.restartPreview();
+        await this.reloadPreview();
       }
       const snapshot = await this.takeSnapshot();
       if (buildError || !snapshot.ok) {
@@ -2851,7 +2867,7 @@ export class Workspace extends DurableObject<Env> {
             url: `/previews/${this.projectId}/`,
           });
         }
-        await this.restartPreview();
+        await this.reloadPreview();
         return Response.json({
           status: "ready",
           url: `/previews/${this.projectId}/`,

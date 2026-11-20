@@ -118,6 +118,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   build 与版本/checkout 共用串行队列，避免并发写 `dist`。
 - **回滚**：checkout 先删除 `dist` 再构建；构建失败返回 `buildError` 且不重启预览。
 - **预览就绪**：`/healthz` 与根页面都返回 200 才算 ready，缺 dist 不再假装就绪。
+- **start_preview**：只负责「服务可用 + 让新产物生效」。static / react-vite 构建后由静态 server
+  直接读磁盘，刷新 iframe 即可；只有 `kind: node` 的全栈项目才重启长驻进程。
 - **全栈数据**：SQLite 存在 `/data/app.db`，不在 `/workspace`，代码回滚不会删数据。
   用户通过预览代理写数据（POST/PATCH/DELETE）后，DO 设置 10s 延迟 alarm，
   触发一次容器快照，避免 5 分钟空闲回收丢数据。
