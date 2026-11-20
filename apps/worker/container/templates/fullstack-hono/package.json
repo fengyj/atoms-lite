@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && pnpm build:worker",
     "preview": "vite preview --host 0.0.0.0 --port 8080",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "build:worker": "rolldown server/worker.js -f esm -p neutral -o .atoms-lite/worker.js"
   },
   "dependencies": {
     "@hono/node-server": "2.1.9",
@@ -28,7 +29,8 @@
     "@vitejs/plugin-react": "6.3.0",
     "tailwindcss": "4.3.5",
     "typescript": "6.0.3",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "rolldown": "1.2.19"
   },
   "packageManager": "pnpm@11.6.0"
 }

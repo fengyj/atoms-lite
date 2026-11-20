@@ -16,6 +16,8 @@ import {
   Monitor,
   RotateCw,
   Terminal,
+  ExternalLink,
+  Rocket,
 } from "lucide-react";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +30,7 @@ import {
   formatClock,
   formatSize,
   previewUrl,
+  publishVersion,
   shortCommit,
   type Endpoint,
   type WorkspaceFileEntry,
@@ -60,6 +63,30 @@ export function WorkbenchPanel({
   onSelectElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  const handlePublish = async (version: WorkspaceVersion) => {
+    if (publishingId) return;
+    if (version.hasArtifacts !== true) {
+      setPublishError("该版本没有构建产物，请重新构建并创建版本后再发布。");
+      return;
+    }
+    const confirmed = window.confirm(
+      `发布版本 ${shortCommit(version.gitCommit)}？\n\n如果已有发布版本，会替换线上版本；访问地址保持不变。`,
+    );
+    if (!confirmed) return;
+    setPublishingId(version.id);
+    setPublishError(null);
+    try {
+      await publishVersion(projectId, version.id);
+      versions.refresh();
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPublishingId(null);
+    }
+  };
 
   if (!configured) {
     return (
@@ -169,6 +196,11 @@ export function WorkbenchPanel({
             error={versions.error}
             onRetry={versions.refresh}
           />
+          {publishError ? (
+            <p className="mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-2xs text-destructive">
+              发布失败：{publishError}
+            </p>
+          ) : null}
 
           {versions.data ? (
             versions.data.length === 0 ? (
@@ -178,7 +210,12 @@ export function WorkbenchPanel({
             ) : (
               <ul className="space-y-1.5">
                 {versions.data.map((version) => (
-                  <VersionRow key={version.id} version={version} />
+                  <VersionRow
+                    key={version.id}
+                    version={version}
+                    publishing={publishingId === version.id}
+                    onPublish={handlePublish}
+                  />
                 ))}
               </ul>
             )
@@ -588,7 +625,15 @@ function versionStatus(status: string): { label: string; tone: string } {
   return { label: status, tone: "bg-muted text-muted-foreground border-border" };
 }
 
-function VersionRow({ version }: { version: WorkspaceVersion }) {
+function VersionRow({
+  version,
+  publishing,
+  onPublish,
+}: {
+  version: WorkspaceVersion;
+  publishing: boolean;
+  onPublish: (version: WorkspaceVersion) => Promise<void>;
+}) {
   const meta = versionStatus(version.status);
 
   return (
@@ -613,6 +658,11 @@ function VersionRow({ version }: { version: WorkspaceVersion }) {
         >
           {meta.label}
         </span>
+        {version.published ? (
+          <span className="rounded-full border border-success/30 bg-success/15 px-1.5 py-0.5 text-3xs text-success">
+            已发布
+          </span>
+        ) : null}
       </div>
       <p className="mt-1 line-clamp-2 text-2xs text-muted-foreground">
         {version.summary}
@@ -630,6 +680,53 @@ function VersionRow({ version }: { version: WorkspaceVersion }) {
           </Badge>
         ) : null}
       </div>
+      <div className="mt-2 flex items-center gap-2">
+        {version.deploymentUrl ? (
+          <a
+            href={version.deploymentUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-3xs text-primary hover:underline"
+          >
+            访问站点
+            <ExternalLink className="size-3" />
+          </a>
+        ) : null}
+        <Button
+          type="button"
+          size="sm"
+          variant={version.published ? "outline" : "default"}
+          className="ml-auto h-7 gap-1.5 px-2 text-2xs"
+          disabled={publishing || version.hasArtifacts !== true}
+          title={
+            version.hasArtifacts === true
+              ? "发布这个版本"
+              : "该版本没有构建产物，需要重新构建"
+          }
+          onClick={() => void onPublish(version)}
+        >
+          {publishing ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <Rocket className="size-3" />
+          )}
+          {publishing
+            ? "发布中…"
+            : version.published
+              ? "重新发布"
+              : "发布"}
+        </Button>
+      </div>
+      {version.hasArtifacts !== true ? (
+        <p className="mt-1 text-3xs text-muted-foreground">
+          此版本没有构建产物，重新构建后再发布。
+        </p>
+      ) : null}
+      {version.published && version.domainError ? (
+        <p className="mt-1 text-3xs text-amber-600" title={version.domainError}>
+          自定义域名未绑定，当前使用 workers.dev 地址。
+        </p>
+      ) : null}
     </li>
   );
 }

@@ -207,6 +207,40 @@ type VersionDbRow = {
   created_at: number;
 };
 
+type BuildFileRow = {
+  path: string;
+  content_b64: string;
+  content_type: string;
+  size: number;
+};
+
+type DeploymentDbRow = {
+  id: string;
+  version_id: string;
+  provider: string;
+  worker_name: string;
+  d1_name: string | null;
+  d1_id: string | null;
+  hostname: string;
+  domain_id: string | null;
+  status: string;
+  url: string | null;
+  schema_version: string | null;
+  domain_error: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type PublishTarget = {
+  slug: string;
+  worker: string;
+  d1Name: string;
+  d1Id: string | null;
+  hostname: string;
+  domainId: string | null;
+};
+
 export class Workspace extends DurableObject<Env> {
   private readonly projectId: string;
   private ensurePromise: Promise<void> | null = null;
@@ -254,6 +288,12 @@ export class Workspace extends DurableObject<Env> {
         runtime TEXT NOT NULL DEFAULT 'container',
         instance_tier TEXT NOT NULL DEFAULT 'basic',
         configured INTEGER NOT NULL DEFAULT 1,
+        publish_slug TEXT,
+        publish_worker TEXT,
+        publish_d1_name TEXT,
+        publish_d1_id TEXT,
+        publish_hostname TEXT,
+        publish_domain_id TEXT,
         updated_at INTEGER NOT NULL
       )
     `);
@@ -270,6 +310,35 @@ export class Workspace extends DurableObject<Env> {
         path TEXT NOT NULL,
         content TEXT NOT NULL,
         PRIMARY KEY (version_id, path)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_build_files (
+        version_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content_b64 TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        PRIMARY KEY (version_id, path)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_deployments (
+        id TEXT PRIMARY KEY,
+        version_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        worker_name TEXT NOT NULL,
+        d1_name TEXT,
+        d1_id TEXT,
+        hostname TEXT NOT NULL,
+        domain_id TEXT,
+        status TEXT NOT NULL,
+        url TEXT,
+        schema_version TEXT,
+        domain_error TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       )
     `);
     ctx.storage.sql.exec(`
@@ -315,9 +384,16 @@ export class Workspace extends DurableObject<Env> {
       )
     `);
     for (const statement of [
+      "ALTER TABLE atoms_deployments ADD COLUMN domain_error TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
       "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_slug TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_worker TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_name TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_id TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_hostname TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_domain_id TEXT",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
@@ -362,6 +438,8 @@ export class Workspace extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_project_config (
       id TEXT PRIMARY KEY, template TEXT NOT NULL, runtime TEXT NOT NULL DEFAULT 'container',
       instance_tier TEXT NOT NULL DEFAULT 'basic', configured INTEGER NOT NULL DEFAULT 1,
+      publish_slug TEXT, publish_worker TEXT, publish_d1_name TEXT,
+      publish_d1_id TEXT, publish_hostname TEXT, publish_domain_id TEXT,
       updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_content (
@@ -370,6 +448,18 @@ export class Workspace extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_versions (
       version_id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
       PRIMARY KEY (version_id, path)
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_build_files (
+      version_id TEXT NOT NULL, path TEXT NOT NULL, content_b64 TEXT NOT NULL,
+      content_type TEXT NOT NULL, size INTEGER NOT NULL,
+      PRIMARY KEY (version_id, path)
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_deployments (
+      id TEXT PRIMARY KEY, version_id TEXT NOT NULL, provider TEXT NOT NULL,
+      worker_name TEXT NOT NULL, d1_name TEXT, d1_id TEXT,
+      hostname TEXT NOT NULL, domain_id TEXT, status TEXT NOT NULL,
+      url TEXT, schema_version TEXT, domain_error TEXT, error TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_dependencies (
       name TEXT PRIMARY KEY, version TEXT NOT NULL, url TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -395,6 +485,12 @@ export class Workspace extends DurableObject<Env> {
       "ALTER TABLE atoms_project_config ADD COLUMN runtime TEXT NOT NULL DEFAULT 'container'",
       "ALTER TABLE atoms_project_config ADD COLUMN instance_tier TEXT NOT NULL DEFAULT 'basic'",
       "ALTER TABLE atoms_project_config ADD COLUMN configured INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_slug TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_worker TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_name TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_id TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_hostname TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN publish_domain_id TEXT",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
@@ -790,6 +886,128 @@ export class Workspace extends DurableObject<Env> {
       .join("");
   }
 
+  private buildContentType(path: string): string {
+    const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+    const types: Record<string, string> = {
+      ".html": "text/html; charset=utf-8",
+      ".htm": "text/html; charset=utf-8",
+      ".css": "text/css; charset=utf-8",
+      ".js": "text/javascript; charset=utf-8",
+      ".mjs": "text/javascript; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".ico": "image/x-icon",
+      ".woff": "font/woff",
+      ".woff2": "font/woff2",
+      ".wasm": "application/wasm",
+    };
+    return types[ext] ?? "application/octet-stream";
+  }
+
+  private textBase64(value: string): string {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }
+
+  private async storeBuildFiles(
+    versionId: string,
+    files: { path: string; contentB64: string; size: number }[],
+  ): Promise<void> {
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    if (total > 12 * 1024 * 1024) {
+      console.warn("[workspace] build artifacts too large", {
+        projectId: this.projectId,
+        versionId,
+        total,
+      });
+      return;
+    }
+    this.ctx.storage.sql.exec(
+      "DELETE FROM atoms_build_files WHERE version_id = ?",
+      versionId,
+    );
+    this.ctx.storage.transactionSync(() => {
+      for (const file of files) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO atoms_build_files (version_id, path, content_b64, content_type, size) VALUES (?, ?, ?, ?, ?)",
+          versionId,
+          file.path.replace(/^\.\//, ""),
+          file.contentB64,
+          this.buildContentType(file.path),
+          file.size,
+        );
+      }
+    });
+  }
+
+  private async collectBrowserBuild(
+    versionId: string,
+    files: { path: string; content: string }[],
+  ): Promise<void> {
+    await this.storeBuildFiles(
+      versionId,
+      files.map((file) => ({
+        path: file.path,
+        contentB64: this.textBase64(file.content),
+        size: new TextEncoder().encode(file.content).length,
+      })),
+    );
+  }
+
+  private async collectContainerBuild(versionId: string): Promise<void> {
+    const template = this.template();
+    const config = await this.runtimeConfig();
+    const roots =
+      template === "fullstack-hono"
+        ? [config.serveDir || "dist", "migrations", ".atoms-lite/worker.js"]
+        : template === "react-vite"
+          ? [config.serveDir || "dist"]
+          : ["."];
+    const exclusions =
+      "\( -path './node_modules' -o -path './.git' -o -path './.atoms-lite' -o -path './.atoms' -o -path './_sandbox_migration' \) -prune";
+    const paths: string[] = [];
+    for (const root of roots) {
+      const cleanRoot = root.replace(/^\.\//, "").replace(/\/$/, "");
+      if (cleanRoot === ".") {
+        const found = await this.sh(
+          `cd ${WORKSPACE} && find . ${exclusions} -o -type f -print`,
+        );
+        paths.push(...found.stdout.split("\n").filter(Boolean));
+        continue;
+      }
+      const found = await this.sh(
+        `cd ${WORKSPACE} && [ -e ${cleanRoot} ] && find ${cleanRoot} -type f -print || true`,
+      );
+      paths.push(...found.stdout.split("\n").filter(Boolean));
+    }
+    const unique = [...new Set(paths)];
+    const files: { path: string; contentB64: string; size: number }[] = [];
+    for (const path of unique) {
+      const out = await this.run([
+        "base64",
+        "-w",
+        "0",
+        `${WORKSPACE}/${path}`,
+      ]);
+      if (out.exitCode !== 0) continue;
+      const b64 = out.stdout.replace(/\s+/g, "");
+      if (!b64) continue;
+      files.push({
+        path,
+        contentB64: b64,
+        size: Math.floor((b64.length * 3) / 4),
+      });
+    }
+    await this.storeBuildFiles(versionId, files);
+  }
+
   private async createBrowserVersion(summary: string) {
     return this.exclusive(async () => {
       await this.ensure();
@@ -828,6 +1046,7 @@ export class Workspace extends DurableObject<Env> {
         }
       });
       this.setCurrentVersion(id);
+      await this.collectBrowserBuild(id, files);
       return {
         versionId: id,
         gitCommit: hash,
@@ -1966,6 +2185,455 @@ export class Workspace extends DurableObject<Env> {
     };
   }
 
+  private publishTarget(): PublishTarget | null {
+    const row = this.ctx.storage.sql
+      .exec<{
+        publish_slug: string | null;
+        publish_worker: string | null;
+        publish_d1_name: string | null;
+        publish_d1_id: string | null;
+        publish_hostname: string | null;
+        publish_domain_id: string | null;
+      }>(
+        "SELECT publish_slug, publish_worker, publish_d1_name, publish_d1_id, publish_hostname, publish_domain_id FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray()[0];
+    if (!row?.publish_slug || !row.publish_worker || !row.publish_hostname) {
+      return null;
+    }
+    return {
+      slug: row.publish_slug,
+      worker: row.publish_worker,
+      d1Name: row.publish_d1_name ?? `atoms_lite_${row.publish_slug}`,
+      d1Id: row.publish_d1_id,
+      hostname: row.publish_hostname,
+      domainId: row.publish_domain_id,
+    };
+  }
+
+  private async ensurePublishTarget(): Promise<PublishTarget> {
+    const existing = this.publishTarget();
+    if (existing) return existing;
+
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let slug = "";
+    const bytes = crypto.getRandomValues(new Uint8Array(6));
+    for (const byte of bytes) slug += alphabet[byte % alphabet.length];
+    if (["demo", "www", "api", "admin"].includes(slug)) slug = `s${slug.slice(1)}`;
+
+    const target: PublishTarget = {
+      slug,
+      worker: `atoms-lite-${slug}`,
+      d1Name: `atoms_lite_${slug}`,
+      d1Id: null,
+      hostname: `${slug}.atoms-lite.fengyj.me`,
+      domainId: null,
+    };
+    this.ctx.storage.sql.exec(
+      `UPDATE atoms_project_config
+       SET publish_slug = ?, publish_worker = ?, publish_d1_name = ?, publish_hostname = ?, updated_at = ?
+       WHERE id = ?`,
+      target.slug,
+      target.worker,
+      target.d1Name,
+      target.hostname,
+      Date.now(),
+      this.projectId,
+    );
+    return target;
+  }
+
+  private cloudflareConfig(): {
+    token: string;
+    account: string;
+    zone: string;
+  } {
+    const token = this.env.CLOUDFLARE_API_TOKEN;
+    const account = this.env.CLOUDFLARE_ACCOUNT_ID;
+    const zone = this.env.CLOUDFLARE_ZONE_ID;
+    if (!token || !account || !zone) {
+      throw new Error(
+        "发布未配置：需要 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_ZONE_ID",
+      );
+    }
+    return { token, account, zone };
+  }
+
+  private async cf<T>(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<T> {
+    const { token } = this.cloudflareConfig();
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    if (!(init.body instanceof FormData) && init.body && !headers.has("content-type")) {
+      headers.set("content-type", "application/json");
+    }
+    const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+      ...init,
+      headers,
+    });
+    const text = await res.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { errors: [{ message: text.slice(0, 300) }] };
+    }
+    if (!res.ok) {
+      const message =
+        data &&
+        typeof data === "object" &&
+        Array.isArray((data as { errors?: unknown[] }).errors)
+          ? String(
+              (
+                (data as { errors: { message?: string }[] }).errors[0] ?? {}
+              ).message ?? `Cloudflare API ${res.status}`,
+            )
+          : `Cloudflare API ${res.status}`;
+      throw new Error(`${path}: ${message}`);
+    }
+    return (data as { result: T }).result;
+  }
+
+  private decodeB64(value: string): Uint8Array {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  private publishAssets(files: BuildFileRow[]) {
+    const assets: Record<string, { t: string; b: string }> = {};
+    for (const file of files) {
+      if (file.path.startsWith("migrations/") || file.path.startsWith(".atoms-lite/")) {
+        continue;
+      }
+      let path = file.path;
+      if (path.startsWith("dist/")) path = path.slice("dist/".length);
+      if (!path || path.startsWith(".")) continue;
+      assets[`/${path.replace(/^\/+/, "")}`] = {
+        t: file.content_type,
+        b: file.content_b64,
+      };
+    }
+    return assets;
+  }
+
+  private staticWorkerScript(files: BuildFileRow[]): string {
+    const assets = this.publishAssets(files);
+    return `const ASSETS = ${JSON.stringify(assets)};
+function bytes(b64) {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const asset = ASSETS[url.pathname] || (!url.pathname.includes(".") ? ASSETS["/index.html"] : null);
+    if (!asset) return new Response("Not found", { status: 404 });
+    return new Response(bytes(asset.b), {
+      headers: {
+        "content-type": asset.t || "application/octet-stream",
+        "cache-control": "public, max-age=60",
+      },
+    });
+  },
+};
+`;
+  }
+
+  private async createD1(target: PublishTarget, name: string): Promise<string> {
+    const { account } = this.cloudflareConfig();
+    const created = await this.cf<{ uuid: string }>(
+      `/accounts/${account}/d1/database`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      },
+    );
+    const id = created.uuid;
+    target.d1Id = id;
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_project_config SET publish_d1_id = ?, updated_at = ? WHERE id = ?",
+      id,
+      Date.now(),
+      this.projectId,
+    );
+    return id;
+  }
+
+  private async d1Query(d1Id: string, sql: string): Promise<unknown[]> {
+    const { account } = this.cloudflareConfig();
+    const result = await this.cf<
+      Array<{ results?: unknown[] }>
+    >(`/accounts/${account}/d1/database/${d1Id}/query`, {
+      method: "POST",
+      body: JSON.stringify({ sql }),
+    });
+    return result?.[0]?.results ?? [];
+  }
+
+  private splitSql(sql: string): string[] {
+    return sql
+      .split(/;\s*(?:\n|$)/)
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+  }
+
+  private async applyMigrations(
+    d1Id: string,
+    files: BuildFileRow[],
+  ): Promise<string | null> {
+    const migrations = files
+      .filter((file) => /^migrations\/.+\.sql$/.test(file.path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const targetNames = new Set(migrations.map((file) => file.path.split("/").pop()!));
+    if (!targetNames.size) return null;
+
+    await this.d1Query(
+      d1Id,
+      "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)",
+    );
+    const rows = (await this.d1Query(
+      d1Id,
+      "SELECT version FROM schema_migrations",
+    )) as { version: string }[];
+    const applied = new Set(rows.map((row) => row.version));
+    for (const version of applied) {
+      if (!targetNames.has(version)) {
+        throw new Error(
+          `该版本不包含数据库已应用的迁移 ${version}，不能直接回滚数据库`,
+        );
+      }
+    }
+
+    for (const file of migrations) {
+      const version = file.path.split("/").pop()!;
+      if (applied.has(version)) continue;
+      const sql = new TextDecoder().decode(this.decodeB64(file.content_b64));
+      for (const statement of this.splitSql(sql)) {
+        await this.d1Query(d1Id, statement);
+      }
+      await this.d1Query(
+        d1Id,
+        `INSERT INTO schema_migrations (version, applied_at) VALUES ('${version.replace(/'/g, "''")}', ${Date.now()})`,
+      );
+    }
+    return migrations.at(-1)?.path.split("/").pop() ?? null;
+  }
+
+  private async uploadWorker(
+    target: PublishTarget,
+    script: string,
+    d1Id: string | null,
+  ): Promise<void> {
+    const { account } = this.cloudflareConfig();
+    const metadata = {
+      main_module: "worker.js",
+      compatibility_date: "2026-11-18",
+      bindings: d1Id
+        ? [{ type: "d1", name: "DB", id: d1Id }]
+        : [],
+    };
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+    );
+    form.append(
+      "worker.js",
+      new Blob([script], { type: "application/javascript+module" }),
+      "worker.js",
+    );
+    await this.cf(`/accounts/${account}/workers/scripts/${target.worker}`, {
+      method: "PUT",
+      body: form,
+    });
+  }
+
+  private async ensureDomain(target: PublishTarget): Promise<void> {
+    if (target.domainId) return;
+    const { account, zone } = this.cloudflareConfig();
+    try {
+      const created = await this.cf<{ id: string }>(
+        `/accounts/${account}/workers/domains`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            zone_id: zone,
+            hostname: target.hostname,
+            service: target.worker,
+            environment: "production",
+          }),
+        },
+      );
+      target.domainId = created.id;
+    } catch (error) {
+      const domains = await this.cf<Array<{ id: string; hostname: string }>>(
+        `/accounts/${account}/workers/domains`,
+      );
+      const found = domains.find((domain) => domain.hostname === target.hostname);
+      if (!found) throw error;
+      target.domainId = found.id;
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_project_config SET publish_domain_id = ?, updated_at = ? WHERE id = ?",
+      target.domainId,
+      Date.now(),
+      this.projectId,
+    );
+  }
+
+  private async deployVersion(versionId: string) {
+    return this.exclusive(async () => {
+      const version = this.ctx.storage.sql
+        .exec<VersionDbRow>("SELECT * FROM atoms_versions WHERE id = ?", versionId)
+        .toArray()[0];
+      if (!version) throw new Error("version not found");
+      if (version.archived === 1) throw new Error("archived version cannot be published");
+      const files = this.ctx.storage.sql
+        .exec<BuildFileRow>(
+          "SELECT path, content_b64, content_type, size FROM atoms_build_files WHERE version_id = ? ORDER BY path",
+          versionId,
+        )
+        .toArray();
+      if (!files.length) {
+        throw new Error("该版本没有构建产物，请重新构建并创建版本");
+      }
+
+      const target = await this.ensurePublishTarget();
+      const template = this.template();
+      const fullstack = template === "fullstack-hono";
+      const id = `dep_${crypto.randomUUID()}`;
+      const now = Date.now();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO atoms_deployments
+           (id, version_id, provider, worker_name, d1_name, d1_id, hostname, domain_id, status, url, schema_version, error, created_at, updated_at)
+         VALUES (?, ?, 'cloudflare', ?, ?, ?, ?, ?, 'deploying', NULL, NULL, NULL, ?, ?)`,
+        id,
+        versionId,
+        target.worker,
+        fullstack ? target.d1Name : null,
+        target.d1Id,
+        target.hostname,
+        target.domainId,
+        now,
+        now,
+      );
+
+      try {
+        let d1Id: string | null = null;
+        let schemaVersion: string | null = null;
+        if (fullstack) {
+          d1Id = target.d1Id ?? (await this.createD1(target, target.d1Name));
+          schemaVersion = await this.applyMigrations(d1Id, files);
+        }
+
+        let script: string;
+        if (fullstack) {
+          const workerFile = files.find(
+            (file) => file.path === ".atoms-lite/worker.js",
+          );
+          if (!workerFile) throw new Error("该版本缺少 Worker bundle，请重新 build");
+          const bundle = new TextDecoder().decode(
+            this.decodeB64(workerFile.content_b64),
+          );
+          script = `globalThis.__ATOMS_ASSETS__ = ${JSON.stringify(
+            this.publishAssets(files),
+          )};\n${bundle}`;
+        } else {
+          script = this.staticWorkerScript(files);
+        }
+
+        await this.uploadWorker(target, script, d1Id);
+        let domainError: string | null = null;
+        try {
+          await this.ensureDomain(target);
+        } catch (error) {
+          domainError = String(error).slice(0, 400);
+          console.warn(
+            "[workspace] custom domain failed; using workers.dev",
+            domainError,
+          );
+        }
+
+        const workersDev = this.env.CLOUDFLARE_WORKERS_SUBDOMAIN
+          ? `https://${target.worker}.${this.env.CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev`
+          : null;
+        const url = target.domainId
+          ? `https://${target.hostname}`
+          : workersDev;
+        this.ctx.storage.sql.exec(
+          `UPDATE atoms_deployments
+           SET status = 'ready', url = ?, d1_id = ?, schema_version = ?, domain_error = ?, updated_at = ?
+           WHERE id = ?`,
+          url,
+          d1Id,
+          schemaVersion,
+          domainError,
+          Date.now(),
+          id,
+        );
+        return {
+          id,
+          versionId,
+          status: "ready",
+          url,
+          worker: target.worker,
+          d1: target.d1Name,
+          schemaVersion,
+          domainError,
+        };
+      } catch (error) {
+        const message = String(error).slice(0, 500);
+        this.ctx.storage.sql.exec(
+          "UPDATE atoms_deployments SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
+          message,
+          Date.now(),
+          id,
+        );
+        throw new Error(message);
+      }
+    });
+  }
+
+  private async cleanupPublishTarget(): Promise<void> {
+    const target = this.publishTarget();
+    if (!target) return;
+    const { account } = this.cloudflareConfig();
+    const attempts: Promise<unknown>[] = [];
+    if (target.domainId) {
+      attempts.push(
+        this.cf(`/accounts/${account}/workers/domains/${target.domainId}`, {
+          method: "DELETE",
+        }),
+      );
+    }
+    attempts.push(
+      this.cf(`/accounts/${account}/workers/scripts/${target.worker}`, {
+        method: "DELETE",
+      }),
+    );
+    if (target.d1Id) {
+      attempts.push(
+        this.cf(`/accounts/${account}/d1/database/${target.d1Id}`, {
+          method: "DELETE",
+        }),
+      );
+    }
+    for (const attempt of attempts) {
+      await attempt.catch((error) => {
+        console.warn("[workspace] publish cleanup failed", String(error));
+      });
+    }
+  }
+
   private listVersions(): VersionRow[] {
     const rows = this.ctx.storage.sql
       .exec<VersionDbRow>("SELECT * FROM atoms_versions ORDER BY created_at ASC")
@@ -1974,6 +2642,11 @@ export class Workspace extends DurableObject<Env> {
       this.currentVersionId() ??
       rows.find((row) => row.archived === 0)?.id ??
       null;
+    const deployment = this.ctx.storage.sql
+      .exec<DeploymentDbRow>(
+        "SELECT * FROM atoms_deployments WHERE status = 'ready' ORDER BY created_at DESC LIMIT 1",
+      )
+      .toArray()[0];
     return rows.map((r) => ({
       id: r.id,
       gitCommit: r.git_commit,
@@ -1983,6 +2656,18 @@ export class Workspace extends DurableObject<Env> {
       archived: r.archived === 1,
       createdAt: r.created_at,
       current: current !== null && r.id === current,
+      hasArtifacts:
+        this.ctx.storage.sql
+          .exec<{ n: number }>(
+            "SELECT COUNT(*) AS n FROM atoms_build_files WHERE version_id = ?",
+            r.id,
+          )
+          .one().n > 0,
+      published: deployment?.version_id === r.id,
+      deploymentUrl:
+        deployment?.version_id === r.id ? deployment.url : null,
+      domainError:
+        deployment?.version_id === r.id ? deployment.domain_error : null,
     }));
   }
 
@@ -2038,6 +2723,7 @@ export class Workspace extends DurableObject<Env> {
         Date.now(),
       );
       this.setCurrentVersion(id);
+      await this.collectContainerBuild(id);
 
       await this.syncFilesCacheSafe();
       const snapshot = await this.takeSnapshot();
@@ -2324,6 +3010,9 @@ export class Workspace extends DurableObject<Env> {
       }
 
       if (path === "/destroy") {
+        await this.cleanupPublishTarget().catch((error) => {
+          console.warn("[workspace] publish cleanup skipped", String(error));
+        });
         try {
           if (this.container.running) await this.container.destroy();
         } catch (error) {
@@ -2336,6 +3025,8 @@ export class Workspace extends DurableObject<Env> {
           "atoms_files",
           "atoms_file_content",
           "atoms_file_versions",
+          "atoms_build_files",
+          "atoms_deployments",
           "atoms_dependencies",
           "atoms_runtime_status",
           "atoms_project_config",
@@ -2888,6 +3579,26 @@ export class Workspace extends DurableObject<Env> {
           { error: "preview runs as the container entrypoint; stop the container instead" },
           { status: 400 },
         );
+      }
+
+      if (path === "/publish" && request.method === "POST") {
+        const body = (await request.json()) as { versionId?: string };
+        if (!body.versionId) {
+          return Response.json({ error: "versionId is required" }, { status: 400 });
+        }
+        return Response.json({
+          deployment: await this.deployVersion(body.versionId),
+        });
+      }
+
+      if (path === "/deployments" && request.method === "GET") {
+        return Response.json({
+          deployments: this.ctx.storage.sql
+            .exec<DeploymentDbRow>(
+              "SELECT * FROM atoms_deployments ORDER BY created_at DESC LIMIT 20",
+            )
+            .toArray(),
+        });
       }
 
       if (path === "/versions" && request.method === "POST") {

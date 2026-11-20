@@ -51,6 +51,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 6.3.0
         version: 6.3.0(vite@8.3.8(jiti@2.7.0))
+      rolldown:
+        specifier: 1.2.19
+        version: 1.2.19
       tailwindcss:
         specifier: 4.3.5
         version: 4.3.5

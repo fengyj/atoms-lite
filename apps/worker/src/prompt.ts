@@ -71,14 +71,16 @@ const REACT = `当前模板：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 +
 - 已有组件不足时可用 install_packages 添加依赖，然后正常 import。
 - 工作流：read_file 目标 → 写代码 → install_packages（如需）→ build → 修错（最多 2 轮）→ start_preview → create_version → finish。`;
 
-const FULLSTACK = `当前模板：React 19 + TypeScript + Vite + Tailwind + shadcn/ui + Hono + SQLite
+const FULLSTACK = `当前模板：React 19 + TypeScript + Vite + Tailwind + shadcn/ui + Hono + SQLite/D1
 - 前端：src/main.tsx、src/App.tsx（HashRouter）、src/pages/Index.tsx、src/components/ui/*，只改 src/** 和 index.html。
-- 后端：server/index.js，Hono + @hono/node-server，监听 0.0.0.0:8080；保留 /healthz 并托管 dist。
-- 数据库：node:sqlite，数据文件必须在 /data/app.db；建表用 CREATE TABLE IF NOT EXISTS。
+- 后端 API：改 server/app.js。它导出 createApp(db)，同一份代码同时跑本地 Node 和发布后的 Cloudflare Worker。
+- 数据库适配器：db.all(sql, params) / db.first(sql, params) / db.run(sql, params)，全部异步；不要直接 import node:sqlite，也不要在 app.js 里创建数据库连接。
+- 建表/改表：在 migrations/ 下新增按序号命名的 .sql 文件（如 0002_add_priority.sql）；不要只改运行时 CREATE TABLE。本地会自动应用迁移，发布时会对 D1 应用同一套迁移。
+- server/index.js 只是本地 Node 适配器，server/worker.js 是发布适配器，server/db-node.js / db-d1.js 是数据库适配器；不要改这些文件，除非确实要改适配层。
 - 前端用相对路径 fetch("./api/...")，不要以 / 开头，不要写死域名/端口。
 - 接口要校验输入并返回 JSON；错误返回 { error }；列表接口返回空数组而不是 null。
 - 图标用已预装的 lucide-react；依赖用 install_packages。
-- 工作流：read_file 目标 → 改前后端 → build → 修错（最多 2 轮）→ start_preview（重启 Node）→ create_version → finish。`;
+- 工作流：read_file 目标 → 改 server/app.js / migrations / 前端 → build → 修错（最多 2 轮）→ start_preview（重启 Node）→ create_version → finish。`;
 
 const MIGRATION = `迁移模式（当前正在切换 runtime）：
 - 旧环境文件已备份在 _sandbox_migration；只读，不要写这个目录。
@@ -86,7 +88,7 @@ const MIGRATION = `迁移模式（当前正在切换 runtime）：
 - 不要复制 node_modules、dist、.git、锁文件或旧平台配置。
 - 目标模板的 package.json/tsconfig/vite.config 以新环境为准；旧配置只作参考。
 - static → React：旧 HTML/CSS/JS 作为行为参考，用 React 重写页面。
-- React → 全栈：保留 src/**，新建/沿用 server/index.js，不要直接覆盖目标 package.json。
+- React → 全栈：保留 src/**，在 server/app.js 中实现 API，新增 migrations/*.sql；不要直接覆盖目标 package.json。
 - 全栈 → React：保留前端，后端逻辑删除或改 localStorage；/data/app.db 不在备份里。
 - 图片/字体等二进制用 copy_migration_file，不要读成文本。
 - 完成后调用 finish_migration 清理备份，然后 create_version。

@@ -67,6 +67,10 @@ export type WorkspaceVersion = ProjectVersion & {
   status: string;
   archived?: boolean;
   current: boolean;
+  hasArtifacts?: boolean;
+  published?: boolean;
+  deploymentUrl?: string | null;
+  domainError?: string | null;
 };
 
 /** GET /api/projects/:id/files 的条目 */
@@ -132,6 +136,37 @@ export async function fetchProject(
   const project = (await json<ProjectResponse>(res, "project")).project;
   if (!project) throw new Error("project not found");
   return project;
+}
+
+export type WorkspaceDeployment = {
+  id: string;
+  versionId: string;
+  status: "deploying" | "ready" | "failed";
+  url?: string | null;
+  worker?: string;
+  d1?: string | null;
+  schemaVersion?: string | null;
+  domainError?: string | null;
+  error?: string | null;
+};
+
+export async function publishVersion(
+  projectId: string,
+  versionId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceDeployment> {
+  const res = await fetch(`${projectApiUrl(projectId)}/publish`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ versionId }),
+    signal,
+  });
+  const data = (await json<{ deployment?: WorkspaceDeployment }>(
+    res,
+    "publish version"
+  )) as { deployment?: WorkspaceDeployment };
+  if (!data.deployment) throw new Error("publish did not return a deployment");
+  return data.deployment;
 }
 
 export async function renameProject(
