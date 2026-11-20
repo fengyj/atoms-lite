@@ -661,13 +661,14 @@ function SidebarItem({
 }) {
   return (
     <span
+      aria-disabled={disabled || undefined}
       className={cn(
         "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors [&_svg]:size-3.5",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           : "text-sidebar-foreground/70",
         disabled
-          ? "cursor-not-allowed opacity-50"
+          ? "cursor-not-allowed text-muted-foreground"
           : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       )}
     >

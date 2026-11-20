@@ -70,9 +70,9 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* 10px / 11px 两档补充字号，避免组件里出现 text-[10px] */
-  --text-3xs: 0.625rem;
-  --text-2xs: 0.6875rem;
+  /* 11px / 12px 两档补充字号，避免组件里出现 text-[10px] */
+  --text-3xs: 0.6875rem;
+  --text-2xs: 0.75rem;
 
   /* 布局宽度 token，避免组件里出现 w-[340px] */
   --spacing-chat: 22.5rem; /* 360 */

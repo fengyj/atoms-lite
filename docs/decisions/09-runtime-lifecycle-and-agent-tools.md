@@ -130,3 +130,17 @@ browser < container/basic < container/standard-1 < container/standard-2
 - findings 最多 40 条，点击一条会把它对应的元素带入对话，方便直接让 Agent 修。
 - 规则方向参考 Impeccable detector，但当前不依赖它的 WASM/二进制；
   后续可把完整 WASM detector 接到 Worker 做源码扫描。
+
+## 8. Impeccable WASM detector
+
+`apps/worker/src/detector/` 内置了 Impeccable 的 WASM detector（Apache-2.0，
+版本与构建方式见该目录 README）。Worker 通过 `CompiledWasm` 规则加载，
+`design_check` 工具用它扫描生成项目源码：
+
+- `.html` 用 `detect_html_source_json`
+- `.ts/.tsx/.js/.jsx/.css` 用 `detect_text_json`
+- 单次最多 30 个文件、约 120KB，返回最多 30 条 findings
+- 源码规则不覆盖渲染后的对比度/溢出；预览里的轻量设计检查负责这一层
+
+WASM 约 4.5MB，Worker 总上传约 8.3MB（gzip 约 2.5MB），仍在限制内。
+若后续体积成为问题，可拆成独立 detector Worker 或按需加载。

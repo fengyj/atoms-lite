@@ -482,7 +482,7 @@ function PreviewPlaceholder({
                 ? "检查预览状态…"
                 : "预览已休眠"}
         </p>
-        <p className="mt-1 max-w-64 text-2xs leading-5 text-muted-foreground">
+        <p className="mt-1 max-w-64 text-xs leading-5 text-muted-foreground">
           {failed
             ? note || "无法启动预览服务，请重试。"
             : "沙箱空闲 5 分钟后自动回收。点击启动会恢复沙箱并加载预览。"}

@@ -70,6 +70,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           ...(meta?.migration?.active ? ["migration"] : []),
           "preview",
           "versions",
+          "design_check",
           "ask_user",
           "subagent",
           "switch_runtime",

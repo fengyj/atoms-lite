@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ChevronLeft, Cpu, Download } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
   formatClock,
@@ -55,6 +64,7 @@ export function TopBar({
   versionNote: string | null;
 }) {
   const run = runStateMeta[runState];
+  const [confirmUpgrade, setConfirmUpgrade] = useState(false);
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/60 px-3">
@@ -115,7 +125,7 @@ export function TopBar({
                 size="sm"
                 className="gap-1.5"
                 disabled={upgrading || runState === "running"}
-                onClick={onUpgrade}
+                onClick={() => setConfirmUpgrade(true)}
                 title="升级实例（不可降级）"
               >
                 <Cpu className="size-3.5" />
@@ -173,6 +183,36 @@ export function TopBar({
           导出
         </Button>
       </div>
+      <Dialog open={confirmUpgrade} onOpenChange={setConfirmUpgrade}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>升级容器实例？</DialogTitle>
+            <DialogDescription>
+              将从 {instanceTier} 升到下一档，升级会先创建快照并重启容器。
+              实例升级不可降级，可能影响当前计费。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmUpgrade(false)}
+            >
+              取消
+            </Button>
+            <Button
+              className="gap-1.5"
+              disabled={upgrading}
+              onClick={() => {
+                setConfirmUpgrade(false);
+                onUpgrade();
+              }}
+            >
+              <Cpu className="size-3.5" />
+              确认升级
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

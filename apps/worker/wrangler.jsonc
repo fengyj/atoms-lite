@@ -7,6 +7,9 @@
   "observability": {
     "enabled": true
   },
+  "rules": [
+    { "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }
+  ],
   "containers": [
     {
       "class_name": "Workspace",

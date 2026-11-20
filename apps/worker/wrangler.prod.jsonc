@@ -8,6 +8,9 @@
   "observability": {
     "enabled": true
   },
+  "rules": [
+    { "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }
+  ],
   "assets": {
     "directory": "../web/out",
     "binding": "ASSETS"

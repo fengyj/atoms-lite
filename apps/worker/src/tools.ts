@@ -2,6 +2,7 @@ import { EXEC_ALLOWED_PROGRAMS } from "@atoms-lite/contracts";
 import { tool, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
 import type { RuntimeContext } from "./context";
+import { detectHtmlSource, detectTextSource } from "./detector";
 import { runSubagent } from "./subagent";
 import type { WorkspaceClient } from "./workspace/client";
 
@@ -322,6 +323,70 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
       execute: async () => ws.finishMigration(),
     });
   }
+
+  tools.design_check = tool({
+    description:
+      "用 Impeccable 确定性 detector 扫描生成项目的源码，检查 AI slop、小字、对比度、间距、嵌套卡片等问题。适合在 build 后、create_version 前调用；返回最多 30 条 findings。它不是完整视觉回归，渲染后的问题仍可用预览里的设计检查。",
+    inputSchema: z.object({
+      paths: z
+        .array(z.string().max(300))
+        .max(30)
+        .optional()
+        .describe("要扫描的文件或目录前缀；省略时扫描 src/index.html/styles.css"),
+      maxFindings: z.number().int().min(1).max(30).default(15),
+    }),
+    execute: async ({ paths, maxFindings }) => {
+      const listed = await ws.listFiles();
+      const source =
+        /\.(tsx?|jsx?|css|html?|vue|svelte)$/i;
+      let entries = listed.entries
+        .map((entry) => entry.path)
+        .filter((path) => source.test(path));
+      if (paths?.length) {
+        entries = entries.filter((path) =>
+          paths.some(
+            (prefix) =>
+              path === prefix.replace(/^\/+/, "") ||
+              path.startsWith(`${prefix.replace(/^\/+/, "")}/`),
+          ),
+        );
+      } else {
+        entries = entries.filter(
+          (path) =>
+            path.startsWith("src/") ||
+            path === "index.html" ||
+            path === "styles.css" ||
+            path === "server/index.js",
+        );
+      }
+      entries = entries.slice(0, 30);
+
+      const findings: Array<Record<string, unknown>> = [];
+      let scanned = 0;
+      let bytes = 0;
+      for (const path of entries) {
+        if (bytes > 120_000) break;
+        try {
+          const file = await ws.readFile(`/workspace/${path}`);
+          bytes += file.content.length;
+          const result = /\.html?$/i.test(path)
+            ? detectHtmlSource(file.content, path)
+            : detectTextSource(file.content, path);
+          scanned += 1;
+          for (const finding of result) {
+            findings.push({ ...finding, file: path });
+          }
+        } catch {
+          // 单个文件读取失败不阻塞其它文件
+        }
+      }
+      return {
+        scanned,
+        findings: findings.slice(0, maxFindings),
+        total: findings.length,
+      };
+    },
+  });
 
   tools.subagent = tool({
     description:
