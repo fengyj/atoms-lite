@@ -2610,30 +2610,47 @@ export default {
     const target = this.publishTarget();
     if (!target) return;
     const { account } = this.cloudflareConfig();
-    const attempts: Promise<unknown>[] = [];
+    const attempt = async (label: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        console.warn(
+          "[workspace] publish cleanup failed",
+          label,
+          String(error),
+        );
+      }
+    };
+
+    // 必须按 domain → Worker → D1 的顺序删除：Worker 还绑定着自定义域名时，
+    // Cloudflare 会拒绝删除脚本。
     if (target.domainId) {
-      attempts.push(
+      await attempt("domain", () =>
         this.cf(`/accounts/${account}/workers/domains/${target.domainId}`, {
           method: "DELETE",
         }),
       );
     }
-    attempts.push(
-      this.cf(`/accounts/${account}/workers/scripts/${target.worker}`, {
-        method: "DELETE",
-      }),
-    );
+    await attempt("worker", async () => {
+      for (let retry = 0; retry < 2; retry += 1) {
+        try {
+          await this.cf(
+            `/accounts/${account}/workers/scripts/${target.worker}`,
+            { method: "DELETE" },
+          );
+          return;
+        } catch (error) {
+          if (retry === 1) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    });
     if (target.d1Id) {
-      attempts.push(
+      await attempt("d1", () =>
         this.cf(`/accounts/${account}/d1/database/${target.d1Id}`, {
           method: "DELETE",
         }),
       );
-    }
-    for (const attempt of attempts) {
-      await attempt.catch((error) => {
-        console.warn("[workspace] publish cleanup failed", String(error));
-      });
     }
   }
 

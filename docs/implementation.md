@@ -327,7 +327,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 当前生产 secret 里的 token 来自 wrangler OAuth，命令能正常调用；但 OAuth access token
   约 1 小时过期，生产长期使用建议换成 API Token（或定期刷新 secret）。
 - 测试创建的 Worker/D1/自定义域名和测试项目均已清理；
-  删除项目会同时删除 Worker、D1 和域名绑定。
+  删除项目按 domain → Worker → D1 顺序执行（先解绑域名，否则 Worker 删不掉）。
 
 ### 懒启动（本地实测）
 

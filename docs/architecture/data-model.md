@@ -437,7 +437,8 @@ CREATE TABLE atoms_deployments (
 - 自定义域名绑定失败不阻断发布：部署仍为 `ready`，URL 降级为
   `https://<worker>.<workers-subdomain>.workers.dev`，原因写入 `domain_error`，UI 显示警告。
 - D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.1）。
-- 删除项目时删除 Worker、D1 和已绑定的自定义域名；失败只记日志，不阻塞删除。
+- 删除项目时按 domain → Worker → D1 的顺序删除；Worker 还绑定自定义域名时
+  Cloudflare 会拒绝删除脚本。失败只记日志，不阻塞删除。
 
 ### 6.6 v1 的文件与附件边界
 
