@@ -609,7 +609,9 @@ function FileViewer({
  * Versions / terminal / status
  * ---------------------------------------------------------------- */
 
-function versionStatus(status: string): { label: string; tone: string } {
+function versionStatus(
+  status: string
+): { label: string; tone: string } | null {
   if (status === "verified") {
     return {
       label: "已验证",
@@ -622,9 +624,8 @@ function versionStatus(status: string): { label: string; tone: string } {
       tone: "bg-destructive/15 text-destructive border-destructive/30",
     };
   }
-  if (status === "draft") {
-    return { label: "草稿", tone: "bg-muted text-muted-foreground border-border" };
-  }
+  // draft 是内部生命周期状态，表示“已保存的正常版本”，不展示成“草稿”。
+  if (status === "draft") return null;
   return { label: status, tone: "bg-muted text-muted-foreground border-border" };
 }
 
@@ -653,19 +654,23 @@ function VersionRow({
         <code className="font-mono text-xs font-medium">
           {shortCommit(version.gitCommit)}
         </code>
-        <span
-          className={cn(
-            "ml-auto rounded-full border px-1.5 py-0.5 text-3xs",
-            meta.tone
-          )}
-        >
-          {meta.label}
-        </span>
-        {version.published ? (
-          <span className="rounded-full border border-success/30 bg-success/15 px-1.5 py-0.5 text-3xs text-success">
-            已发布
-          </span>
-        ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          {meta ? (
+            <span
+              className={cn(
+                "rounded-full border px-1.5 py-0.5 text-3xs",
+                meta.tone
+              )}
+            >
+              {meta.label}
+            </span>
+          ) : null}
+          {version.published ? (
+            <span className="rounded-full border border-success/30 bg-success/15 px-1.5 py-0.5 text-3xs text-success">
+              已发布
+            </span>
+          ) : null}
+        </div>
       </div>
       <p className="mt-1 line-clamp-2 text-2xs text-muted-foreground">
         {version.summary}

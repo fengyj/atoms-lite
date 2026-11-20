@@ -330,7 +330,7 @@ CREATE TABLE atoms_versions (
 |---|---|
 | `git_commit` | 版本内容真相；列名避开 `commit`；browser 项目存内容 SHA-256 |
 | `parent_id` | 版本链；回滚生成新 commit，父指向当前版本 |
-| `status` | 创建后为 `draft`；build 或快照失败时标为 `failed` |
+| `status` | 创建后为 `draft`，表示已保存的正常版本；UI 不展示“草稿”badge。快照失败时标为 `failed`，UI 显示“失败” |
 | `archived` | runtime 切换后旧版本只展示，不允许再 checkout |
 
 > DO 本身按项目寻址，因此没有 `project_id`；v1 也没有 `session_id` / `message_id`。
