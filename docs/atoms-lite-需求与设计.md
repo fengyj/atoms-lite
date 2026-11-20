@@ -4,7 +4,7 @@
 > 本文是完整产品设计/目标形态，不是 v1 的逐条实现清单。v1 已实现首页工作台、会话工作区、
 > 三种模板、browser/container 两种运行时、自动选型 + `ask_user`、文件/构建/预览/版本、
 > 非破坏性回滚后端、预览元素选择、`/design-review` 等命令、`design_check`/`design_review`、
-> 手动实例升级和 runtime 单向切换。
+> 手动实例升级和运行环境（runtime）单向切换。
 >
 > v1 **未实现**：多角色与 `@`、多会话、附件/R2、D1、PPT、导出/发布、Artifacts 面板、
 > 版本回滚 UI、版本 diff、Workflow/Queues/LangGraph。技术实现也与本文早期设想有差异：

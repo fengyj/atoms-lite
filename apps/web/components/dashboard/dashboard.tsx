@@ -252,7 +252,7 @@ export function Dashboard() {
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               每个需求都会创建一个独立项目：自己的文件、预览、git 版本和会话。
-              技术栈会根据需求自动选择，不需要你理解 runtime。
+              技术栈会根据需求自动选择，不需要你理解底层运行环境。
             </p>
           </div>
 

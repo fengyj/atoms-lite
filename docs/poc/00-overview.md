@@ -140,6 +140,5 @@ POC-00 已通过：POC-02/03/04 解除阻塞。POC-01/05/06/07 本来就不受�
 | [03-attachments-artifacts](../decisions/03-attachments-artifacts.md) | 附件、产物、跨角色引用 |
 | [04-sandbox-and-versions](../decisions/04-sandbox-and-versions.md) | 沙箱生命周期、快照、版本与回滚 |
 | [05-generation-model-ux](../decisions/05-generation-model-ux.md) | 生成策略、模型基线、UI 与可观测性 |
-| [06-dev-environment](../decisions/06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
 
 仍待验证：POC-06 B6（面板事件并行）、生产 Containers 一致性、多文件生成闭环、`pnpm build`。

@@ -21,10 +21,9 @@
 | [03-attachments-artifacts](03-attachments-artifacts.md) | 附件、产物、跨角色引用 |
 | [04-sandbox-and-versions](04-sandbox-and-versions.md) | 沙箱生命周期、快照、版本与回滚 |
 | [05-generation-model-ux](05-generation-model-ux.md) | 生成策略、模型基线、UI 与可观测性 |
-| [06-dev-environment](06-dev-environment.md) | 本地环境、工具链与踩坑记录 |
-| [07-instance-auto-upgrade](07-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
-| [08-iconography](08-iconography.md) | 站内品牌图标、生成项目的图标库选择与使用约定 |
-| [09-runtime-lifecycle-and-agent-tools](09-runtime-lifecycle-and-agent-tools.md) | pending/configured、动态工具、runtime 单向切换与迁移、ask_user、subagent |
+| [06-instance-auto-upgrade](06-instance-auto-upgrade.md) | 容器实例档位、手动升级现状与自动升级提案 |
+| [07-generated-project-icons](07-generated-project-icons.md) | 生成项目的图标库选择与使用约定 |
+| [08-execution-environment-and-agent-tools](08-execution-environment-and-agent-tools.md) | pending/configured、动态工具、运行环境单向切换与迁移、ask_user、subagent |
 
 ## 约定
 

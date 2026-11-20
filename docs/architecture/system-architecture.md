@@ -6,6 +6,10 @@
 > 本文描述目标架构。当前 v1 实际使用 **Projects DO + ChatAgent DO + WorkspaceDO + Container**，
 > **D1 / R2 / Queues / 多角色尚未接入**；实现细节与验证记录以 `docs/implementation.md` 为准。
 > 不熟悉 Cloudflare 的读者可以先看第 12 节「Cloudflare 服务说明」，尤其是 Durable Objects。
+
+> **术语**：**模板（template）** 指 `static` / `react-vite` / `fullstack-hono`；
+> **运行环境（runtime）** 指项目实际在哪里执行：`browser`（Worker 直接服务）或 `container`（容器），
+> 不是 Node/V8 语言运行时；**沙箱** 指 `container` 运行环境里的隔离容器。
 > 与 `docs/atoms-lite-需求与设计.md` 第 8 章（总体架构）冲突时，以本文为准。
 
 ---

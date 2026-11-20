@@ -1,29 +1,6 @@
-# 08. 品牌图标与生成项目的图标库
+# 07. 生成项目的图标库
 
-## 1. atoms-lite 品牌图标
-
-标记由三个元素组成：
-
-- **两条交叉椭圆轨道**：表示原子/轨道，也暗示“生成、循环、组合”。
-- **中心原子核**：视觉重心，小尺寸下仍能定位。
-- **右上电子点**：打破对称，让标记在 16px 下仍有方向感。
-
-主色使用应用 `--primary`（periwinkle），字形用近黑色 `#151824`；
-在暗色界面上以主色圆角方块承载，保证标签页 favicon 与页内 logo 一致。
-
-| 文件 | 用途 |
-| --- | --- |
-| `apps/web/app/icon.svg` | 浏览器 favicon / 搜索结果图标（Next 文件约定自动注入） |
-| `apps/web/app/apple-icon.png` | iOS 主屏图标（180×180，满幅背景，由 iOS 自行裁圆角） |
-| `apps/web/components/brand-mark.tsx` | 页内品牌标记（`currentColor`，外框由调用方控制） |
-
-使用规则：
-
-- 页内只使用 `BrandMark`，不要复制 SVG；外框保持 `bg-primary text-primary-foreground`。
-- 最小尺寸 16px；小于 16px 时只用主色方块，不放字形。
-- 不拉伸、不改轨道角度、不给标记叠加阴影或渐变文字。
-
-## 2. 生成 Web 项目时的图标库
+## 1. 生成 Web 项目时的图标库
 
 **默认选择：`lucide-react`**，并已预装在 React / 全栈模板中。
 
@@ -71,9 +48,7 @@ import { Camera, Search, Trash2 } from "lucide-react";
   这会加载整套图标，优先内联 SVG。
 - 同样禁止 emoji 充当功能图标和图标字体。
 
-## 3. 落地位置
+## 2. 落地位置
 
 - Prompt：`apps/worker/src/prompt.ts` 的 React / 全栈 / 静态模板段落。
 - 模板依赖：`apps/worker/container/templates/*/package.json` 已包含 `lucide-react`。
-- 站内品牌：`apps/web/app/icon.svg`、`apps/web/app/apple-icon.png`、
-  `apps/web/components/brand-mark.tsx`。

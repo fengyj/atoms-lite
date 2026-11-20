@@ -1,8 +1,20 @@
-# 09. Runtime 生命周期与 Agent 工具
+# 08. 运行环境生命周期与 Agent 工具
 
 状态：**已实现**（2026-11-19；2026-11-20 补充预览刷新与 selection）
 
-## 1. Runtime 不在创建时确定
+## 0. 术语
+
+| 术语 | 含义 | 代码/字段 |
+|---|---|---|
+| **模板（template）** | 生成项目的技术栈形态：`static` / `react-vite` / `fullstack-hono` | `template` |
+| **运行环境（runtime）** | 项目实际在哪里执行：`browser`（Worker 直接服务） / `container`（容器） | `runtime` |
+| **沙箱（sandbox）** | `container` 运行环境里的隔离容器 | `container` |
+| **实例（instance）** | 容器规格：`basic` / `standard-1` / `standard-2` | `instance_tier` |
+
+> “runtime” 容易和语言运行时（Node runtime、V8 runtime）混淆。本文正文优先用“运行环境”；
+> 只有字段名、API、工具名保留 `runtime`，例如 `switch_runtime`、`runtime_context`。
+
+## 1. 运行环境不在创建时确定
 
 项目创建默认走**自动选型**：
 
@@ -18,12 +30,12 @@
 3. 下一轮请求才挂载文件、构建、预览等工具；第一次文件操作才 `ensure()`，
    仍然保持懒启动。
 
-配置后、第一次写入前仍可重新配置；这等价于无成本切换 runtime。
+配置后、第一次写入前仍可重新配置；这等价于无成本切换运行环境。
 
 ## 2. 每个请求动态组装工具与上下文
 
 `apps/worker/src/tools.ts` 使用工具注册表，工具自己声明匹配条件；
-`agent.ts` 每轮根据 `WorkspaceDO /meta` 生成 `RuntimeContext`，再过滤工具。
+`agent.ts` 每轮根据 `WorkspaceDO /meta` 生成运行环境上下文（`RuntimeContext`），再过滤工具。
 不写死 `template/runtime → 工具列表` 的 if/else。
 
 `RuntimeContext` 只附加到发给模型的**最后一条用户消息**副本，不写回
@@ -38,7 +50,7 @@
 
 工具定义只在 configure/switch 时变化，频率很低，对 prompt 缓存影响可接受。
 
-## 3. Runtime 可以切换，但只允许单向升级
+## 3. 运行环境可以切换，但只允许单向升级
 
 `switch_runtime` 是客户端确认工具：先显示目标环境，用户确认后调用
 `POST /api/projects/:id/runtime/switch`。
@@ -81,12 +93,12 @@ browser < container/basic < container/standard-1 < container/standard-2
 
 - 聊天窗口内向导卡片，不是 modal：一次一个问题、可前后切换、最后 summary 确认。
 - 最多 3 个问题，单选/多选/文本；每个问题都允许用户自行输入答案。
-- 不询问 runtime/技术栈；模型根据回答内部推断 `recommendedTemplate`，卡片不展示。
+- 不询问运行环境/技术栈；模型根据回答内部推断 `recommendedTemplate`，卡片不展示。
 - 可以分多轮 ask_user 继续澄清，不假设一次问完。
 - 超时 **15 分钟**，底部线性进度条 + `mm:ss`，最后 2 分钟 warning 色。
 - 超时自动 `addToolOutput({ skipped: true })`；用户取消传 `cancelled: true`，模型使用默认方案继续。
 - 客户端工具：服务端只有 schema，没有 execute；提交后 `addToolOutput`
-  自动续跑同一回合。配置项目使用模型内部推断的 template，用户不感知 runtime。
+  自动续跑同一回合。配置项目使用模型内部推断的 template，用户不感知运行环境。
 - 不使用 approval（approval 只能传 approved/denied，带不了答案）。
 
 ## 5. subagent
@@ -109,9 +121,9 @@ browser < container/basic < container/standard-1 < container/standard-2
 
 - 迁移在同一个容器内重置 workspace，不维护两个 live sandbox；
   避免双容器成本和预览路由复杂度。
-- 旧版本只保留展示，不保证可回滚到旧 runtime。
+- 旧版本只保留展示，不保证可回滚到旧运行环境。
 - 迁移期间旧环境仍可能被快照；`finish_migration` 前不要创建版本。
-- 实例自动升级未实现；手动升级已实现（见 07）。
+- 实例自动升级未实现；手动升级已实现（见 06）。
 
 ## 6.1 预览刷新
 

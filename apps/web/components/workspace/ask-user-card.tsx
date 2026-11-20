@@ -216,7 +216,7 @@ export function AskUserCard({
             </div>
           ))}
           <p className="pt-1 text-3xs text-muted-foreground">
-            技术方案会根据这些回答自动选择，不需要你理解 runtime。
+            技术方案会根据这些回答自动选择，不需要你理解底层运行环境。
           </p>
         </div>
       ) : question ? (

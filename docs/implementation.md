@@ -11,7 +11,7 @@
   - `static` + **browser**：Web 文件存 DO SQLite，平台直接服务，无容器；依赖通过 esm.sh importmap
   - `react-vite` + container：React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + shadcn/ui + HashRouter（`src/pages/Index.tsx`）
   - `fullstack-hono` + container：上面的前端 + Hono + `node:sqlite` 后端
-  - 旧静态项目仍使用 container runtime（兼容）
+  - 旧静态项目仍使用 container 运行环境（兼容）
 - 项目创建时根据需求自动选择模板并持久化
 - 目标示例：五子棋（静态）、番茄钟（React）、带优先级的待办（全栈）
 
@@ -52,7 +52,7 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 
 - 左侧边栏：品牌、工作台/我的项目/模板/设置、最近项目、当前模式
 - Hero：品牌标记 + 原子轨道背景（SVG/CSS，无图片请求；电子沿三条轨道运行）
-- 主区：聚焦式需求输入（多行、⌘/Ctrl+Enter；技术栈自动推断，不展示 runtime 下拉）
+- 主区：聚焦式需求输入（多行、⌘/Ctrl+Enter；技术栈自动推断，不展示运行环境下拉）
 - 示例需求：五子棋 / 待办清单 / 作品集主页
 - 我的项目：真实版本数据（commit、summary、文件数、保存时间）+ 打开工作区
 - 提交需求 → `POST /api/projects` 创建项目 → 跳转 `/sessions/:id?prompt=...`
@@ -70,8 +70,8 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
   （行号 + 语法高亮）；选择文件会读取内容，容器项目读取时会启动沙箱
 - **终端**：从消息里的 `exec` / `build` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
 - 对话栏支持拖动调整宽度；双击把手恢复默认值，宽度写入 localStorage
-- 品牌图标：`app/icon.svg`（favicon）、`app/apple-icon.png`、页内 `BrandMark`；
-  生成项目的图标库约定见 `docs/decisions/08-iconography.md`
+- 站内图标文件：`app/icon.svg`（favicon）、`app/apple-icon.png`、页内 `BrandMark`；
+  生成项目的图标库约定见 `docs/decisions/07-generated-project-icons.md`
 - Agent 实例名 = 项目 ID，因此对话历史、工具调用、容器、版本都按项目隔离
 - 进入时读取 `?prompt=`，待 Agent 连接就绪且当前空闲后自动发送；
   发送前用 `history.replaceState` 清掉 query，刷新不会重复发送
@@ -134,15 +134,15 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
     不创建容器，不做 5 分钟回收；版本用内容 SHA-256 而不是 git。
   - `container`（React/全栈/旧 static）：容器 + git + 快照。
 - **依赖安装**：
-  - `install_packages` 工具；browser runtime 注册 esm.sh URL 并注入 importmap；
-    container runtime 执行 `pnpm add`（registry 使用 npmmirror），项目节点是独立 node_modules。
+  - `install_packages` 工具；browser 运行环境注册 esm.sh URL 并注入 importmap；
+    container 运行环境执行 `pnpm add`（registry 使用 npmmirror），项目节点是独立 node_modules。
   - 镜像最终 **不包含 npm/npx**：构建时用 npm 安装 pnpm 后立即删除 npm；
     运行期只有 node + pnpm。
   - 容器 egress 已开放（`enableInternet: true`），可在运行时安装镜像预装之外的包。
   - 浏览器静态项目不支持 TS/JSX/React 编译；HTML 资源必须相对路径。
 - **镜像**：改为 `node:24-bookworm-slim`（Debian/glibc），安装 git/procps/pnpm；
   pnpm store 层缓存；依赖安装与构建可复现；最终镜像删除 npm/npx。
-- **实例**：自动升级方案见 `docs/decisions/07-instance-auto-upgrade.md`（自动升级未实现，
+- **实例**：自动升级方案见 `docs/decisions/06-instance-auto-upgrade.md`（自动升级未实现，
   手动升级已实现）。Wrangler 配置层不支持 DO 容器的 `instance_type`，但运行期
   `container.start({ instance })` 支持预定义档位。默认 `basic`（1/4 vCPU / 1 GiB / 4 GB），
   可升级 `standard-1`（1/2 vCPU / 4 GiB / 8 GB）→ `standard-2`（1 vCPU / 6 GiB / 12 GB），
@@ -164,10 +164,10 @@ D1/R2/真实发布仍留到后续；全栈数据目前存在容器内 SQLite（�
 - 项目索引 `Projects` DO：保存
   `id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at`；
   读取时并发向各 WorkspaceDO 的 `/meta` 补齐版本数与当前版本（不启动容器）。
-- **Runtime 切换**：`switch_runtime` 只允许单向升级（browser < container/basic < standard-1 < standard-2）。
+- **运行环境切换**：`switch_runtime` 只允许单向升级（browser < container/basic < standard-1 < standard-2）。
   旧文件导出到 `atoms_migration_files`，目标工作区解压到 `_sandbox_migration/`；
   模型通过 `list/read/copy/finish_migration` 选择性迁移。该目录从 git、文件树、预览和版本排除。
-- **Agent 上下文**：每轮把 runtime/time/capabilities 等附加到最后一条用户消息的模型副本，
+- **Agent 上下文**：每轮把运行环境/time/capabilities 等附加到最后一条用户消息的模型副本，
   不写回消息存储；工具按 `RuntimeContext` 条件动态挂载。
 - **ask_user**：15 分钟线性倒计时卡片；提交后客户端配置项目并 `addToolOutput` 续跑。
 - **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
@@ -374,7 +374,7 @@ React（番茄钟）与全栈（优先级待办）生成结果：
 - 每个项目固定一个会话。
 - 工作台终端是只读的命令记录，不是可交互 shell；命令仍需通过对话让 Agent 执行。
 - 重命名/删除入口在首页项目卡；工作区内暂未放项目菜单。
-- 依赖可通过 `install_packages` 安装；browser runtime 走 esm.sh，container runtime 走 pnpm + egress。
+- 依赖可通过 `install_packages` 安装；browser 运行环境走 esm.sh，container 运行环境走 pnpm + egress。
 - 镜像运行期只有 pnpm；旧快照如果只有 npm，安装新包不兼容（旧项目可删除）。
 - Next.js **不支持**；即使可升级到 standard-2，Next 的镜像、构建和运行成本仍不匹配当前架构。
 - 旧项目（旧 Alpine/npm 快照）仍可预览/构建，但安装新包需要新建项目。
