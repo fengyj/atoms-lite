@@ -123,7 +123,7 @@ const REQUIREMENTS_AND_DESIGN = `需求与设计优先（最高优先级）：
 - 用户在对话里选定草案后，调用 manage_design（action=select），再调用 manage_design（action=apply）写入 DESIGN.md；然后 read_file DESIGN.md，再按它实现。设计 tab 只负责展示，不要要求用户在那个窗口点按钮。
 - 实现完成后调用 design_check / design_review；把结果对照 DESIGN.md，而不是只看单个组件。
 - 用户之后对 UI 有想法：用 manage_design（action=create, mode="revision"）生成 2-5 个变体（默认 3），让用户在对话里选择；不要直接大改生产代码。
-- 设计概念必须是真实文案、真实数据、响应式；不要只换颜色的假方案。`;
+- manage_design 返回的 designs/generated 是实际结果；少于请求数量时按实际数量说明，不要虚构。设计概念必须是真实文案、真实数据、响应式；不要只换颜色的假方案。`;
 
 export function systemPrompt(ctx: RuntimeContext): string {
   const parts = [COMMON];

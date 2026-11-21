@@ -449,7 +449,18 @@ export function createTools({
           designs.push(saved.design);
         },
       });
-      return { action: "create", mode, requested: count, generated: concepts.length, designs };
+      return {
+        action: "create",
+        mode,
+        requested: count,
+        generated: concepts.length,
+        designs,
+        ...(concepts.length < count
+          ? {
+              note: `实际生成 ${concepts.length}/${count} 个草案，部分方向失败；请按实际数量告知用户，不要虚构。`,
+            }
+          : {}),
+      };
     },
   });
 
