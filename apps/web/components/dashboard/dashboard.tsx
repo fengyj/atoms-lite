@@ -14,6 +14,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { ProjectArt, artVariantFor } from "@/components/dashboard/project-art";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -629,9 +630,10 @@ function FeaturedProject({
         <span className="absolute top-4 left-5 text-3xs tracking-[0.16em] text-brand/70 uppercase">
           Featured project
         </span>
-        <span className="absolute top-1/2 left-1/2 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand/20" />
-        <span className="absolute top-1/2 left-1/2 size-48 -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand/25" />
-        <span className="absolute top-1/2 left-1/2 size-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-warning/30 bg-warning/10" />
+        <ProjectArt
+          variant={artVariantFor(project.id)}
+          className="pointer-events-none text-brand/45"
+        />
         <ProjectMark
           project={project}
           className="absolute bottom-5 left-5 size-20 rounded-full border border-brand/20 text-3xl"
@@ -714,6 +716,12 @@ function ProjectCard({
       : project.template === "react-vite"
         ? "bg-success/10"
         : "bg-warning/10";
+  const artColor =
+    project.template === "fullstack-hono"
+      ? "text-brand/50"
+      : project.template === "react-vite"
+        ? "text-success/40"
+        : "text-warning/50";
 
   return (
     <article className="group panel-surface relative h-full overflow-hidden border border-border bg-card transition duration-200 hover:-translate-y-0.5 hover:shadow-lg">
@@ -727,12 +735,13 @@ function ProjectCard({
             artTone
           )}
         >
-          <span className="absolute top-3 left-4 font-serif text-2xs text-foreground/40">
+          <span className="absolute top-3 left-4 z-10 font-serif text-2xs text-foreground/40">
             {String(index).padStart(2, "0")}
           </span>
-          <span className="absolute -top-16 -right-12 size-44 rounded-full border border-foreground/10" />
-          <span className="absolute top-1/2 right-7 size-24 -translate-y-1/2 rounded-full border border-foreground/10" />
-          <span className="absolute top-1/2 right-16 size-3 -translate-y-1/2 rounded-full bg-brand/60" />
+          <ProjectArt
+            variant={index % 6}
+            className={cn("pointer-events-none", artColor)}
+          />
         </div>
 
         <div className="flex flex-1 flex-col p-5">
