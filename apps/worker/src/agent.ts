@@ -444,6 +444,9 @@ export class ChatAgent extends AIChatAgent<Env> {
       system: systemPrompt(ctx),
       messages,
       tools,
+      // 不显式设置时，供应商默认输出预算可能被 reasoning 吃光，
+      // 长会话下会出现 finishReason=stop 但没有任何文本/工具调用的空回复。
+      maxOutputTokens: 16_000,
       stopWhen: stepCountIs(maxSteps),
       // 到达单轮步数上限时，不再静默停止：强制模型调用确认卡，
       // 让用户决定是否继续，避免必须手动发送“继续”。
@@ -541,6 +544,23 @@ export class ChatAgent extends AIChatAgent<Env> {
             turnUsage,
           );
           await recordSteps(finish.steps);
+          const emptyTurn =
+            finish.steps.length > 0 &&
+            finish.steps.every(
+              (step) => !step.text.trim() && step.toolCalls.length === 0,
+            );
+          if (emptyTurn) {
+            console.warn(
+              "[agent.turn.empty]",
+              JSON.stringify({
+                ...turnLog,
+                steps: finish.stepNumber + 1,
+                finishReason: finish.finishReason,
+                outputTokens: turnUsage.outputTokens,
+                reasoningTokens: turnUsage.reasoningTokens,
+              }),
+            );
+          }
           console.log(
             "[agent.turn.finish]",
             JSON.stringify({

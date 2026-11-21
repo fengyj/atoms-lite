@@ -30,17 +30,57 @@ export type AgentErrorInfo = {
   detail: string;
 };
 
+function describeErrorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    const extra = error as Error & {
+      cause?: unknown;
+      statusCode?: number;
+      responseBody?: unknown;
+    };
+    const lines = [`${error.name}: ${error.message}`.trim()];
+    if (extra.statusCode) lines.push(`status: ${extra.statusCode}`);
+    if (extra.responseBody !== undefined) {
+      lines.push(
+        `response: ${
+          typeof extra.responseBody === "string"
+            ? extra.responseBody
+            : JSON.stringify(extra.responseBody)
+        }`,
+      );
+    }
+    if (extra.cause !== undefined && extra.cause !== null) {
+      lines.push(
+        `cause: ${
+          extra.cause instanceof Error
+            ? `${extra.cause.name}: ${extra.cause.message}`
+            : typeof extra.cause === "string"
+              ? extra.cause
+              : JSON.stringify(extra.cause)
+        }`,
+      );
+    }
+    if (error.stack) lines.push(error.stack);
+    const text = lines.filter(Boolean).join("\n");
+    return text || String(error) || "未知错误（没有错误信息）";
+  }
+  if (typeof error === "string") return error || "未知错误（空字符串）";
+  try {
+    return (
+      JSON.stringify(error, Object.getOwnPropertyNames(error as object), 2) ||
+      String(error) ||
+      "未知错误（空对象）"
+    );
+  } catch {
+    return String(error) || "未知错误";
+  }
+}
+
 /**
  * 把底层错误转成用户能理解的分类。
  * 不在这里吞掉原始信息：detail 保留给“技术细节”展开。
  */
 export function describeAgentError(error: unknown): AgentErrorInfo {
-  const detail =
-    error instanceof Error
-      ? error.message || String(error)
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
+  const detail = describeErrorDetail(error);
   const lower = detail.toLowerCase();
 
   if (

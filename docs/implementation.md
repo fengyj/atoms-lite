@@ -199,9 +199,10 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **需求/设计工具**：`save_requirements_brief` / `confirm_requirements` / `create_design_concepts` /
   `refine_design_concept` / `list_designs` / `select_design` / `apply_design`；
   Designer 调用以 `source=designer` 单独记账。
-- **空回复与连续消息**：模型输入前先归一化历史：丢掉空 assistant，把相邻 user 合并成一条；
-  如果上一轮 assistant 是空回复，或用户只说了「重试/继续」，给最后一条 user 追加
-  「直接给出完整、可见答案」的提示，避免模型再次返回空内容。
+- **空回复与连续消息**：主对话显式设置 `maxOutputTokens: 16k`，避免供应商默认预算被
+  reasoning 吃光后返回空的 `finishReason=stop`；模型输入前先归一化历史：丢掉空 assistant，
+  把相邻 user 合并成一条；如果上一轮 assistant 是空回复，或用户只说了「重试/继续」，
+  给最后一条 user 追加「直接给出完整、可见答案」的提示，避免模型再次返回空内容。
 - **错误可见性**：`useAgentChat` 的错误按超时 / 空回复 / 上下文过长 / 网络 / 额度分类，
   在输入框上方显示标题、可操作建议、可展开的技术细节和「重试」按钮；
   历史里的空 assistant 显示「这次回复没有返回内容」并提供重试，不再是完全空白。
