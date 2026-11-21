@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { ToolUIPart } from "ai";
-import { MessageSquare, Monitor } from "lucide-react";
+import { execPreferenceKey, type ExecInput } from "@atoms-lite/contracts";import { MessageSquare, Monitor } from "lucide-react";
 import { ChatPanel } from "@/components/workspace/chat-panel";
 import { TopBar } from "@/components/workspace/top-bar";
 import { WorkbenchPanel } from "@/components/workspace/workbench";
@@ -24,11 +24,13 @@ import {
   configureProject,
   switchRuntime,
   renameProject,
+  saveExecPreference,
   describeAgentError,
   type AgentErrorInfo,
 } from "@/lib/agent";
 import type { AskUserInput, AskUserPayload } from "@/components/workspace/ask-user-card";
 import type { ElementSelection } from "@/lib/element-selection";
+import { formatExecInput } from "@/lib/exec";
 import { cn } from "@/lib/utils";
 
 type Tab = "chat" | "workbench";
@@ -335,10 +337,35 @@ export function Workspace({ projectId }: { projectId: string }) {
   ]);
 
   const respondApproval = useCallback(
-    (id: string, approved: boolean) => {
-      addToolApprovalResponse({ id, approved });
+    async (
+      id: string,
+      approved: boolean,
+      options?: { remember?: "allow" | "deny"; input?: unknown }
+    ) => {
+      if (options?.remember && options.input) {
+        try {
+          const input = options.input as ExecInput;
+          await saveExecPreference(projectId, {
+            key: execPreferenceKey(input),
+            decision: options.remember,
+            command: formatExecInput(input),
+          });
+        } catch (error) {
+          setAgentError(describeAgentError(error));
+          return;
+        }
+      }
+      addToolApprovalResponse({
+        id,
+        approved,
+        reason: approved
+          ? undefined
+          : options?.remember === "deny"
+            ? "用户已将此命令设置为「始终拒绝」。可以在工作台「终端 → 执行偏好」中移除这条规则后再试。"
+            : "用户拒绝了这次执行。",
+      });
     },
-    [addToolApprovalResponse]
+    [addToolApprovalResponse, projectId]
   );
 
   const respondAskUser = useCallback(

@@ -1,9 +1,14 @@
-import { EXEC_ALLOWED_PROGRAMS } from "@atoms-lite/contracts";
+import { execPreferenceKey } from "@atoms-lite/contracts";
 import { tool, type LanguageModel, type LanguageModelUsage, type ToolSet } from "ai";
 import { z } from "zod";
 import type { RuntimeContext } from "./context";
 import { detectHtmlSource, detectTextSource } from "./detector";
 import { generateDesignConcepts, refineDesignConcept } from "./designer";
+import {
+  analyzeExec,
+  execInputSchema,
+  type ExecInput,
+} from "./exec";
 import { runSubagent } from "./subagent";
 import type { UsageSource } from "./usage";
 import type {
@@ -12,7 +17,6 @@ import type {
 } from "./workspace/client";
 
 const TEMPLATE_ENUM = z.enum(["static", "react-vite", "fullstack-hono"]);
-const EXEC_PROGRAM = z.enum(EXEC_ALLOWED_PROGRAMS);
 const WORKSPACE_PATH = z
   .string()
   .max(300)
@@ -222,7 +226,7 @@ export function createTools({
 
   tools.write_file = tool({
     description:
-      "写入（覆盖）一个文件；内容必须是完整文件。仅用于新建文件或确实需要整体重写；修改已有文件优先用 edit_file。",
+      "写入（覆盖）一个文件；内容必须是完整文件。小范围修改用 edit_file；大范围重写、重排或大量替换时直接用 write_file 覆写，避免构造巨大的 oldString。",
     inputSchema: z.object({
       path: FILE_PATH,
       content: z.string().describe("完整文件内容"),
@@ -248,21 +252,40 @@ export function createTools({
 
   if (caps.shell) {
     tools.exec = tool({
-      description: `在 /workspace 执行受限命令。允许：${EXEC_ALLOWED_PROGRAMS.join("/")}。git 仅支持只读子命令（status/diff/log/show/rev-parse/ls-files/grep）；sed 固定以 --sandbox 运行且不允许 -i，就地修改请用 edit_file。参数中的绝对路径必须在 /workspace 内；mkdir/cp/mv 会写文件，能用文件工具就不要用 exec；不支持 bash/curl/node/find。`,
-      inputSchema: z.object({
-        program: EXEC_PROGRAM.describe("允许的命令，见 tools 描述"),
-        args: z.array(z.string().max(200)).max(64).default([]),
-        cwd: z
-          .string()
-          .max(200)
-          .optional()
-          .describe("工作目录，默认 /workspace；只接受 /workspace 或其子目录"),
-      }),
-      execute: async ({ program, args, cwd }) => {
-        if (cwd && !/^\/workspace(\/|$)/.test(cwd)) {
-          throw new Error("cwd must be /workspace or a subdirectory");
+      description: `在 /workspace 执行命令。两种结构化形式（二选一）：
+1) command: { program, args } 单命令。
+2) groups: [{ op:"and"|"or", pipeline:{ commands:[{program,args}], stdout:{path,append} } }]
+   - pipeline 内用管道连接：grep -r foo src | head -20
+   - groups 之间用 && 或 || 连接
+   - stdout 写文件必须用 /workspace 内路径
+
+只读命令和只读管道会自动执行；写文件、重定向、安装、网络、git 写操作、sh/node 脚本会请求用户批准。
+复杂脚本请先用 write_file 写到 /workspace/scripts/*.sh，再用 command 执行 sh /workspace/scripts/xxx.sh。
+路径必须在 /workspace 内；不要改 .git / .atoms-lite / node_modules / dist。
+例：ls | head -20 → groups:[{op:"and",pipeline:{commands:[{program:"ls"},{program:"head",args:["-20"]}]}}]`,
+      inputSchema: execInputSchema,
+      needsApproval: async (input) => {
+        const analysis = analyzeExec(input as ExecInput);
+        if (analysis.risk !== "approval") return false;
+        const pref = (
+          await ws.getExecPreference(execPreferenceKey(input as ExecInput))
+        ).decision;
+        return pref === null;
+      },
+      execute: async (input) => {
+        const analysis = analyzeExec(input as ExecInput);
+        if (analysis.risk === "denied") {
+          throw new Error(analysis.reason);
         }
-        return ws.exec({ program, args, cwd });
+        const pref = (
+          await ws.getExecPreference(execPreferenceKey(input as ExecInput))
+        ).decision;
+        if (pref === "deny") {
+          throw new Error(
+            "这条命令已被设置为「始终拒绝」。可以在工作台「终端 → 执行偏好」中移除这条规则后再试。",
+          );
+        }
+        return ws.exec(input as ExecInput);
       },
     });
   }

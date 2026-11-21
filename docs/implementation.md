@@ -200,6 +200,15 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
 - **需求/设计工具**：`manage_requirements` / `manage_design`；
   Designer 调用以 `source=designer` 单独记账。
+- **结构化 exec**：`exec` 支持单命令 `command` 或 `groups`（pipeline + `&&`/`||` +
+  结构化 `stdout` 重定向）。只读命令/管道自动执行；写文件、未知程序、重定向、`sh`/`node`
+  脚本通过 `needsApproval` 请求用户批准。复杂脚本先 `write_file` 到
+  `/workspace/scripts/*.sh`，再用 `sh` 执行，不接受自由 script 字符串。
+- **执行偏好**：审批卡支持「允许一次 / 始终允许 / 拒绝 / 始终拒绝」；偏好按结构化命令 key
+  存 `atoms_exec_preferences`。工作台「终端 → 执行偏好」可查看、移除单条或全部清除；
+  「始终拒绝」后再次调用会返回明确错误，提示去移除偏好。
+- **写文件**：`edit_file` 是局部替换；`write_file` 是整文件覆写。小范围修改用 `edit_file`；
+  大范围重写、重排或大量替换直接用 `write_file`，避免构造巨大的 `oldString`。
 - **工具 schema 兼容性**：不要在任何 tool `inputSchema` 里使用 `.regex()`。上游供应商会把
   JSON Schema 的 `pattern` 当成不可用请求并返回 `upstream_unavailable`，而且错误信息
   完全不会提示是 schema 问题。路径、枚举等校验放在 `execute` 里手动做。
@@ -260,7 +269,8 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
     避免旧 Worker 配新 schema。
   - 自定义域名用 `PUT /accounts/:id/workers/domains` 绑定；失败自动降级 workers.dev，
     原因写入 `domain_error`，不改变部署 `ready` 状态。
-- 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走 `exec`（程序白名单）。
+- 写文件走 `Files`（需要镜像内的 `sandbox-shim`）；命令走结构化 `exec`
+  （单命令 / 管道 / `&&`/`||` / 重定向，危险命令审批）。
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
 - 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
   （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,publish,deployments,preview/*}`；
@@ -288,6 +298,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - `upstream_unavailable` 复现：本地 container 项目 1 条消息也失败；逐项去掉 `exec` 的
   `cwd` schema 后恢复正常，确认是工具 schema 里的 `.regex()` / JSON Schema `pattern`
   导致供应商拒绝请求。改为普通 string + execute 手动校验后，container 项目恢复。
+- 结构化 exec（本地 container）：`ls | head -5` 自动执行，无审批；`mkdir ... && echo ... > file`
+  弹出审批卡并显示格式化命令；「允许一次」执行成功；「始终允许」后同一命令不再询问；
+  「终端 → 执行偏好」可移除规则，移除后同一命令重新询问；「始终拒绝」正常保存并可移除。
 - 真实模型生成：**约 90 秒**完成 `list_files → write_file × 3 → exec → start_preview → create_version`。
 - 预览标题 `五子棋 · Gomoku`；点击棋盘后「已落子 1 手」「轮到白棋」；localStorage 写入；无 console 错误。
 

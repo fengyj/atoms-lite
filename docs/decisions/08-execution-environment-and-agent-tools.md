@@ -101,6 +101,43 @@ browser < container/basic < container/standard-1 < container/standard-2
   自动续跑同一回合。配置项目使用模型内部推断的 template，用户不感知运行环境。
 - 不使用 approval（approval 只能传 approved/denied，带不了答案）。
 
+## 4.1 exec 结构化命令与审批
+
+`exec` 不做自由 shell 字符串，也不分成两个工具；模型提交结构化的命令链：
+
+```ts
+type ExecInput =
+  | { command: { program: string; args?: string[] }; cwd?: string }
+  | {
+      groups: Array<{
+        op?: "and" | "or";
+        pipeline: {
+          commands: Array<{ program: string; args?: string[] }>;
+          stdout?: { path: string; append?: boolean };
+        };
+      }>;
+      cwd?: string;
+    };
+```
+
+- `pipeline.commands` 内部用管道连接；`groups` 之间用 `&&` / `||` 连接；
+- 重定向必须用结构化 `stdout.path`，路径限制在 `/workspace` 内；
+- 服务端先校验每个叶子命令，再安全转义并编译成 `sh -lc` 执行；
+- 只读命令和只读管道自动执行；写文件、重定向、安装、网络、`git` 写操作、
+  `sh`/`node` 脚本通过 `needsApproval` 请求用户批准；
+- 复杂脚本（`for`/`while`）不提供自由字符串：模型先用 `write_file` 写到
+  `/workspace/scripts/*.sh`，再用 `sh /workspace/scripts/xxx.sh` 执行，仍然走审批；
+- `exec` 的 input schema 不允许 `.regex()`（JSON Schema `pattern` 会让上游返回
+  `upstream_unavailable`），路径校验在服务端手动做。
+
+审批偏好：
+
+- 审批卡提供「允许一次 / 始终允许 / 拒绝 / 始终拒绝」；
+- 偏好按结构化命令的稳定 key 存 `atoms_exec_preferences`，只匹配同一条命令；
+- 工作台「终端 → 执行偏好」可以查看、逐条移除或全部清除；
+- 如果误选「始终拒绝」，再次调用会返回明确错误，并提示到执行偏好里移除；
+- 偏好按项目隔离，不跨项目共享。
+
 ## 5. subagent
 
 通用 `subagent` 与固定角色包装并存：

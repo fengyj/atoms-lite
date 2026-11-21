@@ -13,6 +13,7 @@ export * from "./usage";
 export * from "./refs";
 export * from "./errors";
 export * from "./limits";
+export * from "./exec";
 export * from "./runtime";
 export * from "./entities";
 export * from "./events";

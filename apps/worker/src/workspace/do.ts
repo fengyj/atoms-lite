@@ -2,7 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import { Files } from "@cloudflare/sandbox";
 import {
   BUILD_TIMEOUT_MS,
-  EXEC_ALLOWED_PROGRAMS,
   EXEC_MAX_OUTPUT_BYTES,
   EXEC_TIMEOUT_MS,
   RUN_ACTIVE_TIMEOUT_MS,
@@ -10,6 +9,7 @@ import {
 } from "@atoms-lite/contracts";
 import type { Env } from "../env";
 import { BROWSER_STATIC_FILES } from "../browser-template";
+import { analyzeExec, type ExecInput } from "../exec";
 import {
   normalizeRuntime,
   normalizeTemplate,
@@ -41,7 +41,6 @@ function nextInstanceTier(current: InstanceTier): InstanceTier | null {
   const index = INSTANCE_TIERS.indexOf(current);
   return index >= 0 ? (INSTANCE_TIERS[index + 1] ?? null) : null;
 }
-const ALLOWED_PROGRAMS = new Set<string>(EXEC_ALLOWED_PROGRAMS);
 
 const dec = (b?: ArrayBuffer | null) =>
   new TextDecoder().decode(b ?? new ArrayBuffer(0));
@@ -123,47 +122,6 @@ function safeCwd(cwd: string | undefined): string {
   if (cwd === WORKSPACE) return cwd;
   if (cwd.startsWith(`${WORKSPACE}/`) && !cwd.includes("..")) return cwd;
   throw new Error("cwd must be /workspace or a subdirectory");
-}
-
-const SAFE_GIT_SUBCOMMANDS = new Set([
-  "status",
-  "diff",
-  "log",
-  "show",
-  "rev-parse",
-  "ls-files",
-  "grep",
-]);
-
-function assertExecArgs(args: string[], allowSedScript = false): void {
-  for (const arg of args) {
-    if (arg.startsWith("../") || arg.includes("/../")) {
-      throw new Error("path outside /workspace is not allowed");
-    }
-    if (allowSedScript) {
-      // sed 的脚本参数包含 /（s/foo/bar/），不能按路径解析；
-      // --sandbox 已禁用 e/r/w，-i 也被拒绝，这里只检查显式路径参数。
-      const candidate = arg.startsWith("/")
-        ? arg
-        : arg.startsWith("--file=")
-          ? arg.slice("--file=".length)
-          : "";
-      if (
-        candidate.startsWith("/") &&
-        candidate !== WORKSPACE &&
-        !candidate.startsWith(`${WORKSPACE}/`)
-      ) {
-        throw new Error(`path outside /workspace is not allowed: ${candidate}`);
-      }
-      continue;
-    }
-    for (const match of arg.matchAll(/\/[A-Za-z0-9._@%+-][^\s"'=:]*/g)) {
-      const path = match[0];
-      if (path !== WORKSPACE && !path.startsWith(`${WORKSPACE}/`)) {
-        throw new Error(`path outside /workspace is not allowed: ${path}`);
-      }
-    }
-  }
 }
 
 type RuntimeConfig = {
@@ -423,6 +381,14 @@ export class Workspace extends DurableObject<Env> {
       )
     `);
     ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_exec_preferences (
+        command_key TEXT PRIMARY KEY,
+        decision TEXT NOT NULL,
+        command TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS atoms_dependencies (
         name TEXT PRIMARY KEY,
         version TEXT NOT NULL,
@@ -561,6 +527,10 @@ export class Workspace extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_design_files (
       design_id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
       content_type TEXT NOT NULL, PRIMARY KEY (design_id, path)
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_exec_preferences (
+      command_key TEXT PRIMARY KEY, decision TEXT NOT NULL,
+      command TEXT NOT NULL, updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_dependencies (
       name TEXT PRIMARY KEY, version TEXT NOT NULL, url TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -1482,6 +1452,85 @@ export class Workspace extends DurableObject<Env> {
       (!rel.includes(".") ? files.find((file) => file.path === "index.html") : undefined);
     if (!found) return null;
     return { content: found.content, contentType: found.content_type };
+  }
+
+  async getExecPreference(key: string): Promise<"allow" | "deny" | null> {
+    const row = this.ctx.storage.sql
+      .exec<{ decision: string }>(
+        "SELECT decision FROM atoms_exec_preferences WHERE command_key = ?",
+        key,
+      )
+      .toArray()[0];
+    return row?.decision === "allow" || row?.decision === "deny"
+      ? row.decision
+      : null;
+  }
+
+  async listExecPreferences(): Promise<{
+    preferences: Array<{
+      key: string;
+      decision: "allow" | "deny";
+      command: string;
+      updatedAt: number;
+    }>;
+  }> {
+    const rows = this.ctx.storage.sql
+      .exec<{
+        command_key: string;
+        decision: string;
+        command: string;
+        updated_at: number;
+      }>(
+        "SELECT command_key, decision, command, updated_at FROM atoms_exec_preferences ORDER BY updated_at DESC",
+      )
+      .toArray();
+    return {
+      preferences: rows.map((row) => ({
+        key: row.command_key,
+        decision: row.decision === "allow" ? "allow" : "deny",
+        command: row.command,
+        updatedAt: row.updated_at,
+      })),
+    };
+  }
+
+  async setExecPreference(input: {
+    key: string;
+    decision: "allow" | "deny";
+    command: string;
+  }): Promise<{ ok: true }> {
+    if (!input.key || input.key.length > 20_000) {
+      throw new Error("命令偏好 key 为空或过长");
+    }
+    if (input.decision !== "allow" && input.decision !== "deny") {
+      throw new Error("decision 必须是 allow 或 deny");
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_exec_preferences (command_key, decision, command, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(command_key) DO UPDATE SET
+         decision = excluded.decision,
+         command = excluded.command,
+         updated_at = excluded.updated_at`,
+      input.key,
+      input.decision,
+      input.command.slice(0, 2000),
+      Date.now(),
+    );
+    return { ok: true };
+  }
+
+  async deleteExecPreference(key: string): Promise<{ ok: true }> {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM atoms_exec_preferences WHERE command_key = ?",
+      key,
+    );
+    return { ok: true };
+  }
+
+  async clearExecPreferences(): Promise<{ ok: true }> {
+    this.ctx.storage.sql.exec("DELETE FROM atoms_exec_preferences");
+    return { ok: true };
   }
 
   private async createBrowserVersion(summary: string) {
@@ -3665,6 +3714,7 @@ export default {
           "atoms_requirements",
           "atoms_designs",
           "atoms_design_files",
+          "atoms_exec_preferences",
           "atoms_runtime_status",
           "atoms_project_config",
           "atoms_workspace",
@@ -4113,11 +4163,45 @@ export default {
         return Response.json(sliceText(text, body.offset, body.limit));
       }
 
-      if (path === "/tools/exec") {
+      if (path === "/exec/preferences" && request.method === "GET") {
+        return Response.json(await this.listExecPreferences());
+      }
+
+      if (path === "/exec/preferences/get" && request.method === "POST") {
+        const body = (await request.json()) as { key?: string };
+        return Response.json({
+          decision: body.key ? await this.getExecPreference(body.key) : null,
+        });
+      }
+
+      if (path === "/exec/preferences" && request.method === "POST") {
         const body = (await request.json()) as {
-          program: string;
+          key?: string;
+          decision?: string;
+          command?: string;
+        };
+        return Response.json(
+          await this.setExecPreference({
+            key: body.key ?? "",
+            decision: body.decision === "allow" ? "allow" : "deny",
+            command: body.command ?? "",
+          }),
+        );
+      }
+
+      if (path === "/exec/preferences/delete" && request.method === "POST") {
+        const body = (await request.json()) as { key?: string };
+        return Response.json(await this.deleteExecPreference(body.key ?? ""));
+      }
+
+      if (path === "/exec/preferences/clear" && request.method === "POST") {
+        return Response.json(await this.clearExecPreferences());
+      }
+
+      if (path === "/tools/exec") {
+        const body = (await request.json()) as ExecInput & {
+          program?: string;
           args?: string[];
-          cwd?: string;
         };
         await this.ensure();
 
@@ -4128,53 +4212,23 @@ export default {
           );
         }
 
-        if (!ALLOWED_PROGRAMS.has(body.program)) {
+        // 兼容旧调用：program/args → command。
+        const input: ExecInput =
+          body.program && !body.command && !body.groups
+            ? { ...body, command: { program: body.program, args: body.args } }
+            : body;
+        const analysis = analyzeExec(input);
+        if (analysis.risk === "denied") {
           return Response.json(
-            { error: `command not allowed: ${body.program}` },
-            { status: 400 },
-          );
-        }
-        if (body.program === "git") {
-          const sub = body.args?.[0];
-          if (!sub || !SAFE_GIT_SUBCOMMANDS.has(sub)) {
-            return Response.json(
-              { error: `git subcommand not allowed: ${sub ?? ""}` },
-              { status: 400 },
-            );
-          }
-        }
-        let args = body.args ?? [];
-        if (body.program === "sed") {
-          if (
-            args.some(
-              (arg) =>
-                arg === "-i" ||
-                arg.startsWith("-i.") ||
-                arg === "--in-place" ||
-                arg.startsWith("--in-place="),
-            )
-          ) {
-            return Response.json(
-              { error: "sed -i is not allowed; use edit_file for in-place edits" },
-              { status: 400 },
-            );
-          }
-          if (!args.includes("--sandbox")) args = ["--sandbox", ...args];
-        }
-        try {
-          assertExecArgs(args, body.program === "sed");
-        } catch (error) {
-          return Response.json(
-            { error: String(error).slice(0, 300) },
+            { error: analysis.reason },
             { status: 400 },
           );
         }
 
         const cwd = safeCwd(body.cwd);
-        const proc = await this.container.exec(
-          [body.program, ...args],
-          { cwd },
-        );
+        const proc = await this.container.exec(["sh", "-lc", analysis.script], {
+          cwd,
+        });
 
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<never>((_, reject) => {

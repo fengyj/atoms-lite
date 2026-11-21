@@ -1,3 +1,4 @@
+import type { ExecInput } from "@atoms-lite/contracts";
 import type { Env } from "../env";
 
 export type VersionRow = {
@@ -21,6 +22,13 @@ export type ExecResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+};
+
+export type ExecPreference = {
+  key: string;
+  decision: "allow" | "deny";
+  command: string;
+  updatedAt: number;
 };
 
 export type BuildResult = {
@@ -346,8 +354,35 @@ export class WorkspaceClient {
     }>("/tools/edit", { path, oldString, newString, replaceAll });
   }
 
-  exec(request: { program: string; args?: string[]; cwd?: string }) {
+  exec(request: ExecInput) {
     return this.call<ExecResult>("/tools/exec", request);
+  }
+
+  getExecPreference(key: string) {
+    return this.call<{ decision: "allow" | "deny" | null }>(
+      "/exec/preferences/get",
+      { key },
+    );
+  }
+
+  listExecPreferences() {
+    return this.call<{ preferences: ExecPreference[] }>("/exec/preferences");
+  }
+
+  setExecPreference(input: {
+    key: string;
+    decision: "allow" | "deny";
+    command: string;
+  }) {
+    return this.call<{ ok: true }>("/exec/preferences", input);
+  }
+
+  deleteExecPreference(key: string) {
+    return this.call<{ ok: true }>("/exec/preferences/delete", { key });
+  }
+
+  clearExecPreferences() {
+    return this.call<{ ok: true }>("/exec/preferences/clear", {});
   }
 
   previewStatus() {

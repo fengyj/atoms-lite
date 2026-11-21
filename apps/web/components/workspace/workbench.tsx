@@ -16,6 +16,7 @@ import {
   Monitor,
   Palette,
   RotateCw,
+  ShieldCheck,
   Terminal,
   ExternalLink,
   Rocket,
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignPanel } from "@/components/workspace/design-panel";
+import { ExecPreferencesDialog } from "@/components/workspace/exec-preferences";
 import { PreviewPanel } from "@/components/workspace/preview-panel";
 import { EmptyState } from "@/components/workspace/panel";
 import {
@@ -87,6 +89,7 @@ export function WorkbenchPanel({
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [unpublishingId, setUnpublishingId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
 
   const handlePublish = async (version: WorkspaceVersion) => {
     if (publishingId) return;
@@ -239,7 +242,19 @@ export function WorkbenchPanel({
               <Terminal className="size-3.5" />
               Agent 命令记录
             </span>
-            <span>{terminal.length} 条命令</span>
+            <span className="flex items-center gap-2">
+              <span>{terminal.length} 条命令</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 rounded-full px-2 text-2xs"
+                onClick={() => setPreferencesOpen(true)}
+              >
+                <ShieldCheck className="size-3" />
+                执行偏好
+              </Button>
+            </span>
           </div>
           <TerminalLog entries={terminal} />
         </TabsContent>
@@ -298,6 +313,11 @@ export function WorkbenchPanel({
           ) : null}
         </TabsContent>
       </Tabs>
+      <ExecPreferencesDialog
+        projectId={projectId}
+        open={preferencesOpen}
+        onOpenChange={setPreferencesOpen}
+      />
     </section>
   );
 }

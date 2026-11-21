@@ -668,6 +668,64 @@ export function designPreviewUrl(projectId: string, designId: string): string {
   );
 }
 
+export type ExecPreference = {
+  key: string;
+  decision: "allow" | "deny";
+  command: string;
+  updatedAt: number;
+};
+
+export async function fetchExecPreferences(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<ExecPreference[]> {
+  const res = await fetch(projectApiUrl(projectId, "/exec/preferences"), {
+    signal,
+  });
+  const data = await json<{ preferences?: ExecPreference[] }>(
+    res,
+    "exec preferences"
+  );
+  return data.preferences ?? [];
+}
+
+export async function saveExecPreference(
+  projectId: string,
+  input: { key: string; decision: "allow" | "deny"; command: string }
+): Promise<{ ok: boolean }> {
+  const res = await fetch(projectApiUrl(projectId, "/exec/preferences"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return json<{ ok: boolean }>(res, "save exec preference");
+}
+
+export async function removeExecPreference(
+  projectId: string,
+  key: string
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    projectApiUrl(projectId, "/exec/preferences/delete"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    }
+  );
+  return json<{ ok: boolean }>(res, "delete exec preference");
+}
+
+export async function clearExecPreferences(
+  projectId: string
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    projectApiUrl(projectId, "/exec/preferences/clear"),
+    { method: "POST" }
+  );
+  return json<{ ok: boolean }>(res, "clear exec preferences");
+}
+
 export async function fetchWorkspaceMeta(
   projectId: string,
   signal?: AbortSignal

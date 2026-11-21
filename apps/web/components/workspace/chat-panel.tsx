@@ -74,6 +74,7 @@ import {
 } from "@/components/workspace/ask-user-card";
 import { SwitchRuntimeCard } from "@/components/workspace/switch-runtime-card";
 import type { ElementSelection } from "@/lib/element-selection";
+import { describeExecRisk, formatExecInput } from "@/lib/exec";
 import { templateLabel, type AgentErrorInfo } from "@/lib/agent";
 
 /** 空态示例需求：五子棋 */
@@ -145,7 +146,11 @@ export function ChatPanel({
   onSubmitText: (text: string) => void;
   onStop: () => void;
   /** 工具审批（approval-requested）的回应 */
-  onApproval: (id: string, approved: boolean) => void;
+  onApproval: (
+    id: string,
+    approved: boolean,
+    options?: { remember?: "allow" | "deny"; input?: unknown }
+  ) => void;
   onAskUser: (
     id: string,
     input: AskUserInput,
@@ -687,6 +692,13 @@ function isPinnedCard(part: UIMessage["parts"][number]): boolean {
       state !== "output-denied"
     );
   }
+  // exec 被偏好拒绝时，错误要直接可见，方便用户去「执行偏好」移除。
+  if (
+    part.type === "tool-exec" &&
+    (part as ToolUIPart).state === "output-error"
+  ) {
+    return true;
+  }
   return (
     part.type.startsWith("tool-") &&
     (part as ToolUIPart).state === "approval-requested"
@@ -704,7 +716,11 @@ function AssistantParts({
 }: {
   parts: UIMessage["parts"];
   active: boolean;
-  onApproval: (id: string, approved: boolean) => void;
+  onApproval: (
+    id: string,
+    approved: boolean,
+    options?: { remember?: "allow" | "deny"; input?: unknown }
+  ) => void;
   onAskUser: (
     id: string,
     input: AskUserInput,
@@ -790,7 +806,11 @@ function ProcessGroup({
   toolCount: number;
   reasoningCount: number;
   streaming: boolean;
-  onApproval: (id: string, approved: boolean) => void;
+  onApproval: (
+    id: string,
+    approved: boolean,
+    options?: { remember?: "allow" | "deny"; input?: unknown }
+  ) => void;
   onAskUser: (
     id: string,
     input: AskUserInput,
@@ -850,7 +870,11 @@ function ProcessGroup({
 function renderPart(
   part: UIMessage["parts"][number],
   index: number,
-  onApproval: (id: string, approved: boolean) => void,
+  onApproval: (
+    id: string,
+    approved: boolean,
+    options?: { remember?: "allow" | "deny"; input?: unknown }
+  ) => void,
   onAskUser: (
     id: string,
     input: AskUserInput,
@@ -960,8 +984,7 @@ function renderPart(
             interrupted={
               !active &&
               (tool.state === "input-streaming" ||
-                tool.state === "input-available" ||
-                tool.state === "approval-requested")
+                tool.state === "input-available")
             }
           />
           <ToolContent>
@@ -970,26 +993,91 @@ function renderPart(
           </ToolContent>
         </Tool>
 
-        {active && tool.state === "approval-requested" && tool.approval?.id ? (
+        {tool.state === "approval-requested" && tool.approval?.id ? (
           <Confirmation approval={tool.approval} state={tool.state}>
-            <ConfirmationTitle>需要确认</ConfirmationTitle>
+            <ConfirmationTitle>
+              {tool.type === "tool-exec" ? "需要确认：执行命令" : "需要确认"}
+            </ConfirmationTitle>
             <ConfirmationRequest>
-              即将执行 <code className="font-mono text-xs">{tool.type.slice("tool-".length)}</code>
+              {tool.type === "tool-exec" ? (
+                <div className="space-y-2">
+                  <p className="text-2xs leading-5 text-muted-foreground">
+                    {describeExecRisk(tool.input)}
+                  </p>
+                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-2 font-mono text-2xs leading-5">
+                    {formatExecInput(tool.input)}
+                  </pre>
+                  <p className="text-3xs text-muted-foreground">
+                    「始终允许 / 始终拒绝」会记住这条命令；可以在工作台「终端 → 执行偏好」中移除。
+                  </p>
+                </div>
+              ) : (
+                <>
+                  即将执行{" "}
+                  <code className="font-mono text-xs">
+                    {tool.type.slice("tool-".length)}
+                  </code>
+                </>
+              )}
             </ConfirmationRequest>
-            <ConfirmationActions>
-              <ConfirmationAction
-                variant="outline"
-                size="sm"
-                onClick={() => onApproval(tool.approval!.id, false)}
-              >
-                拒绝
-              </ConfirmationAction>
-              <ConfirmationAction
-                size="sm"
-                onClick={() => onApproval(tool.approval!.id, true)}
-              >
-                批准
-              </ConfirmationAction>
+            <ConfirmationActions className="flex-wrap">
+              {tool.type === "tool-exec" ? (
+                <>
+                  <ConfirmationAction
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onApproval(tool.approval!.id, false)}
+                  >
+                    拒绝
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      onApproval(tool.approval!.id, false, {
+                        remember: "deny",
+                        input: tool.input,
+                      })
+                    }
+                  >
+                    始终拒绝
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      onApproval(tool.approval!.id, true, {
+                        remember: "allow",
+                        input: tool.input,
+                      })
+                    }
+                  >
+                    始终允许
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    size="sm"
+                    onClick={() => onApproval(tool.approval!.id, true)}
+                  >
+                    允许一次
+                  </ConfirmationAction>
+                </>
+              ) : (
+                <>
+                  <ConfirmationAction
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onApproval(tool.approval!.id, false)}
+                  >
+                    拒绝
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    size="sm"
+                    onClick={() => onApproval(tool.approval!.id, true)}
+                  >
+                    批准
+                  </ConfirmationAction>
+                </>
+              )}
             </ConfirmationActions>
           </Confirmation>
         ) : null}
