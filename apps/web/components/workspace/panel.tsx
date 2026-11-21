@@ -19,15 +19,15 @@ export function Panel({
   return (
     <section
       className={cn(
-        "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+        "panel-surface flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border bg-card",
         className
       )}
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         {icon ? (
           <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>
         ) : null}
-        <h2 className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+        <h2 className="font-serif text-base font-medium tracking-tight text-foreground">
           {title}
         </h2>
         <div className="ml-auto flex items-center gap-1">{actions}</div>

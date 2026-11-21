@@ -147,22 +147,22 @@ export function TopBar({
   };
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/60 px-3">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-t-4 border-border border-t-brand bg-background/95 px-4">
       <Link
         href="/"
         title="返回工作台"
-        className="flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-accent"
+        className="flex items-center gap-2 rounded-full px-1 py-0.5 transition-colors hover:bg-accent"
       >
         <ChevronLeft className="size-3 text-muted-foreground sm:hidden" />
-        <span className="grid size-5 place-items-center rounded-md bg-primary text-primary-foreground">
+        <span className="grid size-7 place-items-center rounded-full bg-foreground text-background">
           <BrandMark className="size-3.5" />
         </span>
-        <span className="hidden text-sm font-semibold tracking-tight whitespace-nowrap sm:inline">
+        <span className="hidden font-serif text-lg font-medium tracking-tight whitespace-nowrap sm:inline">
           atoms-lite
         </span>
       </Link>
 
-      <span className="text-border">/</span>
+      <span className="text-muted-foreground/40">/</span>
 
       <div className="flex min-w-0 items-center gap-2">
         <button
@@ -171,7 +171,7 @@ export function TopBar({
           title="重命名项目"
           className="group flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent"
         >
-          <span className="truncate text-sm whitespace-nowrap text-foreground">
+          <span className="truncate font-serif text-lg font-medium tracking-tight whitespace-nowrap text-foreground">
             {projectName}
           </span>
           <Pencil className="size-3 shrink-0 text-muted-foreground opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
@@ -184,7 +184,7 @@ export function TopBar({
             迁移中
           </Badge>
         ) : null}
-        <span className="hidden font-mono text-2xs whitespace-nowrap text-muted-foreground lg:inline">
+        <span className="hidden font-mono text-3xs whitespace-nowrap text-muted-foreground lg:inline">
           {projectId}
         </span>
       </div>
@@ -193,7 +193,7 @@ export function TopBar({
         variant="secondary"
         role="status"
         aria-live="polite"
-        className="hidden gap-1.5 rounded-full font-normal whitespace-nowrap sm:inline-flex"
+        className="hidden gap-1.5 rounded-full border border-border bg-transparent font-normal whitespace-nowrap sm:inline-flex"
       >
         <span className={cn("size-1.5 rounded-full", run.dot)} />
         {run.label}
@@ -215,7 +215,7 @@ export function TopBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5"
+                className="gap-1.5 rounded-full"
                 disabled={upgrading || runState === "running"}
                 onClick={() => setConfirmUpgrade(true)}
                 title="升级实例（不可降级）"
@@ -259,6 +259,14 @@ export function TopBar({
         ) : null}
         {currentVersion ? (
           <>
+            {currentVersion.published ? (
+              <Badge
+                variant="outline"
+                className="hidden border-success/40 bg-success/10 text-3xs text-success sm:inline-flex"
+              >
+                已发布
+              </Badge>
+            ) : null}
             <Badge
               variant="outline"
               className="font-mono text-2xs font-normal"

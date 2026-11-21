@@ -4,24 +4,15 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  Clock3,
-  Code2,
   FolderKanban,
-  Gamepad2,
-  GitBranch,
-  LayoutGrid,
   Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
   Rocket,
-  Settings,
-  Sparkles,
-  SquareDashed,
   Trash2,
   WandSparkles,
 } from "lucide-react";
-import { AtomHero } from "@/components/dashboard/atom-hero";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +40,7 @@ import {
   shortCommit,
   templateLabel,
   useProjects,
+  useUsageStatus,
   type ProjectSummary,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
@@ -68,8 +60,41 @@ const EXAMPLES = [
   },
 ];
 
+function formatUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "$—";
+  if (value === 0) return "$0";
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+function markTone(project: ProjectSummary): string {
+  if (project.template === "fullstack-hono") return "bg-brand-soft text-brand";
+  if (project.template === "react-vite") return "bg-secondary text-success";
+  return "bg-secondary text-warning";
+}
+
+function ProjectMark({
+  project,
+  className,
+}: {
+  project: ProjectSummary;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center font-serif font-medium",
+        markTone(project),
+        className
+      )}
+    >
+      {project.name.slice(0, 2)}
+    </span>
+  );
+}
+
 export function Dashboard() {
   const projects = useProjects();
+  const usage = useUsageStatus();
   const [prompt, setPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -81,6 +106,19 @@ export function Dashboard() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const list = projects.data ?? [];
+  const featured = list.find((project) => project.published) ?? list[0] ?? null;
+  const rest = list.filter((project) => project.id !== featured?.id);
+  const totalVersions = list.reduce(
+    (sum, project) => sum + project.versionCount,
+    0
+  );
+  const publishedCount = list.filter((project) => project.published).length;
+  const pendingCount = list.filter((project) => !project.configured).length;
+
+  const cost = usage.data?.costUsd ?? 0;
+  const costLimit = usage.data?.costLimitUsd ?? 1;
+  const costPercent =
+    costLimit > 0 ? Math.min(100, (cost / costLimit) * 100) : 0;
 
   const focusComposer = () => {
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -150,84 +188,46 @@ export function Dashboard() {
   };
 
   return (
-    <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
-        <Link
-          href="/"
-          className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4"
-        >
-          <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <BrandMark className="size-4" />
-          </span>
-          <span className="text-sm font-semibold tracking-tight">atoms-lite</span>
-          <Badge variant="outline" className="ml-auto text-3xs">
-            v1
-          </Badge>
-        </Link>
+    <div className="min-h-dvh bg-background">
+      <div className="h-1 bg-brand" />
 
-        <nav className="space-y-1 p-2">
-          <SidebarItem icon={<LayoutGrid />} label="工作台" active />
-          <a href="#projects" className="block">
-            <SidebarItem icon={<FolderKanban />} label="我的项目" />
-          </a>
-          <SidebarItem icon={<SquareDashed />} label="模板" disabled />
-          <SidebarItem icon={<Settings />} label="设置" disabled />
-        </nav>
-
-        <div className="mt-4 px-4 text-3xs font-medium tracking-widest text-muted-foreground uppercase">
-          最近项目
-        </div>
-        <div className="mt-1 space-y-0.5 px-2">
-          {list.length > 0 ? (
-            list.slice(0, 4).map((project) => (
-              <a
-                key={project.id}
-                href={`/sessions/${encodeURIComponent(project.id)}`}
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                <span className="truncate">{project.name}</span>
-              </a>
-            ))
-          ) : (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">
-              {projects.loading ? "加载中…" : "还没有项目"}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-auto border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-2 rounded-lg bg-sidebar-accent/60 px-2.5 py-2">
-            <span className="grid size-7 place-items-center rounded-full bg-primary/15 text-2xs font-medium text-primary">
-              YF
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium">演示用户</p>
-              <p className="truncate text-3xs text-muted-foreground">
-                单角色模式
-              </p>
-            </div>
-            <Badge variant="secondary" className="text-3xs">
-              Demo
-            </Badge>
-          </div>
-        </div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 lg:px-8">
-          <Link href="/" className="flex items-center gap-2 lg:hidden">
-            <span className="grid size-6 place-items-center rounded-md bg-primary text-primary-foreground">
+      <header className="border-b border-border bg-background/95">
+        <div className="mx-auto flex max-w-[1320px] items-center gap-6 px-6 py-4">
+          <Link href="/" className="flex items-baseline gap-2.5">
+            <span className="grid size-7 place-items-center rounded-full bg-foreground text-background">
               <BrandMark className="size-3.5" />
             </span>
-            <span className="text-sm font-semibold">atoms-lite</span>
+            <span className="font-serif text-xl font-medium tracking-tight">
+              atoms
+            </span>
+            <span className="hidden text-3xs tracking-[0.16em] text-muted-foreground uppercase sm:inline">
+              lite · studio
+            </span>
           </Link>
-          <span className="hidden text-sm font-medium lg:inline">工作台</span>
-          <Badge variant="outline" className="hidden font-normal sm:inline-flex">
-            单角色
-          </Badge>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" asChild>
+
+          <nav className="hidden items-center gap-6 text-xs text-muted-foreground md:flex">
+            <a
+              href="/"
+              className="border-b border-foreground pb-0.5 text-foreground"
+            >
+              工作台
+            </a>
+            <a href="#projects" className="hover:text-foreground">
+              项目
+            </a>
+            <span className="cursor-not-allowed">模板</span>
+            <span className="cursor-not-allowed">设置</span>
+          </nav>
+
+          <span className="ml-auto hidden text-3xs tracking-[0.12em] text-muted-foreground uppercase lg:inline">
+            Issue 04 · 2026
+          </span>
+
+          <div className="flex items-center gap-2">
+            <span className="hidden text-2xs text-muted-foreground xl:inline">
+              {list.length} 个项目 · {publishedCount} 个已发布
+            </span>
+            <Button variant="ghost" size="sm" className="hidden gap-1.5 sm:inline-flex" asChild>
               <a
                 href={
                   list[0]
@@ -238,142 +238,252 @@ export function Dashboard() {
                 打开工作区
               </a>
             </Button>
-            <Button size="sm" onClick={focusComposer} className="gap-1.5">
+            <Button
+              size="sm"
+              onClick={focusComposer}
+              className="gap-1.5 rounded-full"
+            >
               <Plus className="size-3.5" />
               新建应用
             </Button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <main className="relative isolate mx-auto w-full max-w-5xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
-          <AtomHero />
-          <div className="max-w-2xl">
-            <h1 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-              把一个想法变成可运行的应用
+      <main className="mx-auto w-full max-w-[1320px] px-6 py-10 lg:py-12">
+        <section className="relative grid gap-10 lg:grid-cols-[1.08fr_0.92fr] lg:items-end">
+          <div className="pointer-events-none absolute -top-28 -left-24 size-[440px] rounded-full bg-brand/5 blur-3xl" />
+          <div className="relative">
+            <h1 className="text-balance font-serif text-5xl leading-[0.98] font-medium tracking-[-0.045em] sm:text-6xl lg:text-7xl">
+              把一个想法
+              <br />
+              <span className="text-brand">变成可运行的</span>
+              <br />
+              应用。
             </h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              每个需求都会创建一个独立项目：自己的文件、预览、历史版本和对话。
-              不用选技术栈，直接描述你想要的应用就行。
+            <p className="mt-6 max-w-xl text-sm leading-7 text-muted-foreground">
+              每个需求都是一个独立项目：自己的文件、预览、历史和发布地址。
+              不用选技术栈，直接描述你想做什么。
             </p>
           </div>
 
-          <div className="mt-7 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
-            <Textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  void submit(prompt);
-                }
-              }}
-              placeholder="例如：做一个五子棋游戏网站，支持双人对战、胜负判定和重新开始"
-              className="min-h-28 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
-            />
-            <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-2.5">
-              <span className="text-2xs text-muted-foreground">⌘ / Ctrl + Enter 发送</span>
-              <Button
-                size="sm"
-                className="ml-auto gap-1.5"
-                disabled={!prompt.trim() || creating}
-                onClick={() => void submit(prompt)}
+          <div className="relative">
+            <div className="flex items-center justify-between border-t border-foreground/80 pt-3">
+              <label
+                htmlFor="prompt"
+                className="text-3xs tracking-[0.16em] text-muted-foreground uppercase"
               >
-                {creating ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <WandSparkles className="size-3.5" />
-                )}
-                {creating ? "创建中…" : "开始生成"}
-              </Button>
+                新的请求
+              </label>
+              <span className="text-3xs text-muted-foreground">
+                ⌘ / Ctrl + Enter
+              </span>
             </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
-            <span>描述需求</span>
-            <span aria-hidden="true">→</span>
-            <span>自动生成与预览</span>
-            <span aria-hidden="true">→</span>
-            <span>保存可回滚版本</span>
-          </div>
-
-          {createError ? (
-            <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
-              创建项目失败：{createError}
-            </p>
-          ) : null}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-2xs text-muted-foreground">试试：</span>
-            {EXAMPLES.map((example) => (
-              <button
-                key={example.title}
-                type="button"
-                onClick={() => {
-                  setPrompt(example.prompt);
-                  textareaRef.current?.focus();
+            <div className="panel-surface mt-3 border border-border bg-card p-3">
+              <Textarea
+                id="prompt"
+                ref={textareaRef}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    void submit(prompt);
+                  }
                 }}
-                className="rounded-full border border-border bg-card px-3 py-1 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                {example.title}
-              </button>
-            ))}
-          </div>
-
-          <section id="projects" className="mt-10 scroll-mt-20">
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <h2 className="text-balance text-base font-semibold tracking-tight">
-                  我的项目
-                </h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  每个项目有独立的容器与版本；点击卡片进入对应工作区。
-                </p>
+                placeholder="比如：做一个个人记账本，支持分类、月度统计和深色模式……"
+                className="min-h-36 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+              />
+              <div className="flex flex-wrap items-center gap-2 border-t border-border px-1 pt-3">
+                <span className="text-2xs text-muted-foreground">
+                  自动选择模板 · 不需要手动选技术栈
+                </span>
+                <Button
+                  size="sm"
+                  className="ml-auto gap-1.5 rounded-full"
+                  disabled={!prompt.trim() || creating}
+                  onClick={() => void submit(prompt)}
+                >
+                  {creating ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <WandSparkles className="size-3.5" />
+                  )}
+                  {creating ? "创建中…" : "开始生成"}
+                </Button>
               </div>
-              <Button variant="ghost" size="sm" onClick={focusComposer}>
-                新建
-                <ArrowRight className="size-3.5" />
-              </Button>
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              {list.map((project) => (
-                <ProjectCard
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-2xs text-muted-foreground">试试：</span>
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example.title}
+                  type="button"
+                  onClick={() => {
+                    setPrompt(example.prompt);
+                    textareaRef.current?.focus();
+                  }}
+                  className="rounded-full border border-border bg-card px-3 py-1 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  {example.title}
+                </button>
+              ))}
+            </div>
+
+            {createError ? (
+              <p className="mt-3 border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+                创建项目失败：{createError}
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="mt-10 grid border-t border-b border-border sm:grid-cols-3">
+          <Stat
+            label="Projects"
+            value={String(list.length).padStart(2, "0")}
+            sub={`${publishedCount} 个已发布`}
+          />
+          <Stat
+            label="Versions"
+            value={String(totalVersions).padStart(2, "0")}
+            sub="全部项目累计"
+          />
+          <Stat
+            label="Today"
+            value={formatUsd(usage.data?.costUsd ?? 0)}
+            sub={`of ${formatUsd(costLimit)}`}
+          />
+        </section>
+
+        <section className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_292px]">
+          <div id="projects" className="scroll-mt-20">
+            <div className="flex items-end justify-between border-b border-foreground/80 pb-3">
+              <h2 className="font-serif text-2xl font-medium tracking-tight">
+                最近项目
+              </h2>
+              <button
+                type="button"
+                onClick={focusComposer}
+                className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground"
+              >
+                新建
+                <ArrowRight className="size-3" />
+              </button>
+            </div>
+
+            {featured ? (
+              <FeaturedProject
+                project={featured}
+                onRename={openRename}
+                onDelete={openDelete}
+              />
+            ) : null}
+
+            <div>
+              {rest.map((project, index) => (
+                <ProjectRow
                   key={project.id}
                   project={project}
+                  index={index + 2}
                   onRename={openRename}
                   onDelete={openDelete}
                 />
               ))}
-
-              {projects.loading && list.length === 0
-                ? [0, 1].map((index) => (
-                    <div
-                      key={index}
-                      className="h-[104px] animate-pulse rounded-xl border border-border bg-card/60"
-                    />
-                  ))
-                : null}
-
-              {list.length === 0 && !projects.loading ? (
-                <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-6 text-center md:col-span-2">
-                  <FolderKanban className="size-5 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">
-                    还没有项目，输入一个需求创建第一个。
-                  </p>
-                </div>
-              ) : null}
-
             </div>
 
+            {projects.loading && list.length === 0 ? (
+              <div className="mt-4 grid gap-3">
+                {[0, 1, 2].map((index) => (
+                  <div
+                    key={index}
+                    className="h-24 animate-pulse border border-border bg-card/60"
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            {list.length === 0 && !projects.loading ? (
+              <div className="mt-5 flex min-h-56 flex-col items-center justify-center gap-3 border border-dashed border-border bg-card/50 p-8 text-center">
+                <FolderKanban className="size-6 text-muted-foreground" />
+                <p className="font-serif text-lg">还没有项目</p>
+                <p className="max-w-sm text-xs leading-6 text-muted-foreground">
+                  在上面的输入框里描述一个需求，创建你的第一个项目。
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={focusComposer}
+                >
+                  开始创建
+                </Button>
+              </div>
+            ) : null}
+
             {projects.error ? (
-              <p className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+              <p className="mt-5 border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
                 无法读取项目：{projects.error}
               </p>
             ) : null}
-          </section>
-        </main>
-      </div>
+          </div>
+
+          <aside className="grid content-start gap-4">
+            <div className="panel-surface border-t-2 border-brand bg-card p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
+                  Today · budget
+                </span>
+                <span className="text-3xs text-muted-foreground">
+                  {usage.data?.day ?? ""}
+                </span>
+              </div>
+              <p className="mt-2 font-serif text-4xl tracking-tight">
+                {formatUsd(usage.data?.costUsd ?? 0)}
+              </p>
+              <p className="mt-1 text-2xs text-muted-foreground">
+                上限 {formatUsd(costLimit)} · 已用 {Math.round(costPercent)}%
+              </p>
+              <div className="mt-3 h-1 bg-border">
+                <div
+                  className="h-1 bg-brand"
+                  style={{ width: `${costPercent}%` }}
+                />
+              </div>
+              <p className="mt-2 text-2xs text-muted-foreground">
+                {usage.data
+                  ? `${usage.data.inputTokens.toLocaleString()} input · ${usage.data.outputTokens.toLocaleString()} output`
+                  : "用量加载中…"}
+              </p>
+            </div>
+
+            <div className="panel-surface border-t-2 border-success bg-card p-4">
+              <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
+                Running
+              </span>
+              <div className="mt-3 grid gap-2 text-2xs">
+                <RailRow label="已发布" value={String(publishedCount)} />
+                <RailRow label="项目总数" value={String(list.length)} />
+                <RailRow label="待确认需求" value={String(pendingCount)} />
+                <RailRow
+                  label="版本总数"
+                  value={String(totalVersions)}
+                />
+              </div>
+            </div>
+
+            <div className="panel-surface border-t-2 border-warning bg-card p-4">
+              <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
+                Editor's note
+              </span>
+              <blockquote className="mt-3 border-l-2 border-warning pl-3 font-serif text-lg leading-7 text-foreground/80 italic">
+                “好的工具，应该让想法更快变成能看见的东西。”
+              </blockquote>
+            </div>
+          </aside>
+        </section>
+      </main>
 
       <Dialog
         open={Boolean(renameTarget)}
@@ -463,7 +573,80 @@ export function Dashboard() {
   );
 }
 
-function ProjectCard({
+function Stat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <div className="border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0">
+      <div className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
+        {label}
+      </div>
+      <div className="mt-1 font-serif text-3xl tracking-[-0.04em]">
+        {value}{" "}
+        <span className="font-sans text-2xs tracking-normal text-muted-foreground">
+          {sub}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-muted-foreground">
+      <span>{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function ProjectMenu({
+  project,
+  onRename,
+  onDelete,
+  className,
+}: {
+  project: ProjectSummary;
+  onRename: (project: ProjectSummary) => void;
+  onDelete: (project: ProjectSummary) => void;
+  className?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className={cn("z-10", className)}
+          aria-label="项目操作"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => onRename(project)}>
+          <Pencil className="size-3.5" />
+          重命名
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          variant="destructive"
+          onSelect={() => onDelete(project)}
+        >
+          <Trash2 className="size-3.5" />
+          删除
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FeaturedProject({
   project,
   onRename,
   onDelete,
@@ -475,132 +658,157 @@ function ProjectCard({
   const version = project.currentVersion;
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-xl hover:shadow-black/20">
-      <a href={`/sessions/${encodeURIComponent(project.id)}`} className="block">
-        <div className="flex items-start gap-3 p-4 pr-10">
-          <span className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-linear-to-br from-primary/20 via-card to-card">
-            {/棋/.test(project.name) ? (
-              <Gamepad2 className="size-6 text-primary" />
-            ) : (
-              <Code2 className="size-6 text-primary" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-medium">{project.name}</h3>
-              <Badge
-                variant="secondary"
-                className="text-3xs"
-                title={project.planReason || undefined}
-              >
-                {project.templateSource === "model" ? (
-                  <Sparkles className="size-2.5" />
-                ) : null}
-                {project.configured
-                  ? templateLabel(project.template)
-                  : "待确认"}
-              </Badge>
-              {project.published ? (
-                <Badge
-                  variant="outline"
-                  className="border-success/40 bg-success/10 text-3xs text-success"
-                  title={project.deploymentUrl ?? "已发布"}
-                >
-                  <Rocket className="size-2.5" />
-                  已发布
-                </Badge>
-              ) : null}
-            </div>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {version?.summary || project.prompt}
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <GitBranch className="size-3" />
-                {version ? shortCommit(version.gitCommit) : "未生成"}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Clock3 className="size-3" />
-                {version ? formatClock(version.createdAt) : "刚创建"}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Code2 className="size-3" />
-                {project.versionCount} 个版本
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              version ? "bg-success" : "bg-warning"
-            )}
-          />
-          {version
-            ? `已保存版本 · ${project.id}`
-            : `新项目 · 打开后发送第一条需求`}
-        </div>
-      </a>
+    <article className="panel-surface relative mt-4 grid border border-border bg-card lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="relative min-h-60 overflow-hidden border-b border-border bg-brand-soft lg:border-r lg:border-b-0">
+        <span className="absolute top-4 left-5 text-3xs tracking-[0.16em] text-brand/70 uppercase">
+          Featured project
+        </span>
+        <span className="absolute top-1/2 left-1/2 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand/20" />
+        <span className="absolute top-1/2 left-1/2 size-48 -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand/25" />
+        <span className="absolute top-1/2 left-1/2 size-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-warning/30 bg-warning/10" />
+        <ProjectMark
+          project={project}
+          className="absolute bottom-5 left-5 size-20 rounded-full border border-brand/20 text-3xl"
+        />
+      </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="absolute right-2 top-2 z-10"
-            aria-label="项目操作"
-          >
-            <MoreHorizontal className="size-4" />
+      <div className="flex min-w-0 flex-col justify-center p-6 lg:p-8">
+        <h3 className="font-serif text-3xl leading-tight font-medium tracking-tight">
+          {project.name}
+        </h3>
+        <p className="mt-3 line-clamp-3 max-w-xl text-xs leading-6 text-muted-foreground">
+          {version?.summary || project.prompt}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+          {project.published ? (
+            <Badge
+              variant="outline"
+              className="border-success/40 bg-success/10 text-success"
+            >
+              <Rocket className="size-2.5" />
+              已发布
+            </Badge>
+          ) : (
+            <Badge variant="outline">草稿</Badge>
+          )}
+          <span>{templateLabel(project.template)}</span>
+          <span>{project.versionCount} 个版本</span>
+          {version ? (
+            <span className="font-mono">{shortCommit(version.gitCommit)}</span>
+          ) : null}
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button size="sm" className="rounded-full" asChild>
+            <a href={`/sessions/${encodeURIComponent(project.id)}`}>打开项目</a>
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => onRename(project)}>
-            <Pencil className="size-3.5" />
-            重命名
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => onDelete(project)}
-          >
-            <Trash2 className="size-3.5" />
-            删除
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+          {project.deploymentUrl ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              asChild
+            >
+              <a
+                href={project.deploymentUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                访问站点 ↗
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <ProjectMenu
+        project={project}
+        onRename={onRename}
+        onDelete={onDelete}
+        className="absolute top-2 right-2"
+      />
+    </article>
   );
 }
 
-function SidebarItem({
-  icon,
-  label,
-  active = false,
-  disabled = false,
+function ProjectRow({
+  project,
+  index,
+  onRename,
+  onDelete,
 }: {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
+  project: ProjectSummary;
+  index: number;
+  onRename: (project: ProjectSummary) => void;
+  onDelete: (project: ProjectSummary) => void;
 }) {
+  const version = project.currentVersion;
+
   return (
-    <span
-      aria-disabled={disabled || undefined}
-      className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors [&_svg]:size-3.5",
-        active
-          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/70",
-        disabled
-          ? "cursor-not-allowed text-muted-foreground"
-          : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-      )}
-    >
-      {icon}
-      {label}
-      {disabled ? (
-        <span className="ml-auto text-3xs text-muted-foreground">待开放</span>
-      ) : null}
-    </span>
+    <div className="relative border-b border-border">
+      <a
+        href={`/sessions/${encodeURIComponent(project.id)}`}
+        className="grid grid-cols-[34px_minmax(0,1fr)] gap-4 px-2 py-5 pr-10 transition-colors hover:bg-brand-soft/40 sm:grid-cols-[34px_40px_minmax(0,1fr)_128px_88px] sm:items-start"
+      >
+        <span className="pt-1 font-serif text-2xs text-muted-foreground/60">
+          {String(index).padStart(2, "0")}
+        </span>
+        <ProjectMark project={project} className="size-10 rounded-lg text-sm" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate font-serif text-xl font-medium tracking-tight">
+              {project.name}
+            </h3>
+            {project.published ? (
+              <Badge
+                variant="outline"
+                className="border-success/40 bg-success/10 text-3xs text-success"
+              >
+                <Rocket className="size-2.5" />
+                已发布
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 line-clamp-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+            {version?.summary || project.prompt}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+            <span>{templateLabel(project.template)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{project.versionCount} 个版本</span>
+            {version ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{formatClock(version.createdAt)}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <div className="hidden text-right text-2xs leading-6 text-muted-foreground sm:block">
+          {version ? shortCommit(version.gitCommit) : "未生成"}
+          <br />
+          {version ? formatClock(version.createdAt) : "刚创建"}
+        </div>
+        <div className="hidden pt-1 text-right text-2xs text-muted-foreground sm:block">
+          {project.published ? (
+            <span className="inline-flex items-center gap-1.5 text-success">
+              <span className="size-1.5 rounded-full bg-success" />
+              Live
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-warning" />
+              Draft
+            </span>
+          )}
+        </div>
+      </a>
+
+      <ProjectMenu
+        project={project}
+        onRename={onRename}
+        onDelete={onDelete}
+        className="absolute top-3 right-1"
+      />
+    </div>
   );
 }

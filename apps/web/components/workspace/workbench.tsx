@@ -66,6 +66,7 @@ export function WorkbenchPanel({
   onSelectElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
+  const current = versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [unpublishingId, setUnpublishingId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export function WorkbenchPanel({
   return (
     <section
       className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card",
+        "panel-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-card",
         className
       )}
     >
@@ -141,8 +142,11 @@ export function WorkbenchPanel({
         defaultValue="preview"
         className="flex h-full min-h-0 flex-col gap-0"
       >
-        <div className="border-b border-border px-2 py-1.5">
-          <TabsList className="h-8 w-full justify-start gap-1 bg-transparent p-0">
+        <div className="border-b border-border px-3">
+          <TabsList
+            variant="line"
+            className="h-10 w-full justify-start gap-5 bg-transparent p-0"
+          >
             <TabTrigger value="preview" icon={<Monitor />} label="预览" />
             <TabTrigger value="workspace" icon={<FolderTree />} label="工作区" />
             <TabTrigger
@@ -157,6 +161,16 @@ export function WorkbenchPanel({
               label="版本"
               count={versions.data?.length ?? 0}
             />
+            <div className="ml-auto hidden items-center gap-3 text-3xs text-muted-foreground sm:flex">
+              {current ? (
+                <span className="font-mono">
+                  {shortCommit(current.gitCommit)}
+                </span>
+              ) : null}
+              {current?.published ? (
+                <span className="text-success">已发布</span>
+              ) : null}
+            </div>
           </TabsList>
         </div>
 
@@ -264,7 +278,10 @@ function TabTrigger({
   count?: number;
 }) {
   return (
-    <TabsTrigger value={value} className="gap-1.5 text-xs">
+    <TabsTrigger
+      value={value}
+      className="gap-1.5 rounded-none border-0 bg-transparent text-2xs text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-brand"
+    >
       {icon}
       {label}
       {count !== undefined && count > 0 ? (

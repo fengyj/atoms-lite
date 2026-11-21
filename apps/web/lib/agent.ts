@@ -149,6 +149,16 @@ export type ProjectUsage = {
   };
 };
 
+export type UsageStatus = UsageTotals & {
+  day: string;
+  usedTokens: number;
+  tokenLimit: number;
+  allowed: boolean;
+  costLimitUsd: number;
+  costReserveUsd: number;
+  remainingCostUsd: number;
+};
+
 type ProjectsResponse = { projects?: ProjectSummary[] };
 type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
@@ -414,6 +424,13 @@ export async function fetchProjectUsage(
   return json<ProjectUsage>(res, "project usage");
 }
 
+export async function fetchUsageStatus(
+  signal?: AbortSignal
+): Promise<UsageStatus> {
+  const res = await fetch(workerUrl("/api/usage/status"), { signal });
+  return json<UsageStatus>(res, "usage status");
+}
+
 export async function fetchWorkspaceMeta(
   projectId: string,
   signal?: AbortSignal
@@ -513,6 +530,10 @@ export function useProjectUsage(projectId: string): Endpoint<ProjectUsage> {
     [projectId]
   );
   return useEndpoint(fetcher);
+}
+
+export function useUsageStatus(): Endpoint<UsageStatus> {
+  return useEndpoint(fetchUsageStatus);
 }
 
 export function useWorkspaceMeta(projectId: string): Endpoint<WorkspaceMeta> {

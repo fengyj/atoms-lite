@@ -400,7 +400,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         onRename={renameProjectName}
       />
 
-      <div className="flex min-h-0 flex-1 gap-1 p-2" style={layoutStyle}>
+      <div className="flex min-h-0 flex-1 gap-3 p-3" style={layoutStyle}>
         <ChatPanel
           className={cn(
             "w-full shrink-0 md:flex md:w-(--chat-width)",

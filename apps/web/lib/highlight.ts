@@ -4,7 +4,7 @@
  * 约束：
  * - 只能通过动态 import 引入，避免进入首屏 chunk；
  * - 只用 JS 正则引擎，避免 oniguruma WASM 在 Next/Turbopack 下挂起；
- * - 按需带常用源码/样式/文档语言 + 单主题（应用是纯暗色）。
+ * - 按需带常用源码/样式/文档语言 + 单主题（Editorial 浅色）。
  */
 import type { HighlighterCore } from "shiki/core";
 
@@ -53,7 +53,7 @@ function getHighlighter(): Promise<HighlighterCore> {
       import("shiki/langs/html.mjs"),
       import("shiki/langs/markdown.mjs"),
       import("shiki/langs/yaml.mjs"),
-      import("shiki/themes/one-dark-pro.mjs"),
+      import("shiki/themes/vitesse-light.mjs"),
     ]);
 
     return createHighlighterCore({
