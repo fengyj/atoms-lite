@@ -34,8 +34,9 @@
      不启动容器。
 
 4. **选择、批注与应用**
-   - 工作台新增「设计」tab：需求摘要、方向列表、桌面/移动预览、批注框、
-     「让 Agent 微调」、「选择并继续」。
+   - 工作台新增「设计」tab：只展示 Agent 生成的草案、桌面/移动预览、批注框、
+     「让 Agent 微调」、「选择并继续」。生成/更新通过对话触发，面板里不放生成按钮；
+     没有草案时只显示「还没有设计草案」。
    - 用户选择后 `manage_design(action=select)` 把 `design_status` 改为 `approved`；
      具体视觉反馈用 `manage_design(action=refine)` 只改当前方向。
    - `manage_design(action=apply)` 把该方向的 `design_md` 写入工作区 `DESIGN.md`，
