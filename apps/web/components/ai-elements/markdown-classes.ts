@@ -9,4 +9,10 @@ export const COMPACT_MARKDOWN_CLASSES = [
   "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:text-sm [&_h4]:font-medium [&_h4]:leading-snug",
   "[&_h5]:mt-3 [&_h5]:mb-1 [&_h5]:text-xs [&_h5]:font-semibold [&_h5]:uppercase [&_h5]:tracking-wide",
   "[&_h6]:mt-3 [&_h6]:mb-1 [&_h6]:text-xs [&_h6]:font-semibold [&_h6]:text-muted-foreground",
+  // 窄栏里表格默认会被压成每列几个字；让它按内容展开，外层容器横向滚动。
+  "[&_table]:w-max [&_table]:min-w-full",
+  "[&_td]:align-top",
+  // 列表改为悬挂缩进，长文本换行后不会跑到圆点下面。
+  "[&_ul]:list-outside [&_ul]:pl-5",
+  "[&_ol]:list-outside [&_ol]:pl-5",
 ].join(" ");
