@@ -35,7 +35,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   createProject,
   deleteProject,
-  formatClock,
   renameProject,
   shortCommit,
   templateLabel,
@@ -127,12 +126,8 @@ export function Dashboard() {
     0
   );
   const publishedCount = list.filter((project) => project.published).length;
-  const pendingCount = list.filter((project) => !project.configured).length;
 
-  const cost = usage.data?.costUsd ?? 0;
   const costLimit = usage.data?.costLimitUsd ?? 1;
-  const costPercent =
-    costLimit > 0 ? Math.min(100, (cost / costLimit) * 100) : 0;
 
   const focusComposer = () => {
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -353,149 +348,115 @@ export function Dashboard() {
           </div>
         </section>
 
-        <section className="mt-10 grid border-t border-b border-border sm:grid-cols-3">
-          <Stat
-            label="Projects"
-            value={String(list.length).padStart(2, "0")}
-            sub={`${publishedCount} 个已发布`}
-          />
-          <Stat
-            label="Versions"
-            value={String(totalVersions).padStart(2, "0")}
-            sub="全部项目累计"
-          />
-          <Stat
-            label="Today"
-            value={formatUsd(usage.data?.costUsd ?? 0)}
-            sub={`of ${formatUsd(costLimit)}`}
-          />
-        </section>
+        <section id="projects" className="mt-10 scroll-mt-20">
+          <div className="flex items-end justify-between border-b border-foreground/80 pb-3">
+            <h2 className="font-serif text-2xl font-medium tracking-tight">
+              <span className="text-brand">01—</span> 最近项目
+            </h2>
+            <button
+              type="button"
+              onClick={focusComposer}
+              className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground"
+            >
+              新建
+              <ArrowRight className="size-3" />
+            </button>
+          </div>
 
-        <section className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_292px]">
-          <div id="projects" className="scroll-mt-20">
-            <div className="flex items-end justify-between border-b border-foreground/80 pb-3">
-              <h2 className="font-serif text-2xl font-medium tracking-tight">
-                最近项目
-              </h2>
-              <button
-                type="button"
+          {featured ? (
+            <FeaturedProject
+              project={featured}
+              onRename={openRename}
+              onDelete={openDelete}
+            />
+          ) : null}
+
+          {projects.loading && list.length === 0 ? (
+            <div className="mt-4 h-64 animate-pulse border border-border bg-card/60" />
+          ) : null}
+
+          {list.length === 0 && !projects.loading ? (
+            <div className="mt-4 flex min-h-56 flex-col items-center justify-center gap-3 border border-dashed border-border bg-card/50 p-8 text-center">
+              <FolderKanban className="size-6 text-muted-foreground" />
+              <p className="font-serif text-lg">还没有项目</p>
+              <p className="max-w-sm text-xs leading-6 text-muted-foreground">
+                在上面的输入框里描述一个需求，创建你的第一个项目。
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full"
                 onClick={focusComposer}
-                className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground"
               >
-                新建
-                <ArrowRight className="size-3" />
-              </button>
+                开始创建
+              </Button>
             </div>
+          ) : null}
 
-            {featured ? (
-              <FeaturedProject
-                project={featured}
+          <section className="mt-6 grid border-t border-b border-border sm:grid-cols-3">
+            <Stat
+              label="Projects"
+              value={String(list.length).padStart(2, "0")}
+              sub={`${publishedCount} 个已发布`}
+            />
+            <Stat
+              label="Versions"
+              value={String(totalVersions).padStart(2, "0")}
+              sub="全部项目累计"
+            />
+            <Stat
+              label="Today"
+              value={formatUsd(usage.data?.costUsd ?? 0)}
+              sub={`of ${formatUsd(costLimit)}`}
+            />
+          </section>
+
+          <div className="mt-10 flex items-end justify-between border-b border-foreground/80 pb-3">
+            <h2 className="font-serif text-2xl font-medium tracking-tight">
+              <span className="text-brand">02—</span> 更多项目
+            </h2>
+            <button
+              type="button"
+              onClick={focusComposer}
+              className="text-2xs text-muted-foreground hover:text-foreground"
+            >
+              全部项目 →
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {rest.map((project, index) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                index={index + 2}
                 onRename={openRename}
                 onDelete={openDelete}
               />
-            ) : null}
-
-            <div>
-              {rest.map((project, index) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  index={index + 2}
-                  onRename={openRename}
-                  onDelete={openDelete}
-                />
-              ))}
-            </div>
-
-            {projects.loading && list.length === 0 ? (
-              <div className="mt-4 grid gap-3">
-                {[0, 1, 2].map((index) => (
-                  <div
-                    key={index}
-                    className="h-24 animate-pulse border border-border bg-card/60"
-                  />
-                ))}
-              </div>
-            ) : null}
-
-            {list.length === 0 && !projects.loading ? (
-              <div className="mt-5 flex min-h-56 flex-col items-center justify-center gap-3 border border-dashed border-border bg-card/50 p-8 text-center">
-                <FolderKanban className="size-6 text-muted-foreground" />
-                <p className="font-serif text-lg">还没有项目</p>
-                <p className="max-w-sm text-xs leading-6 text-muted-foreground">
-                  在上面的输入框里描述一个需求，创建你的第一个项目。
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={focusComposer}
-                >
-                  开始创建
-                </Button>
-              </div>
-            ) : null}
-
-            {projects.error ? (
-              <p className="mt-5 border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
-                无法读取项目：{projects.error}
-              </p>
-            ) : null}
+            ))}
           </div>
 
-          <aside className="grid content-start gap-4">
-            <div className="panel-surface border-t-2 border-brand bg-card p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
-                  Today · budget
-                </span>
-                <span className="text-3xs text-muted-foreground">
-                  {usage.data?.day ?? ""}
-                </span>
-              </div>
-              <p className="mt-2 font-serif text-4xl tracking-tight">
-                {formatUsd(usage.data?.costUsd ?? 0)}
-              </p>
-              <p className="mt-1 text-2xs text-muted-foreground">
-                上限 {formatUsd(costLimit)} · 已用 {Math.round(costPercent)}%
-              </p>
-              <div className="mt-3 h-1 bg-border">
-                <div
-                  className="h-1 bg-brand"
-                  style={{ width: `${costPercent}%` }}
-                />
-              </div>
-              <p className="mt-2 text-2xs text-muted-foreground">
-                {usage.data
-                  ? `${usage.data.inputTokens.toLocaleString()} input · ${usage.data.outputTokens.toLocaleString()} output`
-                  : "用量加载中…"}
-              </p>
-            </div>
+          {rest.length === 0 && list.length > 0 ? (
+            <p className="mt-4 border border-dashed border-border bg-card/50 px-4 py-6 text-center text-xs text-muted-foreground">
+              暂时没有更多项目。
+            </p>
+          ) : null}
 
-            <div className="panel-surface border-t-2 border-success bg-card p-4">
-              <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
-                Running
-              </span>
-              <div className="mt-3 grid gap-2 text-2xs">
-                <RailRow label="已发布" value={String(publishedCount)} />
-                <RailRow label="项目总数" value={String(list.length)} />
-                <RailRow label="待确认需求" value={String(pendingCount)} />
-                <RailRow
-                  label="版本总数"
-                  value={String(totalVersions)}
-                />
-              </div>
-            </div>
+          {projects.error ? (
+            <p className="mt-5 border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
+              无法读取项目：{projects.error}
+            </p>
+          ) : null}
 
-            <div className="panel-surface border-t-2 border-warning bg-card p-4">
-              <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
-                Editor's note
-              </span>
-              <blockquote className="mt-3 border-l-2 border-warning pl-3 font-serif text-lg leading-7 text-foreground/80 italic">
-                “好的工具，应该让想法更快变成能看见的东西。”
-              </blockquote>
-            </div>
-          </aside>
+          <section className="mt-10 grid gap-6 border-t border-border pt-6 lg:grid-cols-[1.3fr_0.7fr]">
+            <blockquote className="font-serif text-2xl leading-snug text-foreground/80 italic">
+              “先让它跑起来，再让它变好。每一次版本，都是一次更接近真实使用的机会。”
+            </blockquote>
+            <p className="text-xs leading-6 text-muted-foreground">
+              Editorial Feature 把首页当成一期杂志：一个主推项目、一组近期项目、
+              一个清晰的入口。项目仍然保留真实的版本、发布状态和用量。
+            </p>
+          </section>
         </section>
       </main>
 
@@ -607,15 +568,6 @@ function Stat({
           {sub}
         </span>
       </div>
-    </div>
-  );
-}
-
-function RailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 text-muted-foreground">
-      <span>{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -744,7 +696,7 @@ function FeaturedProject({
   );
 }
 
-function ProjectRow({
+function ProjectCard({
   project,
   index,
   onRename,
@@ -756,64 +708,65 @@ function ProjectRow({
   onDelete: (project: ProjectSummary) => void;
 }) {
   const version = project.currentVersion;
+  const artTone =
+    project.template === "fullstack-hono"
+      ? "bg-brand-soft"
+      : project.template === "react-vite"
+        ? "bg-success/10"
+        : "bg-warning/10";
 
   return (
-    <div className="relative border-b border-border">
+    <article className="group panel-surface relative h-full overflow-hidden border border-border bg-card transition duration-200 hover:-translate-y-0.5 hover:shadow-lg">
       <a
         href={`/sessions/${encodeURIComponent(project.id)}`}
-        className="grid grid-cols-[34px_minmax(0,1fr)] gap-4 px-2 py-5 pr-10 transition-colors hover:bg-brand-soft/40 sm:grid-cols-[34px_40px_minmax(0,1fr)_128px_88px] sm:items-start"
+        className="flex h-full flex-col"
       >
-        <span className="pt-1 font-serif text-2xs text-muted-foreground/60">
-          {String(index).padStart(2, "0")}
-        </span>
-        <ProjectMark project={project} className="size-10 rounded-lg text-sm" />
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+        <div
+          className={cn(
+            "relative h-28 shrink-0 overflow-hidden border-b border-border",
+            artTone
+          )}
+        >
+          <span className="absolute top-3 left-4 font-serif text-2xs text-foreground/40">
+            {String(index).padStart(2, "0")}
+          </span>
+          <span className="absolute -top-16 -right-12 size-44 rounded-full border border-foreground/10" />
+          <span className="absolute top-1/2 right-7 size-24 -translate-y-1/2 rounded-full border border-foreground/10" />
+          <span className="absolute top-1/2 right-16 size-3 -translate-y-1/2 rounded-full bg-brand/60" />
+        </div>
+
+        <div className="flex flex-1 flex-col p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <ProjectMark
+              project={project}
+              className="size-8 rounded-md text-xs"
+            />
             <h3 className="truncate font-serif text-xl font-medium tracking-tight">
               {project.name}
             </h3>
             {project.published ? (
               <Badge
                 variant="outline"
-                className="border-success/40 bg-success/10 text-3xs text-success"
+                className="ml-auto shrink-0 border-success/40 bg-success/10 text-3xs text-success"
               >
                 <Rocket className="size-2.5" />
                 已发布
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 line-clamp-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+          <p className="mt-3 line-clamp-2 text-xs leading-6 text-muted-foreground">
             {version?.summary || project.prompt}
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+          <div className="mt-auto flex items-center gap-2 pt-4 text-2xs text-muted-foreground">
             <span>{templateLabel(project.template)}</span>
             <span aria-hidden="true">·</span>
             <span>{project.versionCount} 个版本</span>
             {version ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{formatClock(version.createdAt)}</span>
-              </>
+              <span className="ml-auto font-mono text-3xs">
+                {shortCommit(version.gitCommit)}
+              </span>
             ) : null}
           </div>
-        </div>
-        <div className="hidden text-right text-2xs leading-6 text-muted-foreground sm:block">
-          {version ? shortCommit(version.gitCommit) : "未生成"}
-          <br />
-          {version ? formatClock(version.createdAt) : "刚创建"}
-        </div>
-        <div className="hidden pt-1 text-right text-2xs text-muted-foreground sm:block">
-          {project.published ? (
-            <span className="inline-flex items-center gap-1.5 text-success">
-              <span className="size-1.5 rounded-full bg-success" />
-              Live
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-warning" />
-              Draft
-            </span>
-          )}
         </div>
       </a>
 
@@ -821,8 +774,8 @@ function ProjectRow({
         project={project}
         onRename={onRename}
         onDelete={onDelete}
-        className="absolute top-3 right-1"
+        className="absolute top-2 right-2"
       />
-    </div>
+    </article>
   );
 }
