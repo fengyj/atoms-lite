@@ -21,6 +21,11 @@ import {
   renderRuntimeContext,
 } from "./context";
 import { systemPrompt } from "./prompt";
+import {
+  appendRetryNudge,
+  normalizeModelMessages,
+  shouldRetryEmptyTurn,
+} from "./history";
 import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
 import {
@@ -384,8 +389,11 @@ export class ChatAgent extends AIChatAgent<Env> {
       });
     }
     const modelMessages = await convertToModelMessages(this.messages);
+    const normalizedMessages = normalizeModelMessages(modelMessages);
     const messages = appendRuntimeContext(
-      modelMessages,
+      shouldRetryEmptyTurn(this.messages)
+        ? appendRetryNudge(normalizedMessages)
+        : normalizedMessages,
       renderRuntimeContext(ctx),
     );
 

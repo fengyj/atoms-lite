@@ -24,6 +24,8 @@ import {
   configureProject,
   switchRuntime,
   renameProject,
+  describeAgentError,
+  type AgentErrorInfo,
 } from "@/lib/agent";
 import type { AskUserInput, AskUserPayload } from "@/components/workspace/ask-user-card";
 import type { ElementSelection } from "@/lib/element-selection";
@@ -57,6 +59,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [selection, setSelection] = useState<ElementSelection | null>(null);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+  const [agentError, setAgentError] = useState<AgentErrorInfo | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
@@ -98,7 +101,9 @@ export function Workspace({ projectId }: { projectId: string }) {
       ) {
         setQuotaNotice("今日模型额度已用完，输入已暂停。");
         usage.refresh();
+        return;
       }
+      setAgentError(describeAgentError(error));
     },
   });
 
@@ -278,6 +283,7 @@ export function Workspace({ projectId }: { projectId: string }) {
 
   const submitText = useCallback(
     (text: string) => {
+      setAgentError(null);
       sendMessage(
         { text },
         { body: selection ? { selection } : {} }
@@ -289,6 +295,7 @@ export function Workspace({ projectId }: { projectId: string }) {
 
   const designContinue = useCallback(
     (text: string) => {
+      setAgentError(null);
       sendMessage({ text });
       setTab("workbench");
       // 生成/微调是异步的；先轻刷一次，工具完成后再由 completedTools 刷新
@@ -299,6 +306,14 @@ export function Workspace({ projectId }: { projectId: string }) {
     },
     [sendMessage, refreshDesigns, refreshRequirements]
   );
+
+  const retryLastTurn = useCallback(() => {
+    setAgentError(null);
+    setQuotaNotice(null);
+    sendMessage({
+      text: "请重试上一条请求，直接给出完整回答，不要返回空内容。",
+    });
+  }, [sendMessage]);
 
   const handleUpgrade = useCallback(async () => {
     if (upgrading) return;
@@ -465,6 +480,9 @@ export function Workspace({ projectId }: { projectId: string }) {
           fallbackTemplate={project.data?.template ?? "static"}
           selection={selection}
           onClearSelection={() => setSelection(null)}
+          error={agentError}
+          onDismissError={() => setAgentError(null)}
+          onRetryError={retryLastTurn}
         />
         <ResizeHandle
           className="hidden md:flex"

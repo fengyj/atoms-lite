@@ -3,11 +3,13 @@
 import { Fragment, useRef, useState } from "react";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
   Crosshair,
   Loader2,
   MessageSquare,
+  RefreshCw,
   Slash,
   Sparkles,
   X,
@@ -72,7 +74,7 @@ import {
 } from "@/components/workspace/ask-user-card";
 import { SwitchRuntimeCard } from "@/components/workspace/switch-runtime-card";
 import type { ElementSelection } from "@/lib/element-selection";
-import { templateLabel } from "@/lib/agent";
+import { templateLabel, type AgentErrorInfo } from "@/lib/agent";
 
 /** 空态示例需求：五子棋 */
 const SAMPLE_PROMPT =
@@ -128,6 +130,9 @@ export function ChatPanel({
   fallbackTemplate,
   selection,
   onClearSelection,
+  error,
+  onDismissError,
+  onRetryError,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -155,6 +160,9 @@ export function ChatPanel({
   fallbackTemplate?: "static" | "react-vite" | "fullstack-hono";
   selection?: ElementSelection | null;
   onClearSelection?: () => void;
+  error?: AgentErrorInfo | null;
+  onDismissError?: () => void;
+  onRetryError?: () => void;
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -233,12 +241,18 @@ export function ChatPanel({
                   (previousTimestamp === null ||
                     timestamp - previousTimestamp >= 5 * 60 * 1000);
                 if (timestamp !== null) previousTimestamp = timestamp;
+                const emptyAssistant =
+                  message.role === "assistant" &&
+                  !active &&
+                  !message.parts.some((part) => part.type !== "step-start");
                 return (
                   <Fragment key={message.id}>
                     {showTime ? <TimeSeparator timestamp={timestamp} /> : null}
                     <Message from={message.role}>
                       <MessageContent className="space-y-3">
-                        {message.role === "assistant" ? (
+                        {emptyAssistant ? (
+                          <EmptyAssistantNotice onRetry={onRetryError} />
+                        ) : message.role === "assistant" ? (
                           <AssistantParts
                             parts={message.parts}
                             active={active}
@@ -281,11 +295,102 @@ export function ChatPanel({
               selection={selection}
               onClearSelection={onClearSelection}
               submit={handleSubmit}
+              error={error}
+              onDismissError={onDismissError}
+              onRetryError={onRetryError}
             />
           </PromptInputProvider>
         </div>
       </div>
     </Panel>
+  );
+}
+
+function AgentErrorBanner({
+  error,
+  onDismiss,
+  onRetry,
+}: {
+  error: AgentErrorInfo;
+  onDismiss?: () => void;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="mb-2 border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-2xs"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-destructive">{error.title}</p>
+          <p className="mt-0.5 leading-5 text-muted-foreground">{error.hint}</p>
+          <details className="mt-1">
+            <summary className="cursor-pointer select-none text-3xs text-muted-foreground hover:text-foreground">
+              技术细节
+            </summary>
+            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-3xs leading-4 text-muted-foreground">
+              {error.detail.slice(0, 800)}
+            </pre>
+          </details>
+        </div>
+        {onDismiss ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="关闭错误提示"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="size-3" />
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {onDismiss ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 rounded-full px-2 text-2xs"
+            onClick={onDismiss}
+          >
+            关闭
+          </Button>
+        ) : null}
+        {onRetry ? (
+          <Button
+            type="button"
+            size="sm"
+            className="h-6 rounded-full px-2.5 text-2xs"
+            onClick={onRetry}
+          >
+            <RefreshCw className="size-3" />
+            重试
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyAssistantNotice({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div className="flex items-center gap-2 border border-dashed border-border bg-muted/20 px-3 py-2 text-2xs text-muted-foreground">
+      <AlertTriangle className="size-3.5 shrink-0" />
+      <span>这次回复没有返回内容。</span>
+      {onRetry ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto h-6 rounded-full px-2 text-2xs"
+          onClick={onRetry}
+        >
+          <RefreshCw className="size-3" />
+          重试
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -296,6 +401,9 @@ function PromptComposer({
   selection,
   onClearSelection,
   submit,
+  error,
+  onDismissError,
+  onRetryError,
 }: {
   busy: boolean;
   status: ChatStatus;
@@ -303,6 +411,9 @@ function PromptComposer({
   selection?: ElementSelection | null;
   onClearSelection?: () => void;
   submit: (message: { text: string }) => void;
+  error?: AgentErrorInfo | null;
+  onDismissError?: () => void;
+  onRetryError?: () => void;
 }) {
   const { textInput } = usePromptInputController();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -407,6 +518,14 @@ function PromptComposer({
         <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-2xs text-amber-700">
           今日模型额度已用完，输入已暂停。明日额度恢复后可以继续。
         </div>
+      ) : null}
+
+      {error ? (
+        <AgentErrorBanner
+          error={error}
+          onDismiss={onDismissError}
+          onRetry={onRetryError}
+        />
       ) : null}
 
       <PromptInput onSubmit={submit}>

@@ -24,6 +24,93 @@ export function projectApiUrl(projectId: string, path = ""): string {
   return workerUrl(`/api/projects/${encodeURIComponent(projectId)}${path}`);
 }
 
+export type AgentErrorInfo = {
+  title: string;
+  hint: string;
+  detail: string;
+};
+
+/**
+ * 把底层错误转成用户能理解的分类。
+ * 不在这里吞掉原始信息：detail 保留给“技术细节”展开。
+ */
+export function describeAgentError(error: unknown): AgentErrorInfo {
+  const detail =
+    error instanceof Error
+      ? error.message || String(error)
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
+  const lower = detail.toLowerCase();
+
+  if (
+    lower.includes("daily_token_limit") ||
+    detail.includes("额度已用完") ||
+    detail.includes("今日模型额度")
+  ) {
+    return {
+      title: "今日模型额度已用完",
+      hint: "额度恢复后可以继续；当前项目的内容和版本都已保存。",
+      detail,
+    };
+  }
+  if (
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("etimedout") ||
+    lower.includes("stall") ||
+    lower.includes("aborted")
+  ) {
+    return {
+      title: "模型响应超时",
+      hint: "这次请求等待太久没有完成。可以直接重试；如果会话很长，先让我压缩上下文会更快。",
+      detail,
+    };
+  }
+  if (
+    lower.includes("no output") ||
+    lower.includes("nooutput") ||
+    lower.includes("empty") ||
+    lower.includes("did not return") ||
+    lower.includes("no object generated")
+  ) {
+    return {
+      title: "模型没有返回内容",
+      hint: "可能是上下文过长或模型服务波动。点重试会带上明确指令；反复出现时可以新建会话或压缩上下文。",
+      detail,
+    };
+  }
+  if (
+    lower.includes("context") ||
+    lower.includes("maximum") ||
+    lower.includes("too many tokens") ||
+    lower.includes("token limit")
+  ) {
+    return {
+      title: "上下文过长",
+      hint: "会话历史已经很长。建议先让我压缩上下文，或新建一个会话继续。",
+      detail,
+    };
+  }
+  if (
+    lower.includes("fetch") ||
+    lower.includes("network") ||
+    lower.includes("econn") ||
+    lower.includes("socket")
+  ) {
+    return {
+      title: "网络连接失败",
+      hint: "浏览器到服务端的连接中断了。检查网络后直接重试。",
+      detail,
+    };
+  }
+  return {
+    title: "模型调用失败",
+    hint: "这次请求没有完成。可以直接重试；如果反复失败，展开技术细节查看原因。",
+    detail,
+  };
+}
+
 /** 预览 iframe 指向的地址 */
 export function previewUrl(projectId: string): string {
   return workerUrl(`/previews/${encodeURIComponent(projectId)}/`);

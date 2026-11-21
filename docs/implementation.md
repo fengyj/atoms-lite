@@ -199,6 +199,12 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **需求/设计工具**：`save_requirements_brief` / `confirm_requirements` / `create_design_concepts` /
   `refine_design_concept` / `list_designs` / `select_design` / `apply_design`；
   Designer 调用以 `source=designer` 单独记账。
+- **空回复与连续消息**：模型输入前先归一化历史：丢掉空 assistant，把相邻 user 合并成一条；
+  如果上一轮 assistant 是空回复，或用户只说了「重试/继续」，给最后一条 user 追加
+  「直接给出完整、可见答案」的提示，避免模型再次返回空内容。
+- **错误可见性**：`useAgentChat` 的错误按超时 / 空回复 / 上下文过长 / 网络 / 额度分类，
+  在输入框上方显示标题、可操作建议、可展开的技术细节和「重试」按钮；
+  历史里的空 assistant 显示「这次回复没有返回内容」并提供重试，不再是完全空白。
 - 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
 - **预览元素选择**：同源 iframe 内高亮元素，收集 selector/outerHTML/关键样式，
   作为请求 body 的选择上下文发给 Agent；不写入消息历史。本地跨端口开发不可用，生产同源可用。
@@ -271,6 +277,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 设计面板：Playwright 验证设计 tab、3 个方向列表、iframe 切换、需求摘要、批注框、
   「让 Agent 微调」与「选择并继续」全部可见；点「生成 3 个方向」后 55 秒内 3 个方向
   依次出现在面板中，无 console 错误。
+- 空回复复现：116k tokens 的长会话里，失败的 assistant 消息为空，转换成模型输入后变成
+  连续 user，模型稳定返回空内容。合并连续 user + 对空回复追加明确提示后，同一历史
+  返回约 1.9k 字正常回答；空 assistant 在 UI 里显示为可重试的提示。
 - 真实模型生成：**约 90 秒**完成 `list_files → write_file × 3 → exec → start_preview → create_version`。
 - 预览标题 `五子棋 · Gomoku`；点击棋盘后「已落子 1 手」「轮到白棋」；localStorage 写入；无 console 错误。
 
