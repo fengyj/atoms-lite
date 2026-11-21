@@ -11,6 +11,7 @@ import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
+import { COMPACT_MARKDOWN_CLASSES } from "@/components/ai-elements/markdown-classes";
 import { Shimmer } from "./shimmer";
 
 type ReasoningContextValue = {
@@ -170,7 +171,10 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown {...(props as ComponentProps<typeof Streamdown>)}>
+      <Streamdown
+        {...(props as ComponentProps<typeof Streamdown>)}
+        className={COMPACT_MARKDOWN_CLASSES}
+      >
         {children}
       </Streamdown>
     </CollapsibleContent>

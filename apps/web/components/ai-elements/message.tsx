@@ -22,6 +22,7 @@ import {
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
+import { COMPACT_MARKDOWN_CLASSES } from "@/components/ai-elements/markdown-classes";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -311,6 +312,7 @@ export const MessageResponse = memo(
     <Streamdown
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        COMPACT_MARKDOWN_CLASSES,
         className
       )}
       {...props}
