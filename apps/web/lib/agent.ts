@@ -132,7 +132,15 @@ export type ProjectUsage = {
   today: UsageTotals;
   daily: UsageDay[];
   systemToday: UsageTotals & { day: string };
-  limit: { dailyTokens: number; usedTokens: number; allowed: boolean };
+  limit: {
+    dailyTokens: number;
+    usedTokens: number;
+    dailyCostUsd: number;
+    usedCostUsd: number;
+    reserveCostUsd: number;
+    remainingCostUsd: number;
+    allowed: boolean;
+  };
 };
 
 type ProjectsResponse = { projects?: ProjectSummary[] };

@@ -219,6 +219,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         : "暂无版本";
 
   const projectName = project.data?.name ?? "工作区";
+  const quotaBlocked = usage.data ? !usage.data.limit.allowed : false;
 
   useEffect(() => {
     document.title = `${projectName} · atoms-lite`;
@@ -390,6 +391,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           messages={messages}
           status={status}
           busy={busy}
+          quotaBlocked={quotaBlocked}
           onSubmitText={submitText}
           onStop={stop}
           onApproval={respondApproval}

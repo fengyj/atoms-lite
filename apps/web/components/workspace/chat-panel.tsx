@@ -107,6 +107,7 @@ export function ChatPanel({
   messages,
   status,
   busy,
+  quotaBlocked = false,
   onSubmitText,
   onStop,
   onApproval,
@@ -123,6 +124,8 @@ export function ChatPanel({
   status: ChatStatus;
   /** 有请求在跑（含服务端续流），此时提交按钮变成停止 */
   busy: boolean;
+  /** 今日额度已用完：禁用输入，但仍允许停止当前回合 */
+  quotaBlocked?: boolean;
   onSubmitText: (text: string) => void;
   onStop: () => void;
   /** 工具审批（approval-requested）的回应 */
@@ -149,6 +152,7 @@ export function ChatPanel({
       onStop();
       return;
     }
+    if (quotaBlocked) return;
     if (!trimmed) return;
     const [name, ...rest] = trimmed.split(/\s+/);
     const command = COMMANDS.find((item) => item.name === name);
@@ -260,6 +264,7 @@ export function ChatPanel({
             <PromptComposer
               busy={busy}
               status={status}
+              quotaBlocked={quotaBlocked}
               selection={selection}
               onClearSelection={onClearSelection}
               submit={handleSubmit}
@@ -274,12 +279,14 @@ export function ChatPanel({
 function PromptComposer({
   busy,
   status,
+  quotaBlocked,
   selection,
   onClearSelection,
   submit,
 }: {
   busy: boolean;
   status: ChatStatus;
+  quotaBlocked: boolean;
   selection?: ElementSelection | null;
   onClearSelection?: () => void;
   submit: (message: { text: string }) => void;
@@ -383,9 +390,16 @@ function PromptComposer({
         </div>
       ) : null}
 
+      {quotaBlocked ? (
+        <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-2xs text-amber-700">
+          今日模型额度已用完，输入已暂停。明日额度恢复后可以继续。
+        </div>
+      ) : null}
+
       <PromptInput onSubmit={submit}>
         <PromptInputBody>
           <PromptInputTextarea
+            disabled={quotaBlocked}
             placeholder={
               selection
                 ? "描述想怎么改选中的元素…"
@@ -463,7 +477,10 @@ function PromptComposer({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <PromptInputSubmit status={busy ? "streaming" : status} />
+          <PromptInputSubmit
+            status={busy ? "streaming" : status}
+            disabled={quotaBlocked && !busy}
+          />
         </PromptInputFooter>
       </PromptInput>
     </div>

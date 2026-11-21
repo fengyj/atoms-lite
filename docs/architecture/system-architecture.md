@@ -338,18 +338,22 @@ Run
    失败时降级到 workers.dev，并把原因写进部署记录。
 6. 写 `atoms_deployments`；最新 `status = ready` 即当前线上版本，版本面板显示 badge。
 
-### 7.5 模型用量与每日限额
+### 7.5 模型用量、费用与每日限额
 
-- 主对话的每个 step、planner、项目自动命名、subagent 都写一条 usage 明细。
+- 主对话的每个 step、planner、项目自动命名、subagent、compaction 都写一条 usage 明细。
 - 明细和每日全站汇总存放在 `Projects` DO：
   `atoms_usage_events`、`atoms_usage_daily`。
 - 字段包括 input/output、cache read/write、no-cache、reasoning、total、
   model、source、requestId、step、cost、day。
 - `GET /api/projects/:id/usage` 返回会话/项目/今日/最近每日/今日全站/限额；
   会话页顶栏展示本会话累计。
-- `DAILY_TOKEN_LIMIT` 按 `USAGE_TIMEZONE` 切日；达到上限后主对话被拒绝，
-  planner/自动命名/subagent 跳过模型调用。查询失败时 fail-open。
-- `MODEL_PRICING_JSON` 未配置时只记录 token，费用为 null。
+- 默认每日费用上限 **$1**（`DAILY_COST_LIMIT_USD`），预留 `$0.05`
+  防止单轮透支；按 `USAGE_TIMEZONE` 切日。
+- 额度判断只发生在下一轮请求开始前，不中断进行中的回合；额度不足时 UI 禁用输入。
+- 价格默认使用 OpenCode Go `deepseek-v4.1-flash` 的内置价，
+  `MODEL_PRICING_JSON` 可覆盖。
+- 上下文压缩默认 100k 触发、保留最近 20k；压缩调用同样记账。
+- 用量查询失败时 fail-open，避免统计故障导致站点不可用。
 
 ---
 
@@ -410,7 +414,7 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 | 构建型模板 | 依赖镜像预装；新增 npm 依赖可通过 `install_packages` 在线安装 |
 | 全栈数据 | 预览/开发使用容器 SQLite + 快照；发布后的应用使用独立 D1 |
 | 版本发布 | 已完成 static/React/fullstack 的 Workers + D1 + 自定义域名发布与清理 |
-| Token 用量 | 主对话/planner/自动命名/subagent 已记账；会话/项目/每日全站可查；压缩未配置，费用待价格表 |
+| Token 用量 | 主对话/planner/自动命名/subagent/compaction 已记账；会话/项目/每日全站可查；默认 $1/天限额 |
 | 发布环境 | 只有项目级生产环境；预发、多区域、回滚数据库未支持 |
 | 写冲突方案 | v1 串行；锁模型已设计，未实现 |
 | B6 面板事件并行 | 未验证 |

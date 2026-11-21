@@ -78,7 +78,15 @@ export type ProjectUsage = {
   today: UsageTotals;
   daily: UsageDay[];
   systemToday: UsageTotals & { day: string };
-  limit: { dailyTokens: number; usedTokens: number; allowed: boolean };
+  limit: {
+    dailyTokens: number;
+    usedTokens: number;
+    dailyCostUsd: number;
+    usedCostUsd: number;
+    reserveCostUsd: number;
+    remainingCostUsd: number;
+    allowed: boolean;
+  };
 };
 
 type UsageEventBody = {
@@ -462,12 +470,25 @@ export class Projects extends DurableObject<Env> {
       )
       .toArray()[0];
     const totals = this.totalsRow(row);
-    const limit = Number(this.env.DAILY_TOKEN_LIMIT ?? 0) || 0;
+    const tokenLimit = Number(this.env.DAILY_TOKEN_LIMIT ?? 0) || 0;
+    const costLimitRaw = this.env.DAILY_COST_LIMIT_USD;
+    const costLimit =
+      Number(costLimitRaw === undefined || costLimitRaw === "" ? 1 : costLimitRaw) ||
+      0;
+    const reserveRaw = this.env.DAILY_COST_RESERVE_USD;
+    const reserve =
+      Number(reserveRaw === undefined || reserveRaw === "" ? 0.05 : reserveRaw) ||
+      0;
+    const usedCost = totals.costUsd ?? 0;
+    const allowedToken = tokenLimit <= 0 || totals.totalTokens < tokenLimit;
+    const allowedCost =
+      costLimit <= 0 || usedCost < Math.max(0, costLimit - reserve);
     return {
       day,
       usedTokens: totals.totalTokens,
-      limit,
-      allowed: limit <= 0 || totals.totalTokens < limit,
+      limit: tokenLimit,
+      tokenLimit,
+      allowed: allowedToken && allowedCost,
       requests: totals.requests,
       inputTokens: totals.inputTokens,
       outputTokens: totals.outputTokens,
@@ -476,6 +497,9 @@ export class Projects extends DurableObject<Env> {
       noCacheTokens: totals.noCacheTokens,
       reasoningTokens: totals.reasoningTokens,
       costUsd: totals.costUsd,
+      costLimitUsd: costLimit,
+      costReserveUsd: reserve,
+      remainingCostUsd: Math.max(0, costLimit - usedCost),
     };
   }
 
@@ -506,8 +530,12 @@ export class Projects extends DurableObject<Env> {
         costUsd: system.costUsd,
       },
       limit: {
-        dailyTokens: system.limit,
+        dailyTokens: system.tokenLimit,
         usedTokens: system.usedTokens,
+        dailyCostUsd: system.costLimitUsd,
+        usedCostUsd: system.costUsd ?? 0,
+        reserveCostUsd: system.costReserveUsd,
+        remainingCostUsd: system.remainingCostUsd,
         allowed: system.allowed,
       },
     };

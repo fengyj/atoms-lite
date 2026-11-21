@@ -10,11 +10,18 @@ CLOUDFLARE_ACCOUNT_ID=30b1fdd8911e31a3a0bce42e54cc1ed6
 CLOUDFLARE_ZONE_ID=110909d14c2bd3bf532c1044ef64013b
 CLOUDFLARE_WORKERS_SUBDOMAIN=fengyj-30b
 
-# Token 用量（可选）
-# 每日全站 token 上限；留空表示不限制。达到后主对话返回 429，planner/命名/子 agent 跳过。
+# Token 用量与每日限额（可选）
+# 每天全站美元上限，默认 1 美元；设为 0 表示不限制。
+DAILY_COST_LIMIT_USD=1
+# 预留给单轮透支的金额；剩余额度低于它时直接判定额度不足。默认 0.05。
+DAILY_COST_RESERVE_USD=0.05
+# 可选的 token 上限；0/留空表示不限制。
 DAILY_TOKEN_LIMIT=
-# 每百万 token 的美元价格表；未配置时不计算费用。
-# 格式：{"model-id":{"inputPerMillion":0.28,"outputPerMillion":0.42,"cacheReadPerMillion":0.028}}
+# 价格表覆盖；内置 opencode-go/deepseek-v4.1-flash 默认价格，未覆盖时用内置值。
+# 格式：{"model-id":{"inputPerMillion":0.15,"outputPerMillion":0.6,"cacheReadPerMillion":0.003}}
 MODEL_PRICING_JSON=
 # 每日统计时区，默认 Asia/Shanghai
 USAGE_TIMEZONE=Asia/Shanghai
+# 上下文压缩阈值与保留最近 token；默认 100k / 20k。
+COMPACTION_TOKEN_THRESHOLD=100000
+COMPACTION_KEEP_RECENT_TOKENS=20000

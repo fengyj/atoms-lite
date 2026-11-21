@@ -348,32 +348,44 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 测试创建的 Worker/D1/自定义域名和测试项目均已清理；
   删除项目按 domain → Worker → D1 顺序执行（先解绑域名，否则 Worker 删不掉）。
 
-### Token 用量与每日限额（本地实测）
+### Token 用量、费用与每日限额（本地实测）
 
 - 记录所有真实模型调用，按 **每个 step / 每次 generateText** 写一条事件：
   - 主对话：`streamText` 的每个 step；
   - 模板选型：`planTemplate`；
   - 项目自动命名：`maybeAutoNameProject`；
-  - 子 agent：`subagent` / `code_review` / `design_review`。
+  - 子 agent：`subagent` / `code_review` / `design_review`；
+  - 上下文压缩：compaction 的 summarize 调用。
 - 字段：source、model、requestId、step、input/output、cache read/write、
   no-cache、reasoning、total、cost_usd、day。
+- 每条事件写普通结构化日志 `[usage.record]`，包含 tokens 与 cost；
+  `[agent.turn.finish]` 也包含输入/输出/缓存/推理/total/cost。
 - 存储：`Projects` DO 的 `atoms_usage_events`（明细）和
   `atoms_usage_daily`（每日全站汇总）。
 - 接口：
   - `GET /api/projects/:id/usage`：项目 / 会话 / 今日 / 最近 31 天 / 今日全站 / 限额；
-  - `GET /api/usage/status`：今日全站总量、上限、是否允许；
+  - `GET /api/usage/status`：今日全站总量、费用、上限、是否允许；
   - `GET /api/usage/daily`：最近每日汇总。
 - UI：顶栏显示本会话累计 tokens 和缓存命中；点击打开明细弹窗
-  （本会话 / 今日本项目 / 今日全站 / 每日上限 / 费用）。
-- 每日上限：`DAILY_TOKEN_LIMIT`，按 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）切日。
-  - 主对话达到上限时返回一条普通助手文本，不产生原始 JSON；
-  - planner 回退规则模板，自动命名跳过，subagent 抛错。
+  （本会话 / 今日本项目 / 今日全站 / 每日费用上限 / 费用）。
+- 每日费用上限：`DAILY_COST_LIMIT_USD` 默认 **1 美元**，
+  `DAILY_COST_RESERVE_USD` 默认 **0.05 美元**；按 `USAGE_TIMEZONE`
+  （默认 `Asia/Shanghai`）切日。
+  - 判断只发生在**新一轮请求开始前**，不会中断已经开始的回合；
+  - 只剩不到预留金额时直接判定额度不足，避免单轮透支；
+  - 主对话返回普通助手文本；planner 回退规则模板；自动命名跳过；
+  - 额度不足提示不是模型调用，**不写 usage 事件**；它可能作为普通聊天消息存在。
+  - 额度不足时前端禁用输入框并显示“今日模型额度已用完”。
   - 查询用量失败时 fail-open，避免统计故障把站点锁死。
-- 费用：`MODEL_PRICING_JSON` 配置每百万 token 的输入/输出/缓存价格；
-  未配置时 `costUsd = null`，UI 显示“未配置价格表”。
-- 本地实测：planner 430 tokens、主对话 17.6k、自动命名 140 tokens；
-  设置 `DAILY_TOKEN_LIMIT=1` 后 planner 回退到规则模板，主对话显示
-  “今日模型额度已用完（18091/1 tokens）”。
+- 费用：内置 OpenCode Go `deepseek-v4.1-flash` 默认价格
+  （input 0.15 / output 0.60 / cache read 0.003 USD per 1M，来源 models.dev，
+  2026-11-21），可用 `MODEL_PRICING_JSON` 覆盖；未知模型 `costUsd = null`。
+- 上下文压缩：`ChatAgent` 构造时注册 `createCompactFunction`，
+  默认 `COMPACTION_TOKEN_THRESHOLD=100000`、`COMPACTION_KEEP_RECENT_TOKENS=20000`；
+  压缩调用记录 `source=compaction`。
+- 本地实测：planner 362 tokens / $0.000107；主对话约 17.6k、自动命名 140；
+  把每日费用上限临时设为 $0.00015、预留 $0.00005 后，`allowed=false`，
+  UI 输入框被禁用并显示额度提示。
 - v1 一项目一会话，所以 `session` 与 `project` 汇总相同；字段已保留 `session_id`，
   后续多会话可直接按会话聚合。
 
@@ -498,10 +510,12 @@ React（番茄钟）与全栈（优先级待办）生成结果：
   超过后版本不可发布。大应用后续应改为 R2 或 Assets。
 - Token 用量存在 `Projects` DO；会话=项目（v1 一项目一会话）。
   删除项目会删除明细事件，但保留每日全站汇总，避免日限额倒退。
-- 每日限额按 token 总量，不按费用；`DAILY_TOKEN_LIMIT` 未设置时不限制。
-- 费用依赖 `MODEL_PRICING_JSON`；未配置时只记录 token，不估算美元。
-- 上下文压缩目前没有配置；记录器已预留 `compaction` source，
-  将来开启 compaction 时需要把它的 summarize 调用接入 `recordUsage`。
+- 每日默认限额 **$1**，可用 `DAILY_COST_LIMIT_USD` 调整；`DAILY_TOKEN_LIMIT`
+  仍可作为额外的 token 上限。额度判断只在新一轮请求开始前发生。
+- 费用内置 `deepseek-v4.1-flash` 默认价格（OpenCode Go / models.dev），
+  可用 `MODEL_PRICING_JSON` 覆盖；未知模型不会计入费用限额。
+- 上下文压缩默认 100k 触发、保留最近 20k；可通过
+  `COMPACTION_TOKEN_THRESHOLD` / `COMPACTION_KEEP_RECENT_TOKENS` 调整。
 - 旧版本没有产物时可以自动补齐：browser 从 `atoms_file_versions` 重建；
   container 只对当前版本重新 build；旧 container 版本和旧 fullstack 模板需要新建版本
   （旧 fullstack 项目建议新建项目或迁移模板）。

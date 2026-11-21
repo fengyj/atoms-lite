@@ -776,8 +776,9 @@ Markdown 必须经过 HTML 清理，不允许消息内容执行任意脚本、�
 
 > **v1 已实现**：主对话的每个 step、planner、项目自动命名、subagent 都记录
 > input/output/cache read/write/no-cache/reasoning/total tokens；会话页展示本会话累计，
-> 并按项目、每日全站汇总。费用需要可选价格表，未配置时显示“未配置价格表”。
-> 上下文压缩尚未配置，记录器已预留 `compaction` source。
+> 并按项目、每日全站汇总。费用使用内置 DeepSeek V4.1 Flash 价格，
+> 可用 `MODEL_PRICING_JSON` 覆盖；每日默认 $1 限额。
+> 上下文压缩已配置：默认超过 100k token 触发，保留最近 20k；压缩调用也计入用量。
 
 ### 6.5 可移植性
 

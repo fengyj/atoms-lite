@@ -16,6 +16,14 @@ export interface Env {
   MODEL_PRICING_JSON?: string;
   /** 统计“每日”的时区；默认 Asia/Shanghai。 */
   USAGE_TIMEZONE?: string;
+  /** 每天 $ 限额；默认 1 美元。 */
+  DAILY_COST_LIMIT_USD?: string;
+  /** 预留给单轮透支的金额；默认 0.05 美元。 */
+  DAILY_COST_RESERVE_USD?: string;
+  /** 触发上下文压缩的 token 阈值；默认 100k。 */
+  COMPACTION_TOKEN_THRESHOLD?: string;
+  /** 压缩时保留最近多少 token；默认 20k。 */
+  COMPACTION_KEEP_RECENT_TOKENS?: string;
 }
 
 export const SESSION_NAME = "demo";

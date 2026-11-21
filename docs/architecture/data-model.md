@@ -502,12 +502,16 @@ CREATE TABLE atoms_usage_daily (
 
 规则：
 
-- 每次真实模型调用（主对话的每个 step、planner、自动命名、subagent）写一条明细。
-- `atoms_usage_daily` 在写入明细时原子 upsert，用于 `DAILY_TOKEN_LIMIT` 快速判断。
+- 每次真实模型调用（主对话的每个 step、planner、自动命名、subagent、compaction）写一条明细。
+- `atoms_usage_daily` 在写入明细时原子 upsert，用于每日费用/token 限额快速判断。
 - 日期由 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）决定，不是 UTC。
 - 一项目一会话时 `session_id = project_id`；多会话后可直接按 session 聚合。
 - 删除项目删除明细事件，但保留每日全站汇总，避免系统日限额倒退。
-- `cost_usd` 由 `MODEL_PRICING_JSON` 计算；未配置时为 null，UI 显示“未配置价格表”。
+- `cost_usd` 默认按内置 `deepseek-v4.1-flash` 价格计算
+  （OpenCode Go / models.dev：input 0.15、output 0.60、cache read 0.003 USD / 1M）；
+  `MODEL_PRICING_JSON` 可覆盖。未知模型为 null，不计入费用限额。
+- 每日默认费用上限 `$1`，预留 `$0.05`；只剩不到预留金额时判定额度不足。
+  额度判断只发生在下一轮模型请求开始前，不中断进行中的回合。
 
 ---
 

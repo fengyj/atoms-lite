@@ -33,7 +33,6 @@ type ToolFactoryOptions = {
     source: UsageSource,
     usage: LanguageModelUsage,
   ) => Promise<void> | void;
-  assertBudget?: () => Promise<void>;
 };
 
 /**
@@ -68,7 +67,6 @@ export function createTools({
   ctx,
   model,
   recordUsage,
-  assertBudget,
 }: ToolFactoryOptions) {
   const caps = predicateList(ctx);
   const tools: ToolSet = {};
@@ -89,7 +87,6 @@ export function createTools({
       throw new Error("本次运行已经调用过 2 次评审，请直接应用建议或完成实现");
     }
     reviewCalls += 1;
-    await assertBudget?.();
     return runSubagent({
       model,
       ws,

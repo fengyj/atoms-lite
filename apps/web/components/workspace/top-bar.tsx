@@ -320,7 +320,8 @@ export function TopBar({
           <DialogHeader>
             <DialogTitle>Token 用量</DialogTitle>
             <DialogDescription>
-              按模型请求累计；缓存命中属于输入 token 明细。费用需要配置模型价格表。
+              按模型请求累计；缓存命中属于输入 token 明细。费用按内置价格估算，
+              可用 MODEL_PRICING_JSON 覆盖。
             </DialogDescription>
           </DialogHeader>
           {usage ? (
@@ -334,7 +335,35 @@ export function TopBar({
                     {formatTokens(usage.systemToday.totalTokens)} tokens
                   </span>
                 </div>
-                {usage.limit.dailyTokens > 0 ? (
+                {usage.limit.dailyCostUsd > 0 ? (
+                  <>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-1.5 rounded-full bg-primary"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (usage.limit.usedCostUsd /
+                              usage.limit.dailyCostUsd) *
+                              100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-2xs text-muted-foreground">
+                      ${usage.limit.usedCostUsd.toFixed(4)} / $
+                      {usage.limit.dailyCostUsd.toFixed(2)}
+                      {usage.limit.allowed
+                        ? " · 仍在额度内"
+                        : " · 已达今日上限"}
+                    </p>
+                    <p className="mt-0.5 text-2xs text-muted-foreground/70">
+                      预留 ${usage.limit.reserveCostUsd.toFixed(2)}{" "}
+                      防止单轮透支；剩余约 $
+                      {usage.limit.remainingCostUsd.toFixed(4)}
+                    </p>
+                  </>
+                ) : usage.limit.dailyTokens > 0 ? (
                   <>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
@@ -359,7 +388,7 @@ export function TopBar({
                   </>
                 ) : (
                   <p className="mt-1 text-2xs text-muted-foreground">
-                    未设置每日上限（DAILY_TOKEN_LIMIT）
+                    未设置每日上限
                   </p>
                 )}
               </div>

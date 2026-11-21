@@ -1,5 +1,6 @@
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createCompactFunction } from "agents/sessions";
 import {
   convertToModelMessages,
   createUIMessageStream,
@@ -26,6 +27,7 @@ import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
 import {
   checkDailyLimit,
+  estimateCostUsd,
   normalizeUsage,
   recordUsage,
 } from "./usage";
@@ -50,6 +52,43 @@ export class ChatAgent extends AIChatAgent<Env> {
     terminalMessage:
       "本轮执行中断了。可以点击重试或继续，我会从当前进度接着做。",
   };
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const threshold =
+      Number(this.env.COMPACTION_TOKEN_THRESHOLD ?? 100_000) || 100_000;
+    const keepRecent =
+      Number(this.env.COMPACTION_KEEP_RECENT_TOKENS ?? 20_000) || 20_000;
+    const name = this.ctx.id.name ?? this.name;
+    this.sessions
+      .session()
+      .onCompaction(
+        createCompactFunction({
+          keepRecentTokens: keepRecent,
+          summarize: async (prompt) => {
+            const model = this.createModel();
+            if (!model) throw new Error("model not configured");
+            const result = await generateText({
+              model,
+              prompt,
+              maxOutputTokens: 2000,
+              maxRetries: 0,
+              abortSignal: AbortSignal.timeout(60_000),
+            });
+            await recordUsage(this.env, {
+              projectId: name,
+              sessionId: name,
+              requestId: null,
+              source: "compaction",
+              model: this.env.MODEL_ID ?? null,
+              usage: result.usage,
+            });
+            return result.text;
+          },
+        }),
+      )
+      .compactAfter(threshold);
+  }
 
   /** 项目删除时清空该项目的会话存储 */
   override async onRequest(request: Request): Promise<Response> {
@@ -314,12 +353,6 @@ export class ChatAgent extends AIChatAgent<Env> {
           model: this.env.MODEL_ID ?? null,
           usage,
         }),
-      assertBudget: async () => {
-        const status = await checkDailyLimit(this.env);
-        if (!status.allowed) {
-          throw new Error("今日模型额度已用完，请明天再试。");
-        }
-      },
     });
     if (configured) {
       await ws.beginRun().catch((error) => {
@@ -435,6 +468,11 @@ export class ChatAgent extends AIChatAgent<Env> {
           );
         } finally {
           const turnUsage = normalizeUsage(finish.usage);
+          const turnCostUsd = estimateCostUsd(
+            this.env,
+            this.env.MODEL_ID ?? null,
+            turnUsage,
+          );
           await recordSteps(finish.steps);
           console.log(
             "[agent.turn.finish]",
@@ -449,6 +487,7 @@ export class ChatAgent extends AIChatAgent<Env> {
               cacheWriteTokens: turnUsage.cacheWriteTokens,
               noCacheTokens: turnUsage.noCacheTokens,
               reasoningTokens: turnUsage.reasoningTokens,
+              costUsd: turnCostUsd,
               durationMs: Date.now() - startedAt,
               snapshotOk,
             }),
