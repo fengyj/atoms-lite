@@ -9,3 +9,12 @@ CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ACCOUNT_ID=30b1fdd8911e31a3a0bce42e54cc1ed6
 CLOUDFLARE_ZONE_ID=110909d14c2bd3bf532c1044ef64013b
 CLOUDFLARE_WORKERS_SUBDOMAIN=fengyj-30b
+
+# Token 用量（可选）
+# 每日全站 token 上限；留空表示不限制。达到后主对话返回 429，planner/命名/子 agent 跳过。
+DAILY_TOKEN_LIMIT=
+# 每百万 token 的美元价格表；未配置时不计算费用。
+# 格式：{"model-id":{"inputPerMillion":0.28,"outputPerMillion":0.42,"cacheReadPerMillion":0.028}}
+MODEL_PRICING_JSON=
+# 每日统计时区，默认 Asia/Shanghai
+USAGE_TIMEZONE=Asia/Shanghai

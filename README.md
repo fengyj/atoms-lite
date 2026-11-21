@@ -118,6 +118,8 @@ pnpm build
 - [x] 依赖安装工具（browser: importmap；container: pnpm add + 开放 egress）
 - [x] **版本发布**：版本窗口发布到 Cloudflare Workers；项目固定域名/Worker/D1，
       版本切换更新 badge；全栈项目自动应用 D1 migration
+- [x] **Token 用量**：主对话、planner、自动命名、subagent 统一记录
+      输入/输出/缓存/推理 token；会话/项目/每日全站汇总，顶栏显示本会话用量
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）
@@ -147,6 +149,10 @@ pnpm build
   但约 1 小时过期，生产长期使用建议换长期 `CLOUDFLARE_API_TOKEN` 或定期刷新 secret。
 - 发布产物存在 DO SQLite，单版本上限约 12 MiB；更大的应用需要 R2/Assets。
 - 旧静态版本没有产物时发布会从版本快照自动重建；旧容器版本需重新构建并创建新版本。
+- Token 用量存在 `Projects` DO；v1 一项目一会话，所以会话总计与项目总计相同。
+- `DAILY_TOKEN_LIMIT` 可选，按 `USAGE_TIMEZONE`（默认 Asia/Shanghai）切日；
+  达到上限后主对话返回提示，planner/自动命名/子 agent 跳过模型调用。
+- 费用需要 `MODEL_PRICING_JSON` 价格表；未配置时显示“未配置价格表”，不会伪造 0 费用。
 - 旧 Alpine/npm 快照仍可预览；安装新包请使用新项目（最终镜像只有 pnpm）。
 - Playwright 1.63.0 对应本机缓存的 chromium-1243；升级会触发浏览器下载。
 - 清理 dev 进程请按端口（`lsof -t -i:3000`），不要按名字模糊匹配（会杀掉 Next 的 postcss worker）。

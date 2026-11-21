@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronLeft, Cpu, Pencil } from "lucide-react";
+import { ChevronLeft, Cpu, Gauge, Pencil } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import {
   formatClock,
   shortCommit,
   templateLabel,
+  type ProjectUsage,
+  type UsageTotals,
   type WorkspaceVersion,
 } from "@/lib/agent";
 
@@ -30,6 +32,51 @@ const runStateMeta: Record<RunState, { dot: string; label: string }> = {
   running: { dot: "animate-pulse bg-primary", label: "生成中" },
   error: { dot: "bg-destructive", label: "出错" },
 };
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${value}`;
+}
+
+function formatCost(value: number | null): string {
+  if (value === null) return "未配置价格表";
+  if (value === 0) return "$0";
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(3)}`;
+}
+
+function UsageBlock({ title, totals }: { title: string; totals: UsageTotals }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="flex items-center justify-between text-sm">
+        <span>{title}</span>
+        <span className="font-mono">{formatTokens(totals.totalTokens)} tokens</span>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-2xs text-muted-foreground">
+        <span>输入</span>
+        <span className="text-right font-mono">
+          {totals.inputTokens.toLocaleString()}
+        </span>
+        <span>输出</span>
+        <span className="text-right font-mono">
+          {totals.outputTokens.toLocaleString()}
+        </span>
+        <span>缓存命中</span>
+        <span className="text-right font-mono">
+          {totals.cacheReadTokens.toLocaleString()}
+        </span>
+        <span>缓存写入</span>
+        <span className="text-right font-mono">
+          {totals.cacheWriteTokens.toLocaleString()}
+        </span>
+        <span>请求 / 费用</span>
+        <span className="text-right font-mono">
+          {totals.requests} · {formatCost(totals.costUsd)}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function TopBar({
   runState,
@@ -46,6 +93,8 @@ export function TopBar({
   snapshotError,
   currentVersion,
   versionNote,
+  usage,
+  usageLoading,
   onRename,
 }: {
   /** Agent 运行状态（就绪 / 生成中 / 出错） */
@@ -64,10 +113,13 @@ export function TopBar({
   /** 当前版本；没有版本或加载失败时为 null，由 versionNote 兜底 */
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
+  usage: ProjectUsage | null;
+  usageLoading: boolean;
   onRename: (name: string) => Promise<void>;
 }) {
   const run = runStateMeta[runState];
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(projectName);
   const [renaming, setRenaming] = useState(false);
@@ -185,6 +237,26 @@ export function TopBar({
             ) : null}
           </>
         ) : null}
+        {usage ? (
+          <button
+            type="button"
+            onClick={() => setUsageOpen(true)}
+            title={`本会话输入 ${usage.session.inputTokens.toLocaleString()} · 输出 ${usage.session.outputTokens.toLocaleString()} · 缓存命中 ${usage.session.cacheReadTokens.toLocaleString()}`}
+            className="hidden items-center gap-1 rounded-full border border-border px-2 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-accent lg:inline-flex"
+          >
+            <Gauge className="size-3" />
+            <span>{formatTokens(usage.session.totalTokens)} tokens</span>
+            {usage.session.cacheReadTokens > 0 ? (
+              <span className="text-muted-foreground/60">
+                · 缓存 {formatTokens(usage.session.cacheReadTokens)}
+              </span>
+            ) : null}
+          </button>
+        ) : usageLoading ? (
+          <span className="hidden text-2xs text-muted-foreground lg:inline">
+            用量加载中
+          </span>
+        ) : null}
         {currentVersion ? (
           <>
             <Badge
@@ -241,6 +313,60 @@ export function TopBar({
               确认升级
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Token 用量</DialogTitle>
+            <DialogDescription>
+              按模型请求累计；缓存命中属于输入 token 明细。费用需要配置模型价格表。
+            </DialogDescription>
+          </DialogHeader>
+          {usage ? (
+            <div className="space-y-3">
+              <UsageBlock title="本会话" totals={usage.session} />
+              <UsageBlock title="今日本项目" totals={usage.today} />
+              <div className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span>今日全站</span>
+                  <span className="font-mono">
+                    {formatTokens(usage.systemToday.totalTokens)} tokens
+                  </span>
+                </div>
+                {usage.limit.dailyTokens > 0 ? (
+                  <>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-1.5 rounded-full bg-primary"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (usage.limit.usedTokens /
+                              usage.limit.dailyTokens) *
+                              100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-2xs text-muted-foreground">
+                      {formatTokens(usage.limit.usedTokens)} /{" "}
+                      {formatTokens(usage.limit.dailyTokens)}
+                      {usage.limit.allowed
+                        ? " · 仍在额度内"
+                        : " · 已达今日上限"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    未设置每日上限（DAILY_TOKEN_LIMIT）
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">用量加载中…</p>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog

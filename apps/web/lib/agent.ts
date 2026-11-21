@@ -112,6 +112,29 @@ export type WorkspaceMeta = {
   currentVersion: ProjectVersion | null;
 };
 
+export type UsageTotals = {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  noCacheTokens: number;
+  reasoningTokens: number;
+  costUsd: number | null;
+};
+
+export type UsageDay = UsageTotals & { day: string };
+
+export type ProjectUsage = {
+  project: UsageTotals;
+  session: UsageTotals;
+  today: UsageTotals;
+  daily: UsageDay[];
+  systemToday: UsageTotals & { day: string };
+  limit: { dailyTokens: number; usedTokens: number; allowed: boolean };
+};
+
 type ProjectsResponse = { projects?: ProjectSummary[] };
 type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
@@ -358,6 +381,14 @@ export async function upgradeInstance(projectId: string): Promise<{
   };
 }
 
+export async function fetchProjectUsage(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<ProjectUsage> {
+  const res = await fetch(projectApiUrl(projectId, "/usage"), { signal });
+  return json<ProjectUsage>(res, "project usage");
+}
+
 export async function fetchWorkspaceMeta(
   projectId: string,
   signal?: AbortSignal
@@ -443,6 +474,14 @@ export function useProjects(): Endpoint<ProjectSummary[]> {
 export function useProject(projectId: string): Endpoint<ProjectSummary> {
   const fetcher = useCallback(
     (signal?: AbortSignal) => fetchProject(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useProjectUsage(projectId: string): Endpoint<ProjectUsage> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchProjectUsage(projectId, signal),
     [projectId]
   );
   return useEndpoint(fetcher);

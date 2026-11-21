@@ -287,7 +287,7 @@ Run
 | 存储 | 内容 |
 |---|---|
 | **D1（已发布应用）** | 每个已发布全栈项目一个业务数据库；平台项目/会话元数据仍未接入 |
-| **DO SQLite（Projects）** | v1 项目索引：项目名、prompt、模板、runtime、configured、时间 |
+| **DO SQLite（Projects）** | v1 项目索引：项目名、prompt、模板、runtime、configured、时间；Token 用量明细与每日全站汇总 |
 | **DO SQLite（ChatAgent）** | 消息、流式分片、压缩记录；框架 `cf_*` 表 |
 | **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、browser 文件/版本/依赖、migration、构建产物、发布记录 |
 | **R2（目标，未接入）** | 附件、导出包、日志 |
@@ -337,6 +337,19 @@ Run
 5. 通过 Workers Domains API（`PUT`）绑定 `<slug>.atoms-lite.fengyj.me`；
    失败时降级到 workers.dev，并把原因写进部署记录。
 6. 写 `atoms_deployments`；最新 `status = ready` 即当前线上版本，版本面板显示 badge。
+
+### 7.5 模型用量与每日限额
+
+- 主对话的每个 step、planner、项目自动命名、subagent 都写一条 usage 明细。
+- 明细和每日全站汇总存放在 `Projects` DO：
+  `atoms_usage_events`、`atoms_usage_daily`。
+- 字段包括 input/output、cache read/write、no-cache、reasoning、total、
+  model、source、requestId、step、cost、day。
+- `GET /api/projects/:id/usage` 返回会话/项目/今日/最近每日/今日全站/限额；
+  会话页顶栏展示本会话累计。
+- `DAILY_TOKEN_LIMIT` 按 `USAGE_TIMEZONE` 切日；达到上限后主对话被拒绝，
+  planner/自动命名/subagent 跳过模型调用。查询失败时 fail-open。
+- `MODEL_PRICING_JSON` 未配置时只记录 token，费用为 null。
 
 ---
 
@@ -397,6 +410,7 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 | 构建型模板 | 依赖镜像预装；新增 npm 依赖可通过 `install_packages` 在线安装 |
 | 全栈数据 | 预览/开发使用容器 SQLite + 快照；发布后的应用使用独立 D1 |
 | 版本发布 | 已完成 static/React/fullstack 的 Workers + D1 + 自定义域名发布与清理 |
+| Token 用量 | 主对话/planner/自动命名/subagent 已记账；会话/项目/每日全站可查；压缩未配置，费用待价格表 |
 | 发布环境 | 只有项目级生产环境；预发、多区域、回滚数据库未支持 |
 | 写冲突方案 | v1 串行；锁模型已设计，未实现 |
 | B6 面板事件并行 | 未验证 |
@@ -417,7 +431,7 @@ SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可
 |---|---|---|---|
 | **Workers** | 边缘运行的 V8 isolate，请求级无状态计算 | AWS Lambda / Cloud Functions / Edge Functions | 平台路由、预览代理；也为每个发布项目上传独立 Worker |
 | **Durable Objects** | 有唯一 ID、单实例、带持久化存储和 WebSocket 的有状态对象 | 没有完全等价的单一服务；最接近 Actor 模型（Akka / Orleans）、Azure Durable Entities | 每个项目一个 `WorkspaceDO`、一个 `ChatAgent`；单例 `Projects` |
-| **DO SQLite** | 每个 DO 内嵌的事务型 SQLite | 每个分片一份小数据库 / LibSQL / 嵌入式 SQLite | 项目索引、版本、文件缓存、快照指针、构建产物、发布记录 |
+| **DO SQLite** | 每个 DO 内嵌的事务型 SQLite | 每个分片一份小数据库 / LibSQL / 嵌入式 SQLite | 项目索引、版本、文件缓存、快照指针、构建产物、发布记录、Token 用量 |
 | **Containers** | 由 DO 调度和持有的长驻容器 | ECS / Cloud Run / Fly Machines | 运行生成的应用，执行 build / shell / 预览服务 |
 | **D1** | 托管 SQLite，面向关系型元数据 | Aurora Serverless / Turso / 托管 SQLite | 每个已发布全栈项目一个业务库；平台元数据未接入 |
 | **R2** | S3 兼容对象存储，出站流量免费 | AWS S3 / GCS | **v1 未接入**；目标用于附件、导出包、日志 |

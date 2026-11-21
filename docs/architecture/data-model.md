@@ -6,7 +6,7 @@
 > **实现状态**：第 4、5、7 节是目标设计（D1 / R2 / Run / Task）。平台元数据实际只使用
 > DO SQLite（发布后的全栈应用另用独立 D1）：
 > `Projects` DO 保存项目索引，`WorkspaceDO` 保存版本/文件/快照/runtime/migration；
-> `ChatAgent` 只使用框架 `cf_*` 表。实际字段见 4.1 注、5 节开头注、6.1–6.5。
+> `ChatAgent` 只使用框架 `cf_*` 表。实际字段见 4.1 注、5 节开头注、6.1–6.7。
 > 与代码冲突时以代码和 `docs/implementation.md` 为准。
 
 ---
@@ -16,7 +16,7 @@
 | 存储 | 存什么 | 为什么 |
 |---|---|---|
 | **D1（平台元数据目标；发布应用已使用）** | 平台项目、会话、产物索引、导出记录；已发布全栈应用的业务库另建独立 D1 | 需要**跨项目**列表与查询；DO 无法全局查询 |
-| **DO SQLite（Projects）** | v1 项目索引：`id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at` | v1 尚未接 D1；用单例 DO 提供跨项目列表，读取时并发补齐各项目的版本摘要 |
+| **DO SQLite（Projects）** | v1 项目索引：`id/name/prompt/template/runtime/template_source/plan_reason/configured/created_at/updated_at`；Token 用量明细与每日全站汇总 | v1 尚未接 D1；用单例 DO 提供跨项目列表、用量汇总和每日限额 |
 | **DO SQLite（ChatAgent）** | 消息、流、压缩（框架表）；Run/审批/任务为目标设计 | 与会话强相关，写入频繁，要求原子顺序 |
 | **DO SQLite（WorkspaceDO）** | 版本、快照指针、文件列表缓存、模板配置、browser 文件/版本/依赖、migration、构建产物、发布记录 | 与工作区强相关；容器项目版本与 git 同源；browser 项目用内容哈希版本 |
 | **Cloudflare D1（发布产物）** | 每个已发布全栈项目的业务数据库 | 生成应用需要真正的外部数据库；平台元数据仍不放在 D1 |
@@ -57,7 +57,7 @@ erDiagram
 
 ## 3. 约定
 
-> v1 实际表见 6.4–6.5；多数表没有 `deleted_at`，删除项目是删索引 + 清理 DO 存储。
+> v1 实际表见 6.4–6.7；多数表没有 `deleted_at`，删除项目是删索引 + 清理 DO 存储。
 
 | 项 | 约定 |
 |---|---|
@@ -310,7 +310,7 @@ cf_ai_chat_agent_tool_*
 
 ---
 
-## 6. WorkspaceDO 表
+## 6. DO 业务表（Workspace / Projects）
 
 ### 6.1 `atoms_versions`
 
@@ -459,6 +459,55 @@ CREATE TABLE atoms_deployments (
 
 结论：**D1/R2 不是“永远不需要”，而是 v1 没有接入。** 当前单用户、少量项目的规模可以由 DO 承担；
 接入多用户、全局查询、大文件附件、导出和长期日志时，D1/R2 才会成为必要的存储层。
+
+### 6.7 Projects DO 用量表（v1）
+
+> 这里是 `Projects` DO 的表，不是 WorkspaceDO；用于跨项目日汇总和每日限额。
+
+```sql
+CREATE TABLE atoms_usage_events (
+  id                 TEXT PRIMARY KEY,
+  project_id         TEXT NOT NULL,
+  session_id         TEXT,             -- v1 = projectId
+  request_id         TEXT,
+  source             TEXT NOT NULL,    -- chat | planner | auto_name | subagent | compaction
+  model              TEXT,
+  step_number        INTEGER,          -- 主对话的 step；其他调用为 null
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  no_cache_tokens    INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+  total_tokens       INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL,             -- null = 未配置价格表
+  created_at         INTEGER NOT NULL,
+  day                TEXT NOT NULL     -- USAGE_TIMEZONE 的本地日期
+);
+
+CREATE TABLE atoms_usage_daily (
+  day                TEXT PRIMARY KEY,
+  requests           INTEGER NOT NULL DEFAULT 0,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  no_cache_tokens    INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+  total_tokens       INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL,
+  updated_at         INTEGER NOT NULL
+);
+```
+
+规则：
+
+- 每次真实模型调用（主对话的每个 step、planner、自动命名、subagent）写一条明细。
+- `atoms_usage_daily` 在写入明细时原子 upsert，用于 `DAILY_TOKEN_LIMIT` 快速判断。
+- 日期由 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）决定，不是 UTC。
+- 一项目一会话时 `session_id = project_id`；多会话后可直接按 session 聚合。
+- 删除项目删除明细事件，但保留每日全站汇总，避免系统日限额倒退。
+- `cost_usd` 由 `MODEL_PRICING_JSON` 计算；未配置时为 null，UI 显示“未配置价格表”。
 
 ---
 

@@ -43,6 +43,7 @@
     "CLOUDFLARE_ACCOUNT_ID": "30b1fdd8911e31a3a0bce42e54cc1ed6",
     "CLOUDFLARE_ZONE_ID": "110909d14c2bd3bf532c1044ef64013b",
     "CLOUDFLARE_WORKERS_SUBDOMAIN": "fengyj-30b",
+    "USAGE_TIMEZONE": "Asia/Shanghai",
     "MODEL_BASE_URL": "https://opencode.ai/inference/go/openai/v1",
     "MODEL_ID": "deepseek-v4.1-flash"
   }

@@ -1,9 +1,10 @@
 import { EXEC_ALLOWED_PROGRAMS } from "@atoms-lite/contracts";
-import { tool, type LanguageModel, type ToolSet } from "ai";
+import { tool, type LanguageModel, type LanguageModelUsage, type ToolSet } from "ai";
 import { z } from "zod";
 import type { RuntimeContext } from "./context";
 import { detectHtmlSource, detectTextSource } from "./detector";
 import { runSubagent } from "./subagent";
+import type { UsageSource } from "./usage";
 import type { WorkspaceClient } from "./workspace/client";
 
 const TEMPLATE_ENUM = z.enum(["static", "react-vite", "fullstack-hono"]);
@@ -28,6 +29,11 @@ type ToolFactoryOptions = {
   ws: WorkspaceClient;
   ctx: RuntimeContext;
   model: LanguageModel;
+  recordUsage?: (
+    source: UsageSource,
+    usage: LanguageModelUsage,
+  ) => Promise<void> | void;
+  assertBudget?: () => Promise<void>;
 };
 
 /**
@@ -57,7 +63,13 @@ function predicateList(ctx: RuntimeContext): {
   };
 }
 
-export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
+export function createTools({
+  ws,
+  ctx,
+  model,
+  recordUsage,
+  assertBudget,
+}: ToolFactoryOptions) {
   const caps = predicateList(ctx);
   const tools: ToolSet = {};
   let reviewCalls = 0;
@@ -77,7 +89,16 @@ export function createTools({ ws, ctx, model }: ToolFactoryOptions) {
       throw new Error("本次运行已经调用过 2 次评审，请直接应用建议或完成实现");
     }
     reviewCalls += 1;
-    return runSubagent({ model, ws, role, task, files, maxFindings });
+    await assertBudget?.();
+    return runSubagent({
+      model,
+      ws,
+      role,
+      task,
+      files,
+      maxFindings,
+      onUsage: (usage) => recordUsage?.("subagent", usage),
+    });
   };
 
   // 需求确认始终可用；pending 阶段它是唯一能推进流程的工具。

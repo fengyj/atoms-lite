@@ -1,6 +1,6 @@
 # A/B/C 实现记录（单角色 · 多运行时生成器）
 
-状态：**已实现并部署**（2026-11-19；2026-11-20 文档校对，含版本发布）
+状态：**已实现并部署**（2026-11-19；2026-11-21 文档校对，含版本发布与用量统计）
 
 ## 1. 范围
 
@@ -348,6 +348,35 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 测试创建的 Worker/D1/自定义域名和测试项目均已清理；
   删除项目按 domain → Worker → D1 顺序执行（先解绑域名，否则 Worker 删不掉）。
 
+### Token 用量与每日限额（本地实测）
+
+- 记录所有真实模型调用，按 **每个 step / 每次 generateText** 写一条事件：
+  - 主对话：`streamText` 的每个 step；
+  - 模板选型：`planTemplate`；
+  - 项目自动命名：`maybeAutoNameProject`；
+  - 子 agent：`subagent` / `code_review` / `design_review`。
+- 字段：source、model、requestId、step、input/output、cache read/write、
+  no-cache、reasoning、total、cost_usd、day。
+- 存储：`Projects` DO 的 `atoms_usage_events`（明细）和
+  `atoms_usage_daily`（每日全站汇总）。
+- 接口：
+  - `GET /api/projects/:id/usage`：项目 / 会话 / 今日 / 最近 31 天 / 今日全站 / 限额；
+  - `GET /api/usage/status`：今日全站总量、上限、是否允许；
+  - `GET /api/usage/daily`：最近每日汇总。
+- UI：顶栏显示本会话累计 tokens 和缓存命中；点击打开明细弹窗
+  （本会话 / 今日本项目 / 今日全站 / 每日上限 / 费用）。
+- 每日上限：`DAILY_TOKEN_LIMIT`，按 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）切日。
+  - 主对话达到上限时返回一条普通助手文本，不产生原始 JSON；
+  - planner 回退规则模板，自动命名跳过，subagent 抛错。
+  - 查询用量失败时 fail-open，避免统计故障把站点锁死。
+- 费用：`MODEL_PRICING_JSON` 配置每百万 token 的输入/输出/缓存价格；
+  未配置时 `costUsd = null`，UI 显示“未配置价格表”。
+- 本地实测：planner 430 tokens、主对话 17.6k、自动命名 140 tokens；
+  设置 `DAILY_TOKEN_LIMIT=1` 后 planner 回退到规则模板，主对话显示
+  “今日模型额度已用完（18091/1 tokens）”。
+- v1 一项目一会话，所以 `session` 与 `project` 汇总相同；字段已保留 `session_id`，
+  后续多会话可直接按会话聚合。
+
 ### 懒启动（本地实测）
 
 - 新建项目：`preview/status` 为 `{running:false}`；`GET /files` 返回
@@ -467,6 +496,12 @@ React（番茄钟）与全栈（优先级待办）生成结果：
   生产 secret 当前使用 wrangler OAuth token，会约 1 小时过期，长期应换 API Token。
 - 发布产物存在 WorkspaceDO 的 `atoms_build_files`，单版本上限约 12 MiB；
   超过后版本不可发布。大应用后续应改为 R2 或 Assets。
+- Token 用量存在 `Projects` DO；会话=项目（v1 一项目一会话）。
+  删除项目会删除明细事件，但保留每日全站汇总，避免日限额倒退。
+- 每日限额按 token 总量，不按费用；`DAILY_TOKEN_LIMIT` 未设置时不限制。
+- 费用依赖 `MODEL_PRICING_JSON`；未配置时只记录 token，不估算美元。
+- 上下文压缩目前没有配置；记录器已预留 `compaction` source，
+  将来开启 compaction 时需要把它的 summarize 调用接入 `recordUsage`。
 - 旧版本没有产物时可以自动补齐：browser 从 `atoms_file_versions` 重建；
   container 只对当前版本重新 build；旧 container 版本和旧 fullstack 模板需要新建版本
   （旧 fullstack 项目建议新建项目或迁移模板）。

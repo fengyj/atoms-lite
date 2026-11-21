@@ -1,4 +1,4 @@
-import { generateText, type LanguageModel } from "ai";
+import { generateText, type LanguageModel, type LanguageModelUsage } from "ai";
 import type { WorkspaceClient } from "./workspace/client";
 
 export type SubagentFinding = {
@@ -65,6 +65,7 @@ export async function runSubagent({
   task,
   files,
   maxFindings = 5,
+  onUsage,
 }: {
   model: LanguageModel;
   ws: WorkspaceClient;
@@ -72,6 +73,7 @@ export async function runSubagent({
   task: string;
   files?: string[];
   maxFindings?: number;
+  onUsage?: (usage: LanguageModelUsage) => Promise<void> | void;
 }): Promise<SubagentReport> {
   let paths = files?.slice(0, MAX_FILES) ?? [];
   if (paths.length === 0) {
@@ -121,6 +123,7 @@ export async function runSubagent({
       maxOutputTokens: 1500,
       abortSignal: controller.signal,
     });
+    await onUsage?.(result.usage);
     return parseReport(result.text, role);
   } finally {
     clearTimeout(timeout);

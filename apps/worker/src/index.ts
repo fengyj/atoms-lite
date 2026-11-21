@@ -85,6 +85,20 @@ export default {
       return withCors(res, cors);
     }
 
+    if (
+      (url.pathname === "/api/usage/status" ||
+        url.pathname === "/api/usage/daily") &&
+      request.method === "GET"
+    ) {
+      const res = await proxyTo(
+        projectsStub(env),
+        request,
+        url.pathname.replace(/^\/api/, ""),
+        url,
+      );
+      return withCors(res, cors);
+    }
+
     if (url.pathname.startsWith("/api/projects/")) {
       const rest = url.pathname.replace(/^\/api\/projects\//, "");
       const [projectId, ...tail] = rest.split("/");
@@ -119,6 +133,16 @@ export default {
           projectsStub(env),
           request,
           `/projects/${projectId}/configure`,
+          url,
+        );
+        return withCors(res, cors);
+      }
+
+      if (projectId && tail.length === 1 && tail[0] === "usage") {
+        const res = await proxyTo(
+          projectsStub(env),
+          request,
+          `/projects/${projectId}/usage`,
           url,
         );
         return withCors(res, cors);

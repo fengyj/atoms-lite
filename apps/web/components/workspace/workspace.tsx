@@ -14,6 +14,7 @@ import {
   AGENT_CLASS,
   WORKER_HOST,
   useProject,
+  useProjectUsage,
   useWorkspaceFiles,
   useWorkspaceMeta,
   useWorkspaceVersions,
@@ -66,6 +67,7 @@ export function Workspace({ projectId }: { projectId: string }) {
 
   // 项目元数据（名称/版本数）与当前项目专属的 Agent 会话
   const project = useProject(projectId);
+  const usage = useProjectUsage(projectId);
 
   const agent = useAgent({
     agent: AGENT_CLASS,
@@ -177,6 +179,12 @@ export function Workspace({ projectId }: { projectId: string }) {
   const runState: RunState =
     status === "error" ? "error" : busy ? "running" : "idle";
 
+  // 每轮结束后刷新用量；自动命名等异步调用会在下面的定时器里再补刷。
+  const refreshUsage = usage.refresh;
+  useEffect(() => {
+    if (!busy) refreshUsage();
+  }, [busy, refreshUsage]);
+
   // 首轮对话后 Agent 会异步生成项目名；在回合结束后轻量刷新两次以拿到新标题。
   const userMessageCount = messages.filter(
     (message) => message.role === "user"
@@ -190,12 +198,15 @@ export function Workspace({ projectId }: { projectId: string }) {
     if (projectNameSource && projectNameSource !== "derived") return;
     // 命名是异步的：多刷几次，拿到 AI 标题后 nameSource 会变成 ai，effect 会清理剩余定时器。
     const timers = [2000, 6000, 12000, 18000].map((ms) =>
-      window.setTimeout(() => project.refresh(), ms)
+      window.setTimeout(() => {
+        project.refresh();
+        usage.refresh();
+      }, ms)
     );
     return () => {
       for (const timer of timers) window.clearTimeout(timer);
     };
-  }, [busy, userMessageCount, projectNameSource, project.refresh]);
+  }, [busy, userMessageCount, projectNameSource, project.refresh, usage.refresh]);
 
   const currentVersion =
     versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
@@ -365,6 +376,8 @@ export function Workspace({ projectId }: { projectId: string }) {
         snapshotError={workspaceMeta.data?.snapshotError ?? null}
         currentVersion={currentVersion}
         versionNote={versionNote}
+        usage={usage.data}
+        usageLoading={usage.loading}
         onRename={renameProjectName}
       />
 

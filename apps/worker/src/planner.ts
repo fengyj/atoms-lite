@@ -1,8 +1,9 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { generateObject } from "ai";
+import { generateObject, type LanguageModelUsage } from "ai";
 import { z } from "zod";
 import type { Env } from "./env";
 import type { TemplateId } from "./templates";
+import { checkDailyLimit } from "./usage";
 
 const planSchema = z.object({
   template: z.enum(["static", "react-vite", "fullstack-hono"]),
@@ -14,6 +15,12 @@ export type TemplatePlan = {
   reason: string;
 };
 
+export type TemplatePlanResult = {
+  plan: TemplatePlan;
+  usage: LanguageModelUsage;
+  model: string;
+};
+
 /**
  * 模糊需求的技术选型。失败时返回 null，由调用方回退到确定性规则。
  * 这是一次短模型调用，不参与后续生成上下文。
@@ -21,11 +28,21 @@ export type TemplatePlan = {
 export async function planTemplate(
   env: Env,
   prompt: string,
-): Promise<TemplatePlan | null> {
+  canUseModel?: () => Promise<boolean>,
+): Promise<TemplatePlanResult | null> {
   const baseURL = env.MODEL_BASE_URL;
   const apiKey = env.MODEL_API_KEY;
   if (!baseURL || !apiKey) return null;
 
+  const allowed = canUseModel
+    ? await canUseModel()
+    : (await checkDailyLimit(env)).allowed;
+  if (!allowed) {
+    console.warn("[planner] daily token limit reached");
+    return null;
+  }
+
+  const modelId = env.MODEL_ID ?? "deepseek-v4.1-flash";
   try {
     const provider = createOpenAICompatible({
       name: "atoms-planner",
@@ -35,7 +52,7 @@ export async function planTemplate(
     });
 
     const result = await generateObject({
-      model: provider(env.MODEL_ID ?? "deepseek-v4.1-flash"),
+      model: provider(modelId),
       schema: planSchema,
       temperature: 0,
       maxOutputTokens: 300,
@@ -56,8 +73,12 @@ export async function planTemplate(
     });
 
     return {
-      template: result.object.template,
-      reason: result.object.reason.trim().slice(0, 200),
+      plan: {
+        template: result.object.template,
+        reason: result.object.reason.trim().slice(0, 200),
+      },
+      usage: result.usage,
+      model: modelId,
     };
   } catch (error) {
     console.error("[planner] template selection failed", error);

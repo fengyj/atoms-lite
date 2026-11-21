@@ -25,6 +25,7 @@
 | [07-generated-project-icons](07-generated-project-icons.md) | 生成项目的图标库选择与使用约定 |
 | [08-execution-environment-and-agent-tools](08-execution-environment-and-agent-tools.md) | pending/configured、动态工具、运行环境单向切换与迁移、ask_user、subagent |
 | [09-version-publishing](09-version-publishing.md) | 项目级 Worker/D1/域名、构建产物、forward-only migration、发布记录与清理 |
+| [10-token-usage](10-token-usage.md) | 模型调用记账、会话/项目/每日汇总、每日 token 限额、价格表 |
 
 ## 约定
 

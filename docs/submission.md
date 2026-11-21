@@ -179,7 +179,7 @@ POC 数据：
 
 平台侧：
 
-- `Projects` DO：项目索引；
+- `Projects` DO：项目索引；Token 用量明细与每日全站汇总；
 - `ChatAgent` DO：消息、流、压缩（框架表）；
 - `Workspace` DO：版本、文件缓存、快照指针、运行环境配置/migration、构建产物、发布记录；
 - 容器：生成应用源码、`node_modules`、全栈预览 SQLite、应用内部上传文件；
@@ -274,6 +274,7 @@ POC 数据：
 | 会话时间分隔、ask_user 历史问答、步数上限确认卡、过程折叠 | ✅ |
 | 项目自动命名 + 会话页重命名 | ✅ |
 | 版本发布到 Workers / D1 / 自定义域名 | ✅ |
+| Token 用量：主对话 / planner / 命名 / 子 agent，会话与每日全站汇总 | ✅ |
 | 生产部署 | ✅ |
 
 ### 3.2 部分完成
@@ -298,6 +299,7 @@ POC 数据：
 - PPT / 非 Web 产物
 - 访问门禁、预算和速率限制
 - 版本 diff / 对比 / 回滚 UI
+- 上下文压缩（当前未配置 compaction）
 - 真正的运行事件表和成本看板
 - Next.js 生成
 
@@ -308,6 +310,8 @@ POC 数据：
 - 全栈预览重启、旧快照兼容、容器快照恢复
 - 版本发布：静态/React 到 Workers；全栈自动创建 D1 并应用 migration；
   自定义域名绑定、version badge 切换、旧版本发布阻断、删除项目清理 Worker/D1/域名
+- Token 用量：主对话/planner/自动命名/subagent 记账，会话页顶栏显示累计，
+  每日全站汇总与 `DAILY_TOKEN_LIMIT` 限额已验证
 - 非破坏性回滚：marker 文件恢复、历史保留、新的 rollback commit
 - design detector 扫描、`/design-review` 命令、元素选择并入运行环境上下文（`runtime_context`）
 - 首页/工作台响应式与横向溢出检查

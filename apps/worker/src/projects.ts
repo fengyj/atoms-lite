@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import { planTemplate } from "./planner";
+import { planTemplate, type TemplatePlanResult } from "./planner";
 import {
   deriveTemplate,
   isTemplate,
@@ -10,6 +10,11 @@ import {
   type RuntimeKind,
   type TemplateId,
 } from "./templates";
+import {
+  estimateCostUsd,
+  normalizeUsage,
+  type NormalizedUsage,
+} from "./usage";
 
 const DEMO_PROJECT_ID = "demo";
 const DEMO_PROJECT_NAME = "五子棋 Demo";
@@ -40,6 +45,70 @@ type WorkspaceMeta = {
     createdAt: number;
   } | null;
 };
+
+export type UsageTotals = {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  noCacheTokens: number;
+  reasoningTokens: number;
+  costUsd: number | null;
+};
+
+type UsageTotalsRow = {
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  no_cache_tokens: number;
+  reasoning_tokens: number;
+  cost_usd: number | null;
+};
+
+export type UsageDay = UsageTotals & { day: string };
+
+export type ProjectUsage = {
+  project: UsageTotals;
+  session: UsageTotals;
+  today: UsageTotals;
+  daily: UsageDay[];
+  systemToday: UsageTotals & { day: string };
+  limit: { dailyTokens: number; usedTokens: number; allowed: boolean };
+};
+
+type UsageEventBody = {
+  projectId?: string;
+  sessionId?: string | null;
+  requestId?: string | null;
+  source?: string;
+  model?: string | null;
+  stepNumber?: number | null;
+  usage?: Partial<NormalizedUsage>;
+  costUsd?: number | null;
+};
+
+function usageFromBody(raw: Partial<NormalizedUsage> | undefined): NormalizedUsage {
+  const n = (value: unknown) =>
+    Number.isFinite(Number(value))
+      ? Math.max(0, Math.floor(Number(value)))
+      : 0;
+  const inputTokens = n(raw?.inputTokens);
+  const outputTokens = n(raw?.outputTokens);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: n(raw?.totalTokens) || inputTokens + outputTokens,
+    cacheReadTokens: n(raw?.cacheReadTokens),
+    cacheWriteTokens: n(raw?.cacheWriteTokens),
+    noCacheTokens: n(raw?.noCacheTokens),
+    reasoningTokens: n(raw?.reasoningTokens),
+  };
+}
 
 export type ProjectSummary = {
   id: string;
@@ -116,6 +185,8 @@ export class Projects extends DurableObject<Env> {
       )
     `);
 
+    this.ensureUsageSchema();
+
     // v1 表缺少后续列，逐列补齐
     for (const statement of [
       "ALTER TABLE atoms_projects ADD COLUMN template TEXT NOT NULL DEFAULT 'static'",
@@ -133,9 +204,59 @@ export class Projects extends DurableObject<Env> {
     }
   }
 
+  private ensureUsageSchema(): void {
+    const sql = this.ctx.storage.sql;
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_usage_events (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        session_id TEXT,
+        request_id TEXT,
+        source TEXT NOT NULL,
+        model TEXT,
+        step_number INTEGER,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        no_cache_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL,
+        created_at INTEGER NOT NULL,
+        day TEXT NOT NULL
+      )
+    `);
+    sql.exec(
+      "CREATE INDEX IF NOT EXISTS idx_usage_project ON atoms_usage_events (project_id, created_at)",
+    );
+    sql.exec(
+      "CREATE INDEX IF NOT EXISTS idx_usage_session ON atoms_usage_events (session_id, created_at)",
+    );
+    sql.exec(
+      "CREATE INDEX IF NOT EXISTS idx_usage_day ON atoms_usage_events (day)",
+    );
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_usage_daily (
+        day TEXT PRIMARY KEY,
+        requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        no_cache_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+  }
+
   /** 热部署后旧 DO 实例不会重跑 constructor；fetch 时补齐列。 */
   private ensureSchema(): void {
     const sql = this.ctx.storage.sql;
+    this.ensureUsageSchema();
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_projects (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, prompt TEXT NOT NULL,
       template TEXT NOT NULL DEFAULT 'static',
@@ -173,6 +294,223 @@ export class Projects extends DurableObject<Env> {
       .exec<ProjectRow>("SELECT * FROM atoms_projects WHERE id = ?", id)
       .toArray();
     return rows[0] ?? null;
+  }
+
+  private usageDay(timestamp = Date.now()): string {
+    const timeZone = this.env.USAGE_TIMEZONE || "Asia/Shanghai";
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(timestamp));
+    } catch {
+      return new Date(timestamp).toISOString().slice(0, 10);
+    }
+  }
+
+  private insertUsage(input: {
+    projectId: string;
+    sessionId?: string | null;
+    requestId?: string | null;
+    source: string;
+    model?: string | null;
+    stepNumber?: number | null;
+    usage: NormalizedUsage;
+    costUsd?: number | null;
+  }): { day: string; totalTokens: number } {
+    const projectId = String(input.projectId ?? "").trim().slice(0, 100);
+    if (!projectId) throw new Error("projectId is required");
+    const u = input.usage;
+    const now = Date.now();
+    const day = this.usageDay(now);
+    const cost =
+      typeof input.costUsd === "number" && Number.isFinite(input.costUsd)
+        ? input.costUsd
+        : null;
+
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO atoms_usage_events
+           (id, project_id, session_id, request_id, source, model, step_number,
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+            no_cache_tokens, reasoning_tokens, total_tokens, cost_usd, created_at, day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `use_${crypto.randomUUID()}`,
+        projectId,
+        input.sessionId ?? projectId,
+        input.requestId ?? null,
+        String(input.source ?? "chat").slice(0, 40),
+        input.model ?? null,
+        input.stepNumber ?? null,
+        u.inputTokens,
+        u.outputTokens,
+        u.cacheReadTokens,
+        u.cacheWriteTokens,
+        u.noCacheTokens,
+        u.reasoningTokens,
+        u.totalTokens,
+        cost,
+        now,
+        day,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO atoms_usage_daily
+           (day, requests, input_tokens, output_tokens, cache_read_tokens,
+            cache_write_tokens, no_cache_tokens, reasoning_tokens, total_tokens,
+            cost_usd, updated_at)
+         VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(day) DO UPDATE SET
+           requests = atoms_usage_daily.requests + 1,
+           input_tokens = atoms_usage_daily.input_tokens + excluded.input_tokens,
+           output_tokens = atoms_usage_daily.output_tokens + excluded.output_tokens,
+           cache_read_tokens = atoms_usage_daily.cache_read_tokens + excluded.cache_read_tokens,
+           cache_write_tokens = atoms_usage_daily.cache_write_tokens + excluded.cache_write_tokens,
+           no_cache_tokens = atoms_usage_daily.no_cache_tokens + excluded.no_cache_tokens,
+           reasoning_tokens = atoms_usage_daily.reasoning_tokens + excluded.reasoning_tokens,
+           total_tokens = atoms_usage_daily.total_tokens + excluded.total_tokens,
+           cost_usd = CASE
+             WHEN excluded.cost_usd IS NULL THEN atoms_usage_daily.cost_usd
+             ELSE COALESCE(atoms_usage_daily.cost_usd, 0) + excluded.cost_usd
+           END,
+           updated_at = excluded.updated_at`,
+        day,
+        u.inputTokens,
+        u.outputTokens,
+        u.cacheReadTokens,
+        u.cacheWriteTokens,
+        u.noCacheTokens,
+        u.reasoningTokens,
+        u.totalTokens,
+        cost,
+        now,
+      );
+    });
+
+    return { day, totalTokens: u.totalTokens };
+  }
+
+  private totalsRow(row: UsageTotalsRow | undefined): UsageTotals {
+    return {
+      requests: row?.requests ?? 0,
+      inputTokens: row?.input_tokens ?? 0,
+      outputTokens: row?.output_tokens ?? 0,
+      totalTokens: row?.total_tokens ?? 0,
+      cacheReadTokens: row?.cache_read_tokens ?? 0,
+      cacheWriteTokens: row?.cache_write_tokens ?? 0,
+      noCacheTokens: row?.no_cache_tokens ?? 0,
+      reasoningTokens: row?.reasoning_tokens ?? 0,
+      costUsd: row?.cost_usd ?? null,
+    };
+  }
+
+  private usageTotals(where: string, params: (string | number)[]): UsageTotals {
+    const row = this.ctx.storage.sql
+      .exec<UsageTotalsRow>(
+        `SELECT COUNT(*) AS requests,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                COALESCE(SUM(no_cache_tokens), 0) AS no_cache_tokens,
+                COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                SUM(cost_usd) AS cost_usd
+         FROM atoms_usage_events ${where}`,
+        ...params,
+      )
+      .one();
+    return this.totalsRow(row);
+  }
+
+  private dailyRows(where: string, params: (string | number)[]): UsageDay[] {
+    return this.ctx.storage.sql
+      .exec<UsageTotalsRow & { day: string }>(
+        `SELECT day, COUNT(*) AS requests,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                COALESCE(SUM(no_cache_tokens), 0) AS no_cache_tokens,
+                COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                SUM(cost_usd) AS cost_usd
+         FROM atoms_usage_events ${where}
+         GROUP BY day ORDER BY day DESC LIMIT 31`,
+        ...params,
+      )
+      .toArray()
+      .map((row) => ({ day: row.day, ...this.totalsRow(row) }));
+  }
+
+  private usageStatus() {
+    const day = this.usageDay();
+    const row = this.ctx.storage.sql
+      .exec<UsageTotalsRow>(
+        `SELECT COALESCE(SUM(requests), 0) AS requests,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                COALESCE(SUM(no_cache_tokens), 0) AS no_cache_tokens,
+                COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                SUM(cost_usd) AS cost_usd
+         FROM atoms_usage_daily WHERE day = ?`,
+        day,
+      )
+      .toArray()[0];
+    const totals = this.totalsRow(row);
+    const limit = Number(this.env.DAILY_TOKEN_LIMIT ?? 0) || 0;
+    return {
+      day,
+      usedTokens: totals.totalTokens,
+      limit,
+      allowed: limit <= 0 || totals.totalTokens < limit,
+      requests: totals.requests,
+      inputTokens: totals.inputTokens,
+      outputTokens: totals.outputTokens,
+      cacheReadTokens: totals.cacheReadTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
+      noCacheTokens: totals.noCacheTokens,
+      reasoningTokens: totals.reasoningTokens,
+      costUsd: totals.costUsd,
+    };
+  }
+
+  private projectUsage(projectId: string): ProjectUsage {
+    const day = this.usageDay();
+    const project = this.usageTotals("WHERE project_id = ?", [projectId]);
+    const session = this.usageTotals("WHERE session_id = ?", [projectId]);
+    const today = this.usageTotals("WHERE project_id = ? AND day = ?", [
+      projectId,
+      day,
+    ]);
+    const system = this.usageStatus();
+    return {
+      project,
+      session,
+      today,
+      daily: this.dailyRows("WHERE project_id = ?", [projectId]),
+      systemToday: {
+        day,
+        requests: system.requests,
+        inputTokens: system.inputTokens,
+        outputTokens: system.outputTokens,
+        totalTokens: system.usedTokens,
+        cacheReadTokens: system.cacheReadTokens,
+        cacheWriteTokens: system.cacheWriteTokens,
+        noCacheTokens: system.noCacheTokens,
+        reasoningTokens: system.reasoningTokens,
+        costUsd: system.costUsd,
+      },
+      limit: {
+        dailyTokens: system.limit,
+        usedTokens: system.usedTokens,
+        allowed: system.allowed,
+      },
+    };
   }
 
   private async workspaceMeta(id: string): Promise<WorkspaceMeta | null> {
@@ -242,6 +580,9 @@ export class Projects extends DurableObject<Env> {
     let template: TemplateId;
     let source: TemplateSource;
     let reason: string;
+    let plannedUsage: TemplatePlanResult | null = null;
+    // 先生成 ID，保证模型选型产生的 usage 也能归到这个项目。
+    const id = newProjectId();
 
     const manual =
       preferredTemplate && preferredTemplate !== "auto"
@@ -263,11 +604,16 @@ export class Projects extends DurableObject<Env> {
       source = "rule";
       reason = "根据需求关键词选择";
     } else {
-      const plan = await planTemplate(this.env, text);
-      if (plan) {
-        template = plan.template;
+      const planned = await planTemplate(
+        this.env,
+        text,
+        async () => this.usageStatus().allowed,
+      );
+      if (planned) {
+        template = planned.plan.template;
         source = "model";
-        reason = plan.reason;
+        reason = planned.plan.reason;
+        plannedUsage = planned;
       } else {
         template = deriveTemplate(text);
         source = "fallback";
@@ -277,7 +623,6 @@ export class Projects extends DurableObject<Env> {
 
     const runtime = runtimeForTemplate(template);
     const configured = manual ? 1 : 0;
-    const id = newProjectId();
     const name = deriveProjectName(text);
     const now = Date.now();
 
@@ -311,6 +656,18 @@ export class Projects extends DurableObject<Env> {
       console.error("[projects] set template failed", id, template, error);
       this.ctx.storage.sql.exec("DELETE FROM atoms_projects WHERE id = ?", id);
       throw new Error("failed to initialize project template");
+    }
+
+    if (plannedUsage) {
+      const usage = normalizeUsage(plannedUsage.usage);
+      this.insertUsage({
+        projectId: id,
+        sessionId: id,
+        source: "planner",
+        model: plannedUsage.model,
+        usage,
+        costUsd: estimateCostUsd(this.env, plannedUsage.model, usage),
+      });
     }
 
     await this.ensureDemo();
@@ -483,6 +840,11 @@ export class Projects extends DurableObject<Env> {
     if (!row) throw new Error("project not found");
 
     this.ctx.storage.sql.exec("DELETE FROM atoms_projects WHERE id = ?", id);
+    // 删除项目明细；每日全站汇总保留，避免系统日限额因为删项目而回退。
+    this.ctx.storage.sql.exec(
+      "DELETE FROM atoms_usage_events WHERE project_id = ?",
+      id,
+    );
 
     // 尽力销毁对应工作区与会话（容器 + DO 存储）；失败只记日志，不阻塞删除
     try {
@@ -519,6 +881,34 @@ export class Projects extends DurableObject<Env> {
         return Response.json({
           project: await this.create(body.prompt ?? "", body.template),
         });
+      }
+
+      if (url.pathname === "/usage/events" && request.method === "POST") {
+        const body = (await request.json()) as UsageEventBody;
+        const result = this.insertUsage({
+          projectId: body.projectId ?? "",
+          sessionId: body.sessionId ?? null,
+          requestId: body.requestId ?? null,
+          source: body.source ?? "chat",
+          model: body.model ?? null,
+          stepNumber: body.stepNumber ?? null,
+          usage: usageFromBody(body.usage),
+          costUsd: body.costUsd ?? null,
+        });
+        return Response.json({ ok: true, ...result });
+      }
+
+      if (url.pathname === "/usage/status" && request.method === "GET") {
+        return Response.json(this.usageStatus());
+      }
+
+      if (url.pathname === "/usage/daily" && request.method === "GET") {
+        return Response.json({ days: this.dailyRows("", []) });
+      }
+
+      const usageMatch = url.pathname.match(/^\/projects\/([^/]+)\/usage$/);
+      if (usageMatch?.[1] && request.method === "GET") {
+        return Response.json(this.projectUsage(usageMatch[1]));
       }
 
       const switchMatch = url.pathname.match(

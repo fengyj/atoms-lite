@@ -2,9 +2,12 @@ import { AIChatAgent } from "@cloudflare/ai-chat";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   generateText,
   stepCountIs,
   streamText,
+  type LanguageModelUsage,
   type UIMessage,
 } from "ai";
 import type { ChatResponseResult } from "@cloudflare/ai-chat";
@@ -21,6 +24,11 @@ import {
 import { systemPrompt } from "./prompt";
 import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
+import {
+  checkDailyLimit,
+  normalizeUsage,
+  recordUsage,
+} from "./usage";
 
 function cleanProjectName(raw: string): string {
   return raw
@@ -131,7 +139,13 @@ export class ChatAgent extends AIChatAgent<Env> {
         return;
       }
 
-      const { text } = await generateText({
+      const budget = await checkDailyLimit(this.env);
+      if (!budget.allowed) {
+        await fail("daily token limit");
+        return;
+      }
+
+      const { text, usage } = await generateText({
         model,
         system:
           "你是一个项目命名助手。根据用户需求生成一个简短、具体的中文项目标题。要求：4-12 个汉字；不要引号、标点、emoji；不要“项目/应用/工具”等空泛词。只输出标题本身。",
@@ -140,6 +154,14 @@ export class ChatAgent extends AIChatAgent<Env> {
         temperature: 0.3,
         maxRetries: 0,
         abortSignal: AbortSignal.timeout(12_000),
+      });
+      await recordUsage(this.env, {
+        projectId: this.name,
+        sessionId: this.name,
+        requestId,
+        source: "auto_name",
+        model: this.env.MODEL_ID ?? null,
+        usage,
       });
       const name = cleanProjectName(text);
       if (!name) {
@@ -205,6 +227,20 @@ export class ChatAgent extends AIChatAgent<Env> {
       );
     }
 
+    const budget = await checkDailyLimit(this.env);
+    if (!budget.allowed) {
+      const message = `今日模型额度已用完（${budget.usedTokens}/${budget.limit} tokens），请明天再试。`;
+      const stream = createUIMessageStream({
+        execute: ({ writer }) => {
+          const id = "daily-token-limit";
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-delta", id, delta: message });
+          writer.write({ type: "text-end", id });
+        },
+      });
+      return createUIMessageStreamResponse({ stream });
+    }
+
     // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
     const projectId = this.name;
     const requestId = options?.requestId ?? "unknown";
@@ -265,7 +301,26 @@ export class ChatAgent extends AIChatAgent<Env> {
       capabilities,
     });
 
-    const tools = createTools({ ws, ctx, model });
+    const tools = createTools({
+      ws,
+      ctx,
+      model,
+      recordUsage: (source, usage) =>
+        recordUsage(this.env, {
+          projectId,
+          sessionId: projectId,
+          requestId,
+          source,
+          model: this.env.MODEL_ID ?? null,
+          usage,
+        }),
+      assertBudget: async () => {
+        const status = await checkDailyLimit(this.env);
+        if (!status.allowed) {
+          throw new Error("今日模型额度已用完，请明天再试。");
+        }
+      },
+    });
     if (configured) {
       await ws.beginRun().catch((error) => {
         console.error(
@@ -302,6 +357,29 @@ export class ChatAgent extends AIChatAgent<Env> {
     const startedAt = Date.now();
     console.log("[agent.turn.start]", JSON.stringify(turnLog));
 
+    // 每个 step 就是一次真实的模型请求；onFinish / onAbort 都可能有 steps。
+    type UsageStep = {
+      stepNumber: number;
+      usage: LanguageModelUsage;
+      model?: { modelId?: string };
+    };
+    const recordedUsageSteps = new Set<number>();
+    const recordSteps = async (steps: UsageStep[]) => {
+      for (const step of steps) {
+        if (recordedUsageSteps.has(step.stepNumber)) continue;
+        recordedUsageSteps.add(step.stepNumber);
+        await recordUsage(this.env, {
+          projectId,
+          sessionId: projectId,
+          requestId,
+          source: "chat",
+          model: step.model?.modelId ?? this.env.MODEL_ID ?? null,
+          stepNumber: step.stepNumber,
+          usage: step.usage,
+        });
+      }
+    };
+
     const result = streamText({
       model,
       system: systemPrompt(ctx),
@@ -324,6 +402,10 @@ export class ChatAgent extends AIChatAgent<Env> {
               activeTools: ["confirm_continue"],
             }
           : {};
+      },
+      onStepFinish: async (step) => {
+        // 每一步结束后立即记账，turn 后面报错/中断也不会丢已完成的调用。
+        await recordSteps([step]);
       },
       onFinish: async (finish) => {
         let snapshotOk: boolean | null = null;
@@ -352,14 +434,21 @@ export class ChatAgent extends AIChatAgent<Env> {
             }),
           );
         } finally {
+          const turnUsage = normalizeUsage(finish.usage);
+          await recordSteps(finish.steps);
           console.log(
             "[agent.turn.finish]",
             JSON.stringify({
               ...turnLog,
               steps: finish.stepNumber + 1,
               finishReason: finish.finishReason,
-              inputTokens: finish.usage?.inputTokens ?? 0,
-              outputTokens: finish.usage?.outputTokens ?? 0,
+              inputTokens: turnUsage.inputTokens,
+              outputTokens: turnUsage.outputTokens,
+              totalTokens: turnUsage.totalTokens,
+              cacheReadTokens: turnUsage.cacheReadTokens,
+              cacheWriteTokens: turnUsage.cacheWriteTokens,
+              noCacheTokens: turnUsage.noCacheTokens,
+              reasoningTokens: turnUsage.reasoningTokens,
               durationMs: Date.now() - startedAt,
               snapshotOk,
             }),
@@ -378,15 +467,16 @@ export class ChatAgent extends AIChatAgent<Env> {
           }
         }
       },
-      onAbort: async ({ reason }) => {
+      onAbort: async (event) => {
         console.error(
           "[agent.turn.abort]",
           JSON.stringify({
             ...turnLog,
             durationMs: Date.now() - startedAt,
-            reason: String(reason ?? "").slice(0, 300),
+            reason: String(event.reason ?? "").slice(0, 300),
           }),
         );
+        await recordSteps(event.steps);
         if (!configured) return;
         await ws.endRun().catch((error) => {
           console.error(
