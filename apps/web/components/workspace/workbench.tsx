@@ -66,6 +66,7 @@ export function WorkbenchPanel({
   messages,
   busy,
   onSelectElement,
+  onSelectDesignElement,
 }: {
   className?: string;
   projectId: string;
@@ -78,6 +79,7 @@ export function WorkbenchPanel({
   messages: UIMessage[];
   busy: boolean;
   onSelectElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
+  onSelectDesignElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
   const current = versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
@@ -219,7 +221,12 @@ export function WorkbenchPanel({
           value="design"
           className="mt-0 flex min-h-0 flex-1 flex-col"
         >
-          <DesignPanel projectId={projectId} designs={designs} busy={busy} />
+          <DesignPanel
+            projectId={projectId}
+            designs={designs}
+            busy={busy}
+            onSelectElement={onSelectDesignElement}
+          />
         </TabsContent>
 
         <TabsContent

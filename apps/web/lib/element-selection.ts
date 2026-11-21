@@ -8,6 +8,10 @@ export type ElementSelection = {
   styles: Record<string, string>;
   rect: { x: number; y: number; width: number; height: number };
   url: string;
+  /** 元素来自应用预览，还是设计草案预览 */
+  source?: "preview" | "design";
+  designId?: string;
+  designTitle?: string;
 };
 
 const STYLE_KEYS = [

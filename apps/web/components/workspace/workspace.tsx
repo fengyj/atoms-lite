@@ -296,6 +296,16 @@ export function Workspace({ projectId }: { projectId: string }) {
     [sendMessage, selection]
   );
 
+  const handleSelectElement = useCallback((next: ElementSelection) => {
+    setSelection(next);
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      setTab("chat");
+    }
+  }, []);
+
   const retryLastTurn = useCallback(() => {
     if (!messages.some((message) => message.role === "assistant")) return;
     setAgentError(null);
@@ -568,15 +578,8 @@ export function Workspace({ projectId }: { projectId: string }) {
           designs={designs}
           messages={messages}
           busy={busy}
-          onSelectElement={(next) => {
-            setSelection(next);
-            if (
-              typeof window !== "undefined" &&
-              window.matchMedia("(max-width: 767px)").matches
-            ) {
-              setTab("chat");
-            }
-          }}
+          onSelectElement={handleSelectElement}
+          onSelectDesignElement={handleSelectElement}
         />
       </div>
 

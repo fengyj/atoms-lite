@@ -18,10 +18,8 @@ import {
 } from "@/components/ai-elements/web-preview";
 import { Button } from "@/components/ui/button";
 import { fetchPreviewStatus, startPreview } from "@/lib/agent";
-import {
-  collectElementSelection,
-  type ElementSelection,
-} from "@/lib/element-selection";
+import type { ElementSelection } from "@/lib/element-selection";
+import { useElementPicker } from "@/lib/use-element-picker";
 import { cn } from "@/lib/utils";
 
 type PreviewPhase =
@@ -65,7 +63,6 @@ export function PreviewPanel({
   const [note, setNote] = useState<string | null>(null);
   const [checkNonce, setCheckNonce] = useState(0);
   const [pickerActive, setPickerActive] = useState(false);
-  const [pickerError, setPickerError] = useState<string | null>(null);
   const [frameLoaded, setFrameLoaded] = useState(0);
   const frameWrapRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false);
@@ -84,75 +81,25 @@ export function PreviewPanel({
     };
   }, []);
 
-  // 预览元素选择：只在用户主动开启时给 iframe 挂事件。
-  useEffect(() => {
-    if (!pickerActive || !active) return;
-    const iframe = frameWrapRef.current?.querySelector("iframe");
-    let doc: Document | null = null;
-    try {
-      doc = iframe?.contentDocument ?? null;
-    } catch {
-      doc = null;
-    }
-    if (!doc) {
-      setPickerError("无法读取预览 DOM：本地开发时预览与主站不同源，生产环境可用。");
-      return;
-    }
-
-    setPickerError(null);
-    let highlighted: HTMLElement | null = null;
-    let previousOutline = "";
-    let previousOffset = "";
-
-    const clearHighlight = () => {
-      if (!highlighted) return;
-      highlighted.style.outline = previousOutline;
-      highlighted.style.outlineOffset = previousOffset;
-      highlighted = null;
-    };
-
-    const onOver = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof doc!.defaultView!.HTMLElement)) return;
-      if (target === highlighted) return;
-      clearHighlight();
-      highlighted = target;
-      previousOutline = target.style.outline;
-      previousOffset = target.style.outlineOffset;
-      target.style.outline = "2px solid #8f9fff";
-      target.style.outlineOffset = "2px";
-    };
-
-    const onClick = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof doc!.defaultView!.Element)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const selection = collectElementSelection(target);
-      clearHighlight();
+  const getIframe = useCallback(
+    () => frameWrapRef.current?.querySelector("iframe") ?? null,
+    [],
+  );
+  const handlePicked = useCallback(
+    (selection: ElementSelection) => {
       setPickerActive(false);
-      onSelectElement?.(selection);
-    };
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        clearHighlight();
-        setPickerActive(false);
-      }
-    };
-
-    doc.addEventListener("mouseover", onOver, true);
-    doc.addEventListener("mouseout", clearHighlight, true);
-    doc.addEventListener("click", onClick, true);
-    doc.addEventListener("keydown", onKey, true);
-    return () => {
-      clearHighlight();
-      doc?.removeEventListener("mouseover", onOver, true);
-      doc?.removeEventListener("mouseout", clearHighlight, true);
-      doc?.removeEventListener("click", onClick, true);
-      doc?.removeEventListener("keydown", onKey, true);
-    };
-  }, [pickerActive, active, frameLoaded, onSelectElement]);
+      onSelectElement?.({ ...selection, source: "preview" });
+    },
+    [onSelectElement],
+  );
+  const handleCancel = useCallback(() => setPickerActive(false), []);
+  const { pickerError } = useElementPicker({
+    enabled: pickerActive && active,
+    getIframe,
+    frameKey: frameLoaded,
+    onPicked: handlePicked,
+    onCancel: handleCancel,
+  });
 
   // 只探测，不启动：容器在休眠时保持 iframe 不加载。
   useEffect(() => {
@@ -305,10 +252,7 @@ export function PreviewPanel({
           {onSelectElement ? (
             <WebPreviewNavigationButton
               tooltip={pickerActive ? "取消选择元素" : "选择元素并带到对话"}
-              onClick={() => {
-                setPickerError(null);
-                setPickerActive((value) => !value);
-              }}
+              onClick={() => setPickerActive((value) => !value)}
             >
               <Crosshair
                 className={cn("size-3.5", pickerActive && "text-primary")}

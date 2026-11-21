@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Monitor, Palette, RefreshCw, Smartphone } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Crosshair,
+  Loader2,
+  Monitor,
+  Palette,
+  RefreshCw,
+  Smartphone,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InlineError } from "@/components/workspace/inline-error";
@@ -10,6 +17,8 @@ import {
   type Endpoint,
   type WorkspaceDesignListing,
 } from "@/lib/agent";
+import type { ElementSelection } from "@/lib/element-selection";
+import { useElementPicker } from "@/lib/use-element-picker";
 import { cn } from "@/lib/utils";
 
 function designStatusLabel(status: string): string {
@@ -33,10 +42,12 @@ export function DesignPanel({
   projectId,
   designs,
   busy,
+  onSelectElement,
 }: {
   projectId: string;
   designs: Endpoint<WorkspaceDesignListing>;
   busy: boolean;
+  onSelectElement?: (selection: ElementSelection) => void;
 }) {
   const list = designs.data?.designs ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -46,6 +57,9 @@ export function DesignPanel({
     "loading",
   );
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [pickerActive, setPickerActive] = useState(false);
+  const [frameLoaded, setFrameLoaded] = useState(0);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     const preferred = designs.data?.selectedId;
@@ -73,6 +87,29 @@ export function DesignPanel({
 
   const selected =
     list.find((design) => design.id === selectedId) ?? list[0] ?? null;
+
+  const getIframe = useCallback(() => iframeRef.current, []);
+  const handlePicked = useCallback(
+    (selection: ElementSelection) => {
+      setPickerActive(false);
+      if (!selected) return;
+      onSelectElement?.({
+        ...selection,
+        source: "design",
+        designId: selected.id,
+        designTitle: selected.title,
+      });
+    },
+    [onSelectElement, selected],
+  );
+  const handleCancel = useCallback(() => setPickerActive(false), []);
+  const { pickerError } = useElementPicker({
+    enabled: pickerActive && Boolean(selected),
+    getIframe,
+    frameKey: frameLoaded,
+    onPicked: handlePicked,
+    onCancel: handleCancel,
+  });
 
   useEffect(() => {
     if (!selected) return;
@@ -223,6 +260,28 @@ export function DesignPanel({
                     <Smartphone className="size-3.5" />
                   </button>
                 </div>
+                {onSelectElement ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full"
+                    aria-label={
+                      pickerActive ? "取消选择元素" : "选择元素并带到对话"
+                    }
+                    title={
+                      pickerActive ? "取消选择元素" : "选择元素并带到对话"
+                    }
+                    onClick={() => setPickerActive((value) => !value)}
+                  >
+                    <Crosshair
+                      className={cn(
+                        "size-3.5",
+                        pickerActive && "text-primary",
+                      )}
+                    />
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
@@ -233,6 +292,14 @@ export function DesignPanel({
                   <RefreshCw className="size-3.5" />
                 </Button>
               </div>
+
+              {pickerError ? (
+                <InlineError
+                  className="mx-0"
+                  message={pickerError}
+                  onRetry={() => setReloadKey((value) => value + 1)}
+                />
+              ) : null}
 
               <div className="flex min-h-[360px] flex-1 justify-center overflow-hidden border border-border bg-muted/20 p-3">
                 {previewState === "error" ? (
@@ -252,6 +319,11 @@ export function DesignPanel({
                   </div>
                 ) : (
                   <div className="relative flex w-full justify-center">
+                    {pickerActive ? (
+                      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-primary px-3 py-1 text-center text-2xs font-medium text-primary-foreground">
+                        点击草案里的元素，把它带到对话里修改
+                      </div>
+                    ) : null}
                     {previewState === "loading" ? (
                       <div className="absolute inset-0 z-10 grid place-items-center bg-background/70">
                         <span className="flex items-center gap-2 text-2xs text-muted-foreground">
@@ -261,10 +333,12 @@ export function DesignPanel({
                       </div>
                     ) : null}
                     <iframe
+                      ref={iframeRef}
                       key={`${selected.id}-${reloadKey}-${mobilePreview}`}
                       title={`设计草案 ${selected.title}`}
                       src={designPreviewUrl(projectId, selected.id)}
-                      sandbox=""
+                      sandbox="allow-same-origin"
+                      onLoad={() => setFrameLoaded((value) => value + 1)}
                       className={cn(
                         "h-[520px] border-0 bg-white shadow-sm transition-all",
                         mobilePreview ? "w-[390px] max-w-full" : "w-full",

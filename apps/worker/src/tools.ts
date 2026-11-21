@@ -365,7 +365,7 @@ export function createTools({
 
   tools.manage_design = tool({
     description:
-      "管理设计草案。action=create：需求 confirmed 后生成 2-5 个结构不同的静态草案（默认 3）；refine：按反馈微调一个；list：列出；select：选中一个（approved）；apply：把选中草案写成 DESIGN.md（applied）。生成/更新由对话触发，工作台「设计」tab 只负责展示。",
+      "管理设计草案。用户说设计方案/设计草案/风格方案/视觉方向/让我挑选时使用。action=create：需求 confirmed 后生成 2-5 个结构不同的静态草案（默认 3）；每个草案是一个完整页面，只展示一个方案，不要在一页里并排/堆叠 A/B/C 子方案。refine：按反馈微调一个；list：列出；select：选中一个（approved）；apply：把选中草案写成 DESIGN.md（applied）。生成/更新由对话触发，工作台「设计」tab 只负责展示。",
     inputSchema: z.object({
       action: z.enum(["create", "refine", "list", "select", "apply"]),
       mode: z.enum(["new", "revision"]).optional().describe("create 时使用，默认 new"),

@@ -546,7 +546,9 @@ function PromptComposer({
         <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1.5 text-2xs">
           <Crosshair className="size-3 shrink-0 text-primary" />
           <span className="min-w-0 flex-1 truncate font-mono">
-            已选中 {selection.selector}
+            {selection.source === "design"
+              ? `设计草案${selection.designTitle ? ` · ${selection.designTitle}` : ""} · ${selection.selector}`
+              : `应用预览 · ${selection.selector}`}
           </span>
           {selection.text ? (
             <span className="hidden min-w-0 max-w-32 truncate text-muted-foreground sm:block">

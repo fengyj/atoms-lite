@@ -353,6 +353,9 @@ export class ChatAgent extends AIChatAgent<Env> {
             outerHTML?: string;
             styles?: Record<string, string>;
             url?: string;
+            source?: "preview" | "design";
+            designId?: string | null;
+            designTitle?: string | null;
           })
         : null;
 

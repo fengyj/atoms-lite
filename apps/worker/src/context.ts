@@ -9,6 +9,10 @@ export type SelectionContext = {
   outerHTML?: string;
   styles?: Record<string, string>;
   url?: string;
+  /** 元素来自应用预览，还是设计草案预览 */
+  source?: "preview" | "design";
+  designId?: string | null;
+  designTitle?: string | null;
 };
 
 export type MigrationContext = {
@@ -137,7 +141,16 @@ export function renderRuntimeContext(ctx: RuntimeContext): string {
     const selection = ctx.selection;
     // 选中元素并入 runtime_context，避免在用户消息后追加独立标签。
     lines.push(
-      "selection: user-selected element",
+      `selection: user-selected element in ${
+        selection.source === "design" ? "design draft" : "app preview"
+      }`,
+      ...(selection.source ? [`selection_source: ${selection.source}`] : []),
+      ...(selection.designId
+        ? [`selection_design_id: ${selection.designId}`]
+        : []),
+      ...(selection.designTitle
+        ? [`selection_design_title: ${selection.designTitle}`]
+        : []),
       `selection_selector: ${selection.selector}`,
       `selection_tag: ${selection.tag}`,
       ...(selection.id ? [`selection_id: ${selection.id}`] : []),
