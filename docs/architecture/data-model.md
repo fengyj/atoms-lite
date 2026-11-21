@@ -373,7 +373,7 @@ CREATE TABLE atoms_snapshots (
 | 表 | 用途 |
 |---|---|
 | `atoms_workspace` | `id`, `current_version_id`；当前版本指针 |
-| `atoms_project_config` | `id`, `template`, `runtime`, `instance_tier`, `configured`, `updated_at`；发布相关列见 6.5 |
+| `atoms_project_config` | `id`, `template`, `runtime`, `instance_tier`, `configured`, `design_status`, `design_id`, `updated_at`；发布相关列见 6.5 |
 | `atoms_runtime_status` | `snapshot_error`, `snapshot_at`, `active_run`, `run_started_at` |
 | `atoms_files` | 文件列表缓存：`path`, `size`, `updated_at` |
 | `atoms_file_content` | browser runtime 文件内容 |
@@ -381,6 +381,9 @@ CREATE TABLE atoms_snapshots (
 | `atoms_build_files` | 发布用构建产物（base64 + content type + size） |
 | `atoms_deployments` | 版本发布记录与当前线上版本 |
 | `atoms_dependencies` | browser runtime 的 importmap 依赖 |
+| `atoms_requirements` | 项目需求摘要（结构化 brief + Markdown + 确认状态） |
+| `atoms_designs` | 设计方向元数据（标题、论点、色彩、DESIGN.md、状态） |
+| `atoms_design_files` | 设计概念页文件；当前固定为 `index.html` |
 | `atoms_migration` | runtime 切换任务与来源/目标/归档统计 |
 | `atoms_migration_files` | 迁移暂存的二进制文件 |
 
@@ -472,7 +475,7 @@ CREATE TABLE atoms_usage_events (
   project_id         TEXT NOT NULL,
   session_id         TEXT,             -- v1 = projectId
   request_id         TEXT,
-  source             TEXT NOT NULL,    -- chat | planner | auto_name | subagent | compaction
+  source             TEXT NOT NULL,    -- chat | planner | auto_name | subagent | compaction | designer
   model              TEXT,
   step_number        INTEGER,          -- 主对话的 step；其他调用为 null
   input_tokens       INTEGER NOT NULL DEFAULT 0,
@@ -504,7 +507,7 @@ CREATE TABLE atoms_usage_daily (
 
 规则：
 
-- 每次真实模型调用（主对话的每个 step、planner、自动命名、subagent、compaction）写一条明细。
+- 每次真实模型调用（主对话的每个 step、planner、自动命名、subagent、compaction、designer）写一条明细。
 - `atoms_usage_daily` 在写入明细时原子 upsert，用于每日费用/token 限额快速判断。
 - 日期由 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）决定，不是 UTC。
 - 一项目一会话时 `session_id = project_id`；多会话后可直接按 session 聚合。
@@ -514,6 +517,58 @@ CREATE TABLE atoms_usage_daily (
   `MODEL_PRICING_JSON` 可覆盖。未知模型为 null，不计入费用限额。
 - 每日默认费用上限 `$1`，预留 `$0.05`；只剩不到预留金额时判定额度不足。
   额度判断只发生在下一轮模型请求开始前，不中断进行中的回合。
+
+### 6.8 需求摘要与设计概念（v1）
+
+设计优先流程把「需求 brief」和「视觉方向」分开存：
+
+```sql
+CREATE TABLE atoms_requirements (
+  project_id TEXT PRIMARY KEY,
+  brief_json TEXT NOT NULL,             -- RequirementsBrief
+  brief_md   TEXT NOT NULL,             -- 给用户看的 Markdown 摘要
+  status     TEXT NOT NULL DEFAULT 'draft', -- draft | confirmed
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE atoms_designs (
+  id         TEXT PRIMARY KEY,          -- design_<uuid>
+  project_id TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  thesis     TEXT NOT NULL,             -- 一句话设计论点
+  palette    TEXT NOT NULL DEFAULT '',  -- 色板描述
+  design_md  TEXT NOT NULL DEFAULT '',  -- 应用到项目时写入 DESIGN.md
+  status     TEXT NOT NULL DEFAULT 'draft', -- draft | selected | applied
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE atoms_design_files (
+  design_id    TEXT NOT NULL,
+  path         TEXT NOT NULL,           -- 当前固定 index.html
+  content      TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  PRIMARY KEY (design_id, path)
+);
+```
+
+`atoms_project_config` 另加两列：
+
+| 列 | 说明 |
+|---|---|
+| `design_status` | `none` / `review` / `approved` / `applied`；用于 Agent 判断能否写生产代码 |
+| `design_id` | 当前选中并批准的设计方向 ID |
+
+规则：
+
+- 需求 brief 由 `save_requirements_brief` 写入，用户确认后 `confirm_requirements` 把
+  `status` 改为 `confirmed`；未确认前不生成设计、不写生产代码。
+- 每个方向是独立的静态 HTML（存 `atoms_design_files`），不依赖容器和构建。
+- 生成设计后 `design_status=review`；用户选中后 `approved` 且 `design_id` 指向该方向；
+  `apply_design` 把 `design_md` 写到工作区 `DESIGN.md`，状态变为 `applied`。
+- 设计稿通过 `/api/projects/:id/designs/:designId/` 在 iframe 中预览，由 Worker 代理到
+  WorkspaceDO，不经过容器。
+- 设计稿是概念，不是生产代码；应用后主 Agent 必须读取 `DESIGN.md` 再实现。
 
 ---
 

@@ -314,6 +314,8 @@ export class ChatAgent extends AIChatAgent<Env> {
           "preview",
           "versions",
           "design_check",
+          "requirements",
+          "design",
           "ask_user",
           "subagent",
           "switch_runtime",
@@ -348,6 +350,9 @@ export class ChatAgent extends AIChatAgent<Env> {
       instanceTier: meta?.instanceTier,
       versions: meta?.versionCount,
       migration: meta?.migration ?? null,
+      requirementsStatus: meta?.requirementsStatus ?? null,
+      designStatus: meta?.designStatus ?? "none",
+      designId: meta?.designId ?? null,
       selection,
       capabilities,
     });

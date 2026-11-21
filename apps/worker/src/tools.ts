@@ -3,9 +3,13 @@ import { tool, type LanguageModel, type LanguageModelUsage, type ToolSet } from 
 import { z } from "zod";
 import type { RuntimeContext } from "./context";
 import { detectHtmlSource, detectTextSource } from "./detector";
+import { generateDesignConcepts, refineDesignConcept } from "./designer";
 import { runSubagent } from "./subagent";
 import type { UsageSource } from "./usage";
-import type { WorkspaceClient } from "./workspace/client";
+import type {
+  RequirementsBrief,
+  WorkspaceClient,
+} from "./workspace/client";
 
 const TEMPLATE_ENUM = z.enum(["static", "react-vite", "fullstack-hono"]);
 const EXEC_PROGRAM = z.enum(EXEC_ALLOWED_PROGRAMS);
@@ -290,6 +294,147 @@ export function createTools({
       summary: z.string().min(1).max(200).describe("一句中文描述"),
     }),
     execute: async ({ summary }) => ws.createVersion(summary),
+  });
+
+  tools.save_requirements_brief = tool({
+    description:
+      "在写代码或做设计前，把确认过的需求保存成结构化摘要。保存后还必须用 ask_user 请用户确认，再调用 confirm_requirements。",
+    inputSchema: z.object({
+      audience: z.string().min(1).max(600).describe("目标用户/使用场景"),
+      job: z.string().min(1).max(800).describe("最重要的任务"),
+      mustHave: z.array(z.string().max(200)).max(12).default([]),
+      constraints: z.array(z.string().max(200)).max(12).default([]),
+      success: z.array(z.string().max(200)).max(12).default([]),
+      visual: z.array(z.string().max(200)).max(12).default([]),
+      nonGoals: z.array(z.string().max(200)).max(12).default([]),
+      summary: z.string().min(1).max(1200).describe("一段话总结"),
+    }),
+    execute: async (brief) => ws.saveRequirements(brief as RequirementsBrief),
+  });
+
+  tools.confirm_requirements = tool({
+    description:
+      "用户已经在 ask_user 中确认需求摘要后调用。只有 confirmed 后才能生成设计方向或开始实现。",
+    inputSchema: z.object({
+      notes: z.string().max(500).optional().describe("用户确认时补充的说明"),
+    }),
+    execute: async ({ notes }) => {
+      const result = await ws.confirmRequirements();
+      return { ...result, notes: notes ?? null };
+    },
+  });
+
+  tools.create_design_concepts = tool({
+    description:
+      "需求 confirmed 后，生成 2-3 个结构不同的静态设计方向。结果会进入工作台「设计」tab，用户在视觉层选择。不要用它代替需求确认。生成前会检查 requirements 状态。",
+    inputSchema: z.object({
+      mode: z.enum(["new", "revision"]).default("new"),
+      count: z.number().int().min(2).max(3).default(3),
+      notes: z
+        .string()
+        .max(2000)
+        .optional()
+        .describe("可选的额外方向要求，如‘更杂志感’"),
+    }),
+    execute: async ({ mode, count, notes }) => {
+      const req = await ws.getRequirements();
+      if (!req?.requirements || req.requirements.status !== "confirmed") {
+        throw new Error(
+          "需求摘要还没有 confirmed。先用 ask_user 请用户确认，再调用 confirm_requirements。",
+        );
+      }
+
+      let current: string | undefined;
+      if (mode === "revision") {
+        const list = await ws.listDesigns();
+        if (list.selectedId) {
+          const detail = await ws.getDesign(list.selectedId);
+          current = detail.design?.designMd;
+        }
+        if (!current) {
+          const file = await ws
+            .readFile("/workspace/DESIGN.md")
+            .catch(() => null);
+          current = file?.content;
+        }
+      }
+
+      const designs: Array<{
+        id: string;
+        title: string;
+        thesis: string;
+        palette: string;
+        status: string;
+      }> = [];
+      const concepts = await generateDesignConcepts({
+        model,
+        brief: req.requirements.brief,
+        count,
+        mode,
+        current,
+        notes,
+        onUsage: (usage) => recordUsage?.("designer", usage),
+        onConcept: async (concept) => {
+          const saved = await ws.createDesign(concept);
+          designs.push(saved.design);
+        },
+      });
+      return { mode, requested: count, generated: concepts.length, designs };
+    },
+  });
+
+  tools.refine_design_concept = tool({
+    description:
+      "只微调用户指定或已选中的设计方向，不重新生成全部。用户给出具体视觉反馈后调用。",
+    inputSchema: z.object({
+      designId: z.string().min(1).max(100),
+      feedback: z.string().min(1).max(4000),
+    }),
+    execute: async ({ designId, feedback }) => {
+      const req = await ws.getRequirements();
+      if (!req?.requirements) throw new Error("还没有需求摘要");
+      const detail = await ws.getDesign(designId);
+      if (!detail.design) throw new Error("design not found");
+      const concept = await refineDesignConcept({
+        model,
+        brief: req.requirements.brief,
+        current: {
+          title: detail.design.title,
+          thesis: detail.design.thesis,
+          palette: detail.design.palette,
+          designMd: detail.design.designMd,
+          html: detail.design.html,
+        },
+        feedback,
+        onUsage: (usage) => recordUsage?.("designer", usage),
+      });
+      return ws.updateDesign(designId, concept);
+    },
+  });
+
+  tools.list_designs = tool({
+    description: "列出当前项目的设计方向和选择状态。",
+    inputSchema: z.object({}),
+    execute: async () => ws.listDesigns(),
+  });
+
+  tools.select_design = tool({
+    description:
+      "用户在设计 tab 或对话里明确选择一个设计方向后调用。选中后 design_status 变为 approved。",
+    inputSchema: z.object({
+      designId: z.string().min(1).max(100),
+      notes: z.string().max(500).optional(),
+    }),
+    execute: async ({ designId, notes }) => ws.selectDesign(designId, notes),
+  });
+
+  tools.apply_design = tool({
+    description:
+      "把选中的设计方向写成 DESIGN.md（design_status=applied）。之后必须 read_file DESIGN.md，并按它实现生产代码。",
+    inputSchema: z.object({
+      designId: z.string().max(100).optional(),
+    }),
+    execute: async ({ designId }) => ws.applyDesign(designId),
   });
 
   const switchTemplateEnum =

@@ -232,6 +232,51 @@ type DeploymentDbRow = {
   updated_at: number;
 };
 
+export type RequirementsBrief = {
+  audience: string;
+  job: string;
+  mustHave: string[];
+  constraints: string[];
+  success: string[];
+  visual: string[];
+  nonGoals: string[];
+  summary: string;
+};
+
+type RequirementsRow = {
+  project_id: string;
+  brief_json: string;
+  brief_md: string;
+  status: string;
+  updated_at: number;
+};
+
+export type DesignConceptInput = {
+  title: string;
+  thesis: string;
+  palette: string;
+  designMd: string;
+  html: string;
+};
+
+type DesignDbRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  thesis: string;
+  palette: string;
+  design_md: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+};
+
+type DesignFileRow = {
+  path: string;
+  content: string;
+  content_type: string;
+};
+
 type PublishTarget = {
   slug: string;
   worker: string;
@@ -294,6 +339,8 @@ export class Workspace extends DurableObject<Env> {
         publish_d1_id TEXT,
         publish_hostname TEXT,
         publish_domain_id TEXT,
+        design_status TEXT NOT NULL DEFAULT 'none',
+        design_id TEXT,
         updated_at INTEGER NOT NULL
       )
     `);
@@ -339,6 +386,40 @@ export class Workspace extends DurableObject<Env> {
         error TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_requirements (
+        project_id TEXT PRIMARY KEY,
+        brief_json TEXT NOT NULL,
+        brief_md TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_designs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        thesis TEXT NOT NULL,
+        palette TEXT NOT NULL DEFAULT '',
+        design_md TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(
+      "CREATE INDEX IF NOT EXISTS idx_designs_project ON atoms_designs (project_id, created_at)",
+    );
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS atoms_design_files (
+        design_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        PRIMARY KEY (design_id, path)
       )
     `);
     ctx.storage.sql.exec(`
@@ -394,6 +475,8 @@ export class Workspace extends DurableObject<Env> {
       "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_id TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN publish_hostname TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN publish_domain_id TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN design_status TEXT NOT NULL DEFAULT 'none'",
+      "ALTER TABLE atoms_project_config ADD COLUMN design_id TEXT",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
@@ -440,6 +523,7 @@ export class Workspace extends DurableObject<Env> {
       instance_tier TEXT NOT NULL DEFAULT 'basic', configured INTEGER NOT NULL DEFAULT 1,
       publish_slug TEXT, publish_worker TEXT, publish_d1_name TEXT,
       publish_d1_id TEXT, publish_hostname TEXT, publish_domain_id TEXT,
+      design_status TEXT NOT NULL DEFAULT 'none', design_id TEXT,
       updated_at INTEGER NOT NULL
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_file_content (
@@ -460,6 +544,23 @@ export class Workspace extends DurableObject<Env> {
       hostname TEXT NOT NULL, domain_id TEXT, status TEXT NOT NULL,
       url TEXT, schema_version TEXT, domain_error TEXT, error TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_requirements (
+      project_id TEXT PRIMARY KEY, brief_json TEXT NOT NULL, brief_md TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft', updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_designs (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
+      thesis TEXT NOT NULL, palette TEXT NOT NULL DEFAULT '',
+      design_md TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    sql.exec(
+      "CREATE INDEX IF NOT EXISTS idx_designs_project ON atoms_designs (project_id, created_at)",
+    );
+    sql.exec(`CREATE TABLE IF NOT EXISTS atoms_design_files (
+      design_id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
+      content_type TEXT NOT NULL, PRIMARY KEY (design_id, path)
     )`);
     sql.exec(`CREATE TABLE IF NOT EXISTS atoms_dependencies (
       name TEXT PRIMARY KEY, version TEXT NOT NULL, url TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -492,6 +593,8 @@ export class Workspace extends DurableObject<Env> {
       "ALTER TABLE atoms_project_config ADD COLUMN publish_d1_id TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN publish_hostname TEXT",
       "ALTER TABLE atoms_project_config ADD COLUMN publish_domain_id TEXT",
+      "ALTER TABLE atoms_project_config ADD COLUMN design_status TEXT NOT NULL DEFAULT 'none'",
+      "ALTER TABLE atoms_project_config ADD COLUMN design_id TEXT",
       "ALTER TABLE atoms_versions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN active_run INTEGER NOT NULL DEFAULT 0",
       "ALTER TABLE atoms_runtime_status ADD COLUMN run_started_at INTEGER",
@@ -1007,6 +1110,378 @@ export class Workspace extends DurableObject<Env> {
       });
     }
     await this.storeBuildFiles(versionId, files);
+  }
+
+  private requirementsRow(): RequirementsRow | null {
+    return (
+      this.ctx.storage.sql
+        .exec<RequirementsRow>(
+          "SELECT * FROM atoms_requirements WHERE project_id = ?",
+          this.projectId,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  private requirementsMarkdown(brief: RequirementsBrief): string {
+    const list = (items: string[]) =>
+      items.length ? items.map((item) => `- ${item}`).join("\n") : "- （未填写）";
+    return [
+      "# 需求摘要",
+      "",
+      "## 用户与目标",
+      brief.audience || "（未填写）",
+      "",
+      brief.job || "（未填写）",
+      "",
+      "## 必须包含",
+      list(brief.mustHave),
+      "",
+      "## 约束",
+      list(brief.constraints),
+      "",
+      "## 成功标准",
+      list(brief.success),
+      "",
+      "## 视觉方向",
+      list(brief.visual),
+      "",
+      "## 不做 / 非目标",
+      list(brief.nonGoals),
+      "",
+      "## 一句话总结",
+      brief.summary || "（未填写）",
+      "",
+    ].join("\n");
+  }
+
+  async saveRequirements(
+    brief: RequirementsBrief,
+    status: "draft" | "confirmed" = "draft",
+  ): Promise<{
+    status: string;
+    brief: RequirementsBrief;
+    markdown: string;
+  }> {
+    const markdown = this.requirementsMarkdown(brief);
+    this.ctx.storage.sql.exec(
+      `INSERT INTO atoms_requirements (project_id, brief_json, brief_md, status, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         brief_json = excluded.brief_json,
+         brief_md = excluded.brief_md,
+         status = excluded.status,
+         updated_at = excluded.updated_at`,
+      this.projectId,
+      JSON.stringify(brief),
+      markdown,
+      status,
+      Date.now(),
+    );
+    return { status, brief, markdown };
+  }
+
+  async confirmRequirements(): Promise<{ status: "confirmed" }> {
+    const row = this.requirementsRow();
+    if (!row) throw new Error("还没有需求摘要，请先调用 save_requirements_brief");
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_requirements SET status = 'confirmed', updated_at = ? WHERE project_id = ?",
+      Date.now(),
+      this.projectId,
+    );
+    return { status: "confirmed" };
+  }
+
+  async getRequirements(): Promise<{
+    status: string;
+    brief: RequirementsBrief;
+    markdown: string;
+    updatedAt: number;
+  } | null> {
+    const row = this.requirementsRow();
+    if (!row) return null;
+    return {
+      status: row.status,
+      brief: JSON.parse(row.brief_json) as RequirementsBrief,
+      markdown: row.brief_md,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private designRow(id: string): DesignDbRow | null {
+    return (
+      this.ctx.storage.sql
+        .exec<DesignDbRow>(
+          "SELECT * FROM atoms_designs WHERE id = ? AND project_id = ?",
+          id,
+          this.projectId,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  private designFileRows(id: string): DesignFileRow[] {
+    return this.ctx.storage.sql
+      .exec<DesignFileRow>(
+        "SELECT path, content, content_type FROM atoms_design_files WHERE design_id = ? ORDER BY path",
+        id,
+      )
+      .toArray();
+  }
+
+  async createDesign(input: DesignConceptInput): Promise<{
+    id: string;
+    title: string;
+    thesis: string;
+    palette: string;
+    status: string;
+  }> {
+    const id = `design_${crypto.randomUUID()}`;
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO atoms_designs
+           (id, project_id, title, thesis, palette, design_md, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+        id,
+        this.projectId,
+        input.title.slice(0, 80),
+        input.thesis.slice(0, 240),
+        input.palette.slice(0, 240),
+        input.designMd.slice(0, 20000),
+        now,
+        now,
+      );
+      this.ctx.storage.sql.exec(
+        "DELETE FROM atoms_design_files WHERE design_id = ?",
+        id,
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_design_files (design_id, path, content, content_type) VALUES (?, 'index.html', ?, 'text/html; charset=utf-8')",
+        id,
+        input.html,
+      );
+    });
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_project_config SET design_status = 'review', updated_at = ? WHERE id = ?",
+      now,
+      this.projectId,
+    );
+    return {
+      id,
+      title: input.title.slice(0, 80),
+      thesis: input.thesis.slice(0, 240),
+      palette: input.palette.slice(0, 240),
+      status: "draft",
+    };
+  }
+
+  async listDesigns(): Promise<{
+    status: string;
+    selectedId: string | null;
+    designs: Array<{
+      id: string;
+      title: string;
+      thesis: string;
+      palette: string;
+      status: string;
+      files: number;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    requirementsStatus: string | null;
+  }> {
+    const config = this.ctx.storage.sql
+      .exec<{ design_status: string; design_id: string | null }>(
+        "SELECT design_status, design_id FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray()[0];
+    const rows = this.ctx.storage.sql
+      .exec<DesignDbRow>(
+        "SELECT * FROM atoms_designs WHERE project_id = ? ORDER BY created_at ASC",
+        this.projectId,
+      )
+      .toArray();
+    return {
+      status: config?.design_status ?? "none",
+      selectedId: config?.design_id ?? null,
+      requirementsStatus: this.requirementsRow()?.status ?? null,
+      designs: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        thesis: row.thesis,
+        palette: row.palette,
+        status: row.status,
+        files: this.ctx.storage.sql
+          .exec<{ n: number }>(
+            "SELECT COUNT(*) AS n FROM atoms_design_files WHERE design_id = ?",
+            row.id,
+          )
+          .one().n,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+    };
+  }
+
+  async getDesign(id: string): Promise<{
+    id: string;
+    title: string;
+    thesis: string;
+    palette: string;
+    designMd: string;
+    html: string;
+    status: string;
+  } | null> {
+    const row = this.designRow(id);
+    if (!row) return null;
+    const html =
+      this.designFileRows(id).find((file) => file.path === "index.html")
+        ?.content ?? "";
+    return {
+      id: row.id,
+      title: row.title,
+      thesis: row.thesis,
+      palette: row.palette,
+      designMd: row.design_md,
+      html,
+      status: row.status,
+    };
+  }
+
+  async updateDesign(
+    id: string,
+    input: DesignConceptInput,
+  ): Promise<{ id: string; title: string; thesis: string; palette: string }> {
+    const row = this.designRow(id);
+    if (!row) throw new Error("design not found");
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `UPDATE atoms_designs
+         SET title = ?, thesis = ?, palette = ?, design_md = ?, updated_at = ?
+         WHERE id = ?`,
+        input.title.slice(0, 80),
+        input.thesis.slice(0, 240),
+        input.palette.slice(0, 240),
+        input.designMd.slice(0, 20000),
+        now,
+        id,
+      );
+      this.ctx.storage.sql.exec(
+        "DELETE FROM atoms_design_files WHERE design_id = ?",
+        id,
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO atoms_design_files (design_id, path, content, content_type) VALUES (?, 'index.html', ?, 'text/html; charset=utf-8')",
+        id,
+        input.html,
+      );
+    });
+    return {
+      id,
+      title: input.title.slice(0, 80),
+      thesis: input.thesis.slice(0, 240),
+      palette: input.palette.slice(0, 240),
+    };
+  }
+
+  async selectDesign(id: string, notes?: string): Promise<{ ok: true; id: string }> {
+    const row = this.designRow(id);
+    if (!row) throw new Error("design not found");
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        "UPDATE atoms_designs SET status = 'draft', updated_at = ? WHERE project_id = ?",
+        now,
+        this.projectId,
+      );
+      this.ctx.storage.sql.exec(
+        "UPDATE atoms_designs SET status = 'selected', updated_at = ? WHERE id = ?",
+        now,
+        id,
+      );
+      this.ctx.storage.sql.exec(
+        `UPDATE atoms_project_config
+         SET design_status = 'approved', design_id = ?, updated_at = ?
+         WHERE id = ?`,
+        id,
+        now,
+        this.projectId,
+      );
+    });
+    if (notes) {
+      this.ctx.storage.sql.exec(
+        "UPDATE atoms_designs SET thesis = ? WHERE id = ?",
+        `${row.thesis}\n\n选择备注：${notes.slice(0, 500)}`.slice(0, 240),
+        id,
+      );
+    }
+    return { ok: true, id };
+  }
+
+  private async writeWorkspaceFile(path: string, content: string): Promise<void> {
+    if (this.runtime() === "browser") {
+      this.browserWrite(path, content);
+      return;
+    }
+    await this.ensure();
+    const files = new Files(this.container);
+    await files.writeFile(`${WORKSPACE}/${path.replace(/^\/+/, "")}`, content);
+  }
+
+  async applyDesign(id?: string): Promise<{
+    ok: true;
+    id: string;
+    title: string;
+    designMd: string;
+  }> {
+    const config = this.ctx.storage.sql
+      .exec<{ design_id: string | null }>(
+        "SELECT design_id FROM atoms_project_config WHERE id = ?",
+        this.projectId,
+      )
+      .toArray()[0];
+    const targetId = id ?? config?.design_id ?? null;
+    if (!targetId) throw new Error("还没有选择设计方向");
+    const row = this.designRow(targetId);
+    if (!row) throw new Error("design not found");
+    if (!row.design_md.trim()) {
+      throw new Error("该设计方向没有 DESIGN.md 内容，请先 refine");
+    }
+    await this.writeWorkspaceFile("DESIGN.md", row.design_md);
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_designs SET status = 'applied', updated_at = ? WHERE id = ?",
+      Date.now(),
+      row.id,
+    );
+    this.ctx.storage.sql.exec(
+      "UPDATE atoms_project_config SET design_status = 'applied', design_id = ?, updated_at = ? WHERE id = ?",
+      row.id,
+      Date.now(),
+      this.projectId,
+    );
+    return {
+      ok: true,
+      id: row.id,
+      title: row.title,
+      designMd: row.design_md,
+    };
+  }
+
+  async designFile(
+    designId: string,
+    path: string,
+  ): Promise<{ content: string; contentType: string } | null> {
+    let rel = path.replace(/^\/+/, "");
+    if (!rel) rel = "index.html";
+    const files = this.designFileRows(designId);
+    const found =
+      files.find((file) => file.path === rel) ??
+      (!rel.includes(".") ? files.find((file) => file.path === "index.html") : undefined);
+    if (!found) return null;
+    return { content: found.content, contentType: found.content_type };
   }
 
   private async createBrowserVersion(summary: string) {
@@ -3187,6 +3662,9 @@ export default {
           "atoms_build_files",
           "atoms_deployments",
           "atoms_dependencies",
+          "atoms_requirements",
+          "atoms_designs",
+          "atoms_design_files",
           "atoms_runtime_status",
           "atoms_project_config",
           "atoms_workspace",
@@ -3308,6 +3786,12 @@ export default {
         // 只读 SQL，不启动容器：首页列表用
         const current = this.latestVersion();
         const deployment = this.currentDeployment();
+        const designConfig = this.ctx.storage.sql
+          .exec<{ design_status: string; design_id: string | null }>(
+            "SELECT design_status, design_id FROM atoms_project_config WHERE id = ?",
+            this.projectId,
+          )
+          .toArray()[0];
         return Response.json({
           template: this.template(),
           runtime: this.runtime(),
@@ -3315,6 +3799,9 @@ export default {
           running:
             this.runtime() === "container" ? this.container.running : false,
           instanceTier: this.instanceTier(),
+          designStatus: designConfig?.design_status ?? "none",
+          designId: designConfig?.design_id ?? null,
+          requirementsStatus: this.requirementsRow()?.status ?? null,
           snapshotError:
             this.ctx.storage.sql
               .exec<{ snapshot_error: string | null }>(
@@ -3342,6 +3829,121 @@ export default {
                 createdAt: current.createdAt,
               }
             : null,
+        });
+      }
+
+      if (path === "/requirements" && request.method === "GET") {
+        return Response.json({ requirements: await this.getRequirements() });
+      }
+
+      if (path === "/requirements" && request.method === "POST") {
+        const body = (await request.json()) as Partial<RequirementsBrief>;
+        const brief: RequirementsBrief = {
+          audience: String(body.audience ?? "").slice(0, 600),
+          job: String(body.job ?? "").slice(0, 800),
+          mustHave: Array.isArray(body.mustHave)
+            ? body.mustHave.map(String).slice(0, 12)
+            : [],
+          constraints: Array.isArray(body.constraints)
+            ? body.constraints.map(String).slice(0, 12)
+            : [],
+          success: Array.isArray(body.success)
+            ? body.success.map(String).slice(0, 12)
+            : [],
+          visual: Array.isArray(body.visual)
+            ? body.visual.map(String).slice(0, 12)
+            : [],
+          nonGoals: Array.isArray(body.nonGoals)
+            ? body.nonGoals.map(String).slice(0, 12)
+            : [],
+          summary: String(body.summary ?? "").slice(0, 1200),
+        };
+        return Response.json({
+          requirements: await this.saveRequirements(brief),
+        });
+      }
+
+      if (path === "/requirements/confirm" && request.method === "POST") {
+        return Response.json({
+          requirements: await this.confirmRequirements(),
+        });
+      }
+
+      if (path === "/designs" && request.method === "GET") {
+        return Response.json(await this.listDesigns());
+      }
+
+      if (path === "/designs" && request.method === "POST") {
+        const body = (await request.json()) as DesignConceptInput;
+        if (!body.title || !body.html) {
+          return Response.json(
+            { error: "title and html are required" },
+            { status: 400 },
+          );
+        }
+        return Response.json({
+          design: await this.createDesign({
+            title: String(body.title),
+            thesis: String(body.thesis ?? ""),
+            palette: String(body.palette ?? ""),
+            designMd: String(body.designMd ?? ""),
+            html: String(body.html),
+          }),
+        });
+      }
+
+      if (path === "/designs/apply" && request.method === "POST") {
+        return Response.json(await this.applyDesign());
+      }
+
+      const designAction = path.match(
+        /^\/designs\/([^/]+)\/(select|apply|update)$/,
+      );
+      if (designAction?.[1] && request.method === "POST") {
+        const designId = decodeURIComponent(designAction[1]);
+        if (designAction[2] === "select") {
+          const body = (await request.json().catch(() => ({}))) as {
+            notes?: string;
+          };
+          return Response.json(
+            await this.selectDesign(designId, body.notes),
+          );
+        }
+        if (designAction[2] === "update") {
+          const body = (await request.json()) as DesignConceptInput;
+          return Response.json({
+            design: await this.updateDesign(designId, {
+              title: String(body.title ?? ""),
+              thesis: String(body.thesis ?? ""),
+              palette: String(body.palette ?? ""),
+              designMd: String(body.designMd ?? ""),
+              html: String(body.html ?? ""),
+            }),
+          });
+        }
+        return Response.json(await this.applyDesign(designId));
+      }
+
+      const designDetail = path.match(/^\/designs\/([^/]+)\/detail$/);
+      if (designDetail?.[1] && request.method === "GET") {
+        return Response.json({
+          design: await this.getDesign(decodeURIComponent(designDetail[1])),
+        });
+      }
+
+      const designFile = path.match(/^\/designs\/([^/]+)(?:\/(.*))?$/);
+      if (designFile?.[1] && request.method === "GET") {
+        const designId = decodeURIComponent(designFile[1]);
+        const file = await this.designFile(
+          designId,
+          decodeURIComponent(designFile[2] ?? ""),
+        );
+        if (!file) return new Response("not found", { status: 404 });
+        return new Response(file.content, {
+          headers: {
+            "content-type": file.contentType,
+            "cache-control": "no-store",
+          },
         });
       }
 

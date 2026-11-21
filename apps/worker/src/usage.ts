@@ -6,7 +6,8 @@ export type UsageSource =
   | "planner"
   | "auto_name"
   | "subagent"
-  | "compaction";
+  | "compaction"
+  | "designer";
 
 export type NormalizedUsage = {
   inputTokens: number;

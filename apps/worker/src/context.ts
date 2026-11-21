@@ -34,6 +34,9 @@ export type RuntimeContext = {
   instanceTier: string;
   versions: number;
   migration: MigrationContext | null;
+  requirementsStatus: string | null;
+  designStatus: string;
+  designId: string | null;
   selection?: SelectionContext | null;
   capabilities: string[];
 };
@@ -49,6 +52,9 @@ export function buildRuntimeContext(input: {
   instanceTier?: string;
   versions?: number;
   migration?: MigrationContext | null;
+  requirementsStatus?: string | null;
+  designStatus?: string;
+  designId?: string | null;
   selection?: SelectionContext | null;
   capabilities: string[];
 }): RuntimeContext {
@@ -77,6 +83,9 @@ export function buildRuntimeContext(input: {
     instanceTier: input.instanceTier ?? "basic",
     versions: input.versions ?? 0,
     migration: input.migration ?? null,
+    requirementsStatus: input.requirementsStatus ?? null,
+    designStatus: input.designStatus ?? "none",
+    designId: input.designId ?? null,
     selection: input.selection ?? null,
     capabilities: input.capabilities,
   };
@@ -110,6 +119,9 @@ export function renderRuntimeContext(ctx: RuntimeContext): string {
   lines.push(`container: ${ctx.container}`);
   lines.push(`instance: ${ctx.instanceTier}`);
   lines.push(`versions: ${ctx.versions}`);
+  lines.push(`requirements: ${ctx.requirementsStatus ?? "none"}`);
+  lines.push(`design_status: ${ctx.designStatus}`);
+  if (ctx.designId) lines.push(`design_id: ${ctx.designId}`);
   if (ctx.migration?.active) {
     lines.push(
       `migration: active`,

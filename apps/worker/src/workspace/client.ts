@@ -31,6 +31,36 @@ export type BuildResult = {
   durationMs: number;
 };
 
+export type RequirementsBrief = {
+  audience: string;
+  job: string;
+  mustHave: string[];
+  constraints: string[];
+  success: string[];
+  visual: string[];
+  nonGoals: string[];
+  summary: string;
+};
+
+export type DesignConceptInput = {
+  title: string;
+  thesis: string;
+  palette: string;
+  designMd: string;
+  html: string;
+};
+
+export type DesignSummary = {
+  id: string;
+  title: string;
+  thesis: string;
+  palette: string;
+  status: string;
+  files: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 /**
  * ChatAgent 访问 WorkspaceDO 的唯一入口。
  * 现在走 fetch JSON；以后换 RPC 时保持方法签名不变。
@@ -126,7 +156,95 @@ export class WorkspaceClient {
         summary: string;
         createdAt: number;
       } | null;
+      designStatus?: string;
+      designId?: string | null;
+      requirementsStatus?: string | null;
     }>("/meta");
+  }
+
+  getRequirements() {
+    return this.call<{
+      requirements: {
+        status: string;
+        brief: RequirementsBrief;
+        markdown: string;
+        updatedAt: number;
+      } | null;
+    }>("/requirements");
+  }
+
+  saveRequirements(brief: RequirementsBrief) {
+    return this.call<{
+      requirements: {
+        status: string;
+        brief: RequirementsBrief;
+        markdown: string;
+      };
+    }>("/requirements", brief);
+  }
+
+  confirmRequirements() {
+    return this.call<{ requirements: { status: string } }>(
+      "/requirements/confirm",
+      {},
+    );
+  }
+
+  listDesigns() {
+    return this.call<{
+      status: string;
+      selectedId: string | null;
+      designs: DesignSummary[];
+      requirementsStatus: string | null;
+    }>("/designs");
+  }
+
+  createDesign(input: DesignConceptInput) {
+    return this.call<{
+      design: {
+        id: string;
+        title: string;
+        thesis: string;
+        palette: string;
+        status: string;
+      };
+    }>("/designs", input);
+  }
+
+  getDesign(id: string) {
+    return this.call<{
+      design: {
+        id: string;
+        title: string;
+        thesis: string;
+        palette: string;
+        designMd: string;
+        html: string;
+        status: string;
+      } | null;
+    }>(`/designs/${encodeURIComponent(id)}/detail`);
+  }
+
+  updateDesign(id: string, input: DesignConceptInput) {
+    return this.call<{
+      design: { id: string; title: string; thesis: string; palette: string };
+    }>(`/designs/${encodeURIComponent(id)}/update`, input);
+  }
+
+  selectDesign(id: string, notes?: string) {
+    return this.call<{ ok: true; id: string }>(
+      `/designs/${encodeURIComponent(id)}/select`,
+      { notes },
+    );
+  }
+
+  applyDesign(id?: string) {
+    return this.call<{
+      ok: true;
+      id: string;
+      title: string;
+      designMd: string;
+    }>(id ? `/designs/${encodeURIComponent(id)}/apply` : "/designs/apply", {});
   }
 
   switchRuntime(template: string) {

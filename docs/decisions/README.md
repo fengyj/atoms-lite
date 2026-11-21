@@ -26,6 +26,7 @@
 | [08-execution-environment-and-agent-tools](08-execution-environment-and-agent-tools.md) | pending/configured、动态工具、运行环境单向切换与迁移、ask_user、subagent |
 | [09-version-publishing](09-version-publishing.md) | 项目级 Worker/D1/域名、构建产物、forward-only migration、发布记录与清理 |
 | [10-token-usage](10-token-usage.md) | 模型调用记账、会话/项目/每日汇总、$1/天费用限额、默认价格、上下文压缩 |
+| [11-requirements-and-design-first](11-requirements-and-design-first.md) | 需求 brief、design-first 询问、2–3 个静态概念页、选择/批注/应用 DESIGN.md |
 
 ## 约定
 

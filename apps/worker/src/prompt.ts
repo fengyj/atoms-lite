@@ -106,6 +106,19 @@ const SWITCH = `runtime/模板切换：
 - switch_runtime 只允许切换到容量不低于当前的 runtime；不能从容器降级到 browser。
 - 用户确认后由客户端执行切换；不要在未确认时调用。`;
 
+const REQUIREMENTS_AND_DESIGN = `需求与设计优先（最高优先级）：
+- 需求还没确认时，不要写生产代码、不要生成设计稿。先用 ask_user 问清楚：目标用户、核心任务、必须内容、约束、成功标准、视觉方向、非目标。
+- 需求足够清楚后，调用 save_requirements_brief 保存结构化摘要；再用 ask_user 把摘要给用户确认，确认后调用 confirm_requirements。
+- 需求 confirmed 后，必须询问用户是否先看设计方向（ask_user），不要替用户决定：
+  - 先看方向 → 调用 create_design_concepts（默认 3 个），让用户去工作台「设计」tab 比较。
+  - 直接实现 → 可以开始写生产代码。
+  - 设计延后 → 先实现功能，之后用户可要求再设计。
+- design_status=none 表示还没生成设计；=review 时不要写生产代码，只允许 refine_design_concept、select_design、list_designs；=approved 时先 apply_design；=applied 时先 read_file DESIGN.md。
+- 用户选定方向后，调用 apply_design 写入 DESIGN.md；然后 read_file DESIGN.md，再按它实现。
+- 实现完成后调用 design_check / design_review；把结果对照 DESIGN.md，而不是只看单个组件。
+- 用户之后对 UI 有想法：用 create_design_concepts({ mode: "revision" }) 生成 2-3 个变体，让用户在设计 tab 选择；不要直接大改生产代码。
+- 设计概念必须是真实文案、真实数据、响应式；不要只换颜色的假方案。`;
+
 export function systemPrompt(ctx: RuntimeContext): string {
   const parts = [COMMON];
   if (!ctx.configured) {
@@ -119,6 +132,7 @@ export function systemPrompt(ctx: RuntimeContext): string {
       : ctx.template === "fullstack-hono"
         ? FULLSTACK
         : STATIC_TEMPLATE,
+    REQUIREMENTS_AND_DESIGN,
     SWITCH,
     SUBAGENT,
   );

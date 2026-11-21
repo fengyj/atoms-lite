@@ -14,6 +14,7 @@ import {
   History,
   Loader2,
   Monitor,
+  Palette,
   RotateCw,
   Terminal,
   ExternalLink,
@@ -24,6 +25,7 @@ import { CodeBlock } from "@/components/ai-elements/code-block";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DesignPanel } from "@/components/workspace/design-panel";
 import { PreviewPanel } from "@/components/workspace/preview-panel";
 import { EmptyState } from "@/components/workspace/panel";
 import {
@@ -36,13 +38,20 @@ import {
   unpublishProject,
   shortCommit,
   type Endpoint,
+  type WorkspaceDesignListing,
   type WorkspaceFileEntry,
   type WorkspaceFileListing,
+  type WorkspaceRequirements,
   type WorkspaceVersion,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
-type WorkbenchTab = "preview" | "workspace" | "terminal" | "versions";
+type WorkbenchTab =
+  | "preview"
+  | "workspace"
+  | "design"
+  | "terminal"
+  | "versions";
 
 export function WorkbenchPanel({
   className,
@@ -52,8 +61,12 @@ export function WorkbenchPanel({
   previewTick,
   versions,
   files,
+  requirements,
+  designs,
   messages,
+  busy,
   onSelectElement,
+  onDesignContinue,
 }: {
   className?: string;
   projectId: string;
@@ -62,8 +75,12 @@ export function WorkbenchPanel({
   previewTick: number;
   versions: Endpoint<WorkspaceVersion[]>;
   files: Endpoint<WorkspaceFileListing>;
+  requirements: Endpoint<WorkspaceRequirements | null>;
+  designs: Endpoint<WorkspaceDesignListing>;
   messages: UIMessage[];
+  busy: boolean;
   onSelectElement?: (selection: import("@/lib/element-selection").ElementSelection) => void;
+  onDesignContinue: (text: string) => void;
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
   const current = versions.data?.find((v) => v.current) ?? versions.data?.at(-1) ?? null;
@@ -150,6 +167,12 @@ export function WorkbenchPanel({
             <TabTrigger value="preview" icon={<Monitor />} label="预览" />
             <TabTrigger value="workspace" icon={<FolderTree />} label="工作区" />
             <TabTrigger
+              value="design"
+              icon={<Palette />}
+              label="设计"
+              count={designs.data?.designs.length ?? 0}
+            />
+            <TabTrigger
               value="terminal"
               icon={<Terminal />}
               label="终端"
@@ -191,6 +214,19 @@ export function WorkbenchPanel({
             projectId={projectId}
             runtime={runtime}
             files={files}
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="design"
+          className="mt-0 flex min-h-0 flex-1 flex-col"
+        >
+          <DesignPanel
+            projectId={projectId}
+            designs={designs}
+            requirements={requirements}
+            busy={busy || publishingId !== null || unpublishingId !== null}
+            onContinue={onDesignContinue}
           />
         </TabsContent>
 

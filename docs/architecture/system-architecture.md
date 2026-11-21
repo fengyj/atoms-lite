@@ -201,7 +201,7 @@ flowchart TB
   ui["Web 对话"] -->|UIMessage| agent["ChatAgent"]
   agent --> ctx["上下文组装<br/>消息 + 摘要 + 引用"]
   ctx --> loop["AI SDK loop<br/>streamText / ToolLoopAgent"]
-  loop --> tools["工具注册表<br/>read_file / write_file / edit_file / exec / build<br/>start_preview / create_version / install_packages<br/>design_check / design_review / ask_user / switch_runtime"]
+  loop --> tools["工具注册表<br/>read_file / write_file / edit_file / exec / build<br/>start_preview / create_version / install_packages<br/>save_requirements_brief / create_design_concepts / apply_design<br/>design_check / design_review / ask_user / switch_runtime"]
   tools -->|"WorkspaceTools RPC"| ws["WorkspaceDO"]
   ws --> fs["文件 / git / SQLite"]
   ws --> proc["进程 / 预览端口"]
@@ -213,7 +213,9 @@ flowchart TB
 ```
 
 - 编排使用 **Agents SDK + AI SDK**，不引入 LangGraph。
-- 工具执行的唯一位置是 `WorkspaceDO`；ChatAgent 只发 RPC。
+- 文件、版本、构建、发布类工具的唯一执行位置是 `WorkspaceDO`；ChatAgent 只发 RPC。
+- Designer 是 ChatAgent 内的独立模型调用（`designer.ts`），只生成静态概念页并把结果写回
+  WorkspaceDO，不直接改生产代码、不与用户对话。
 - 流式输出走 `useAgentChat`（UIMessage），面板状态走 `useAgent`。
 
 ### 5.2 一次生成的时间线

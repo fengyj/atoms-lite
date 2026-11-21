@@ -17,6 +17,8 @@ import {
   useProjectUsage,
   useWorkspaceFiles,
   useWorkspaceMeta,
+  useWorkspaceDesigns,
+  useWorkspaceRequirements,
   useWorkspaceVersions,
   upgradeInstance,
   configureProject,
@@ -139,9 +141,13 @@ export function Workspace({ projectId }: { projectId: string }) {
   const workspaceMeta = useWorkspaceMeta(projectId);
   const versions = useWorkspaceVersions(projectId);
   const files = useWorkspaceFiles(projectId);
+  const requirements = useWorkspaceRequirements(projectId);
+  const designs = useWorkspaceDesigns(projectId);
   const refreshVersions = versions.refresh;
   const refreshFiles = files.refresh;
   const refreshMeta = workspaceMeta.refresh;
+  const refreshRequirements = requirements.refresh;
+  const refreshDesigns = designs.refresh;
 
   // 预览刷新：start_preview / create_version 完成后由 watcher 触发
   const [previewTick, setPreviewTick] = useState(0);
@@ -175,7 +181,8 @@ export function Workspace({ projectId }: { projectId: string }) {
           name === "write_file" ||
           name === "build" ||
           name === "exec" ||
-          name === "finish"
+          name === "finish" ||
+          name === "apply_design"
         ) {
           refreshFiles();
         }
@@ -183,9 +190,35 @@ export function Workspace({ projectId }: { projectId: string }) {
           refreshVersions();
           refreshMeta();
         }
+        if (
+          name === "save_requirements_brief" ||
+          name === "confirm_requirements"
+        ) {
+          refreshRequirements();
+          refreshDesigns();
+          refreshMeta();
+        }
+        if (
+          name === "create_design_concepts" ||
+          name === "refine_design_concept" ||
+          name === "select_design" ||
+          name === "apply_design"
+        ) {
+          refreshDesigns();
+          refreshRequirements();
+          refreshMeta();
+        }
       }
     }
-  }, [messages, refreshPreview, refreshFiles, refreshVersions, refreshMeta]);
+  }, [
+    messages,
+    refreshPreview,
+    refreshFiles,
+    refreshVersions,
+    refreshMeta,
+    refreshRequirements,
+    refreshDesigns,
+  ]);
 
   // 顶栏运行状态：isStreaming 覆盖服务端续流，status 覆盖客户端请求
   const busy = status === "submitted" || isStreaming;
@@ -252,6 +285,19 @@ export function Workspace({ projectId }: { projectId: string }) {
       setSelection(null);
     },
     [sendMessage, selection]
+  );
+
+  const designContinue = useCallback(
+    (text: string) => {
+      sendMessage({ text });
+      setTab("workbench");
+      // 生成/微调是异步的；先轻刷一次，工具完成后再由 completedTools 刷新
+      window.setTimeout(() => {
+        refreshDesigns();
+        refreshRequirements();
+      }, 1200);
+    },
+    [sendMessage, refreshDesigns, refreshRequirements]
   );
 
   const handleUpgrade = useCallback(async () => {
@@ -441,7 +487,11 @@ export function Workspace({ projectId }: { projectId: string }) {
           previewTick={previewTick}
           versions={versions}
           files={files}
+          requirements={requirements}
+          designs={designs}
           messages={messages}
+          busy={busy}
+          onDesignContinue={designContinue}
           onSelectElement={(next) => {
             setSelection(next);
             if (

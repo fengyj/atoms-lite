@@ -32,12 +32,14 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 | WorkspaceDO | `apps/worker/src/workspace/do.ts`（每项目 1 个：容器/文件/版本/快照/发布） |
 | 项目索引 | `apps/worker/src/projects.ts`（`Projects` DO，项目元数据 + 版本摘要） |
 | Workspace 客户端 | `apps/worker/src/workspace/client.ts` |
+| Designer 子 agent | `apps/worker/src/designer.ts`（生成/微调静态概念页，不写生产代码） |
 | 发布 | WorkspaceDO → Cloudflare Workers / D1 / Workers Domains API |
 | Worker 路由 | `apps/worker/src/index.ts` |
 | 沙箱镜像 | `apps/worker/Dockerfile` + `container/` + `container/templates/*` |
 | 运行时 supervisor | `apps/worker/container/boot.sh`（静态 / Node 单服务） |
 | Web 首页 | `apps/web/components/dashboard/dashboard.tsx` |
 | Web 工作区 | `apps/web/components/workspace/*` + `lib/agent.ts` |
+| 设计对比面板 | `apps/web/components/workspace/design-panel.tsx` |
 
 架构与决策见 `docs/architecture/`、`docs/decisions/`。
 
@@ -69,7 +71,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 
 - Editorial Feature 主题：顶部 4px cobalt 色线、纸张面板、衬线项目名
 - 两栏：左侧对话；右侧工作台（窄屏底部「对话 / 工作台」切换）
-- 工作台顶部 tab：**预览 / 工作区 / 终端 / 版本**，使用细线 active 状态
+- 工作台顶部 tab：**预览 / 工作区 / 设计 / 终端 / 版本**，使用细线 active 状态
+- **设计**：需求摘要（已确认/待确认）、2–3 个设计方向、iframe 实时预览、桌面/移动切换、
+  批注微调、选择并继续；选中后写入 `DESIGN.md` 再进入实现
 - 顶栏：品牌、项目名、模板、项目 ID、运行状态、用量、升级、当前版本
 - **打开项目不启动沙箱**：文件列表读 SQL 缓存，预览只探测状态
 - 构建型项目在改完源码后调用 build，构建通过再启动预览
@@ -106,8 +110,19 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   首次 `ensure()` 按模板播种。配置后、第一次写入前可以重新配置。
 - **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
   新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
-- **设计流程**：提示词要求先确定视觉方向和布局，再实现；首屏内容初始可见，
-  避免默认紫蓝渐变和居中卡片堆叠。当前没有自动生成 `DESIGN.md` 的步骤。
+- **需求优先**：需求未确认前不写生产代码、不生成设计稿。Agent 先用 `ask_user` 问清目标用户、
+  核心任务、必须内容、约束、成功标准、视觉方向和非目标，再调用 `save_requirements_brief` 保存；
+  用户确认后调用 `confirm_requirements`（`atoms_requirements.status=confirmed`）。
+- **设计优先**：需求确认后询问用户「先看设计方向 / 直接实现 / 设计延后」。选择先看时调用
+  `create_design_concepts` 生成 2–3 个结构不同的静态概念页，资料进入工作台「设计」tab；
+  用户在 iframe 里比较、批注或选择。`design_status=review` 期间不写生产代码。
+- **设计应用**：用户选中后 `select_design`（`approved`），`apply_design` 把该方向的
+  `DESIGN.md` 写入工作区并标记 `applied`；主 Agent 必须读取 `DESIGN.md` 后再实现。
+  后续 UI 反馈先用 `create_design_concepts({ mode: "revision" })` 生成变体，不直接大改生产代码。
+- **Designer 子 agent**：`designer.ts` 独立调用模型，不做用户沟通、不写生产代码。
+  每个方向单独一次调用（并行执行、硬超时 120s + 精简重试 90s，24k 输出，真实文案、
+  真实数据、响应式、纯静态 HTML/CSS，不依赖构建和外部资源）；每完成一个就先落库。
+- **设计状态**：`none → review → approved → applied`；需求状态：`draft → confirmed`。
 - **预装依赖**：React/全栈模板的 `node_modules` 在镜像构建时 `pnpm install --frozen-lockfile` 安装，
   工作区用软链复用，Agent 不需要也不能执行 pnpm install。
 - 镜像内预构建模板的 starter `dist`，新项目首次打开预览即可看到模板；Agent 构建后覆盖。
@@ -181,6 +196,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   不写回消息存储；工具按 `RuntimeContext` 条件动态挂载。
 - **ask_user**：15 分钟线性倒计时卡片；提交后客户端配置项目并 `addToolOutput` 续跑。
 - **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
+- **需求/设计工具**：`save_requirements_brief` / `confirm_requirements` / `create_design_concepts` /
+  `refine_design_concept` / `list_designs` / `select_design` / `apply_design`；
+  Designer 调用以 `source=designer` 单独记账。
 - 预览通过 Worker 代理 `/previews/:projectId/*`；容器内的服务只支持 HTTP，代理时把 scheme 改成 `http:`。
 - **预览元素选择**：同源 iframe 内高亮元素，收集 selector/outerHTML/关键样式，
   作为请求 body 的选择上下文发给 Agent；不写入消息历史。本地跨端口开发不可用，生产同源可用。
@@ -235,6 +253,7 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 前端同源访问；本地开发用 `NEXT_PUBLIC_WORKER_HOST=http://localhost:8787`。
 - 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
   （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,publish,deployments,preview/*}`；
+  需求与设计：`/api/projects/:id/{requirements,requirements/confirm,designs,designs/:designId/*}`；
   预览 `/previews/:id/*`。
 - 删除项目会删除索引行，并尽力销毁对应 WorkspaceDO（容器 + DO 存储）
   与 ChatAgent 的会话存储。
@@ -245,6 +264,13 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 ### 本地
 
 - 静态模板：容器启动 ~1s；3 个文件；预览 200。
+- 需求/设计接口：`/requirements` 保存 → confirm；`/designs` 创建 → detail → 预览 HTML →
+  select → apply；`DESIGN.md` 写入正确，`/meta` 返回 `designStatus=applied`。
+- Designer 真实模型：3 个结构不同的概念页，并行生成约 55 秒完成；单概念 130–190 行 HTML，
+  无外部资源，designMd 1.7–2.3 KB；单概念 120s 硬超时 + 90s 精简重试。
+- 设计面板：Playwright 验证设计 tab、3 个方向列表、iframe 切换、需求摘要、批注框、
+  「让 Agent 微调」与「选择并继续」全部可见；点「生成 3 个方向」后 55 秒内 3 个方向
+  依次出现在面板中，无 console 错误。
 - 真实模型生成：**约 90 秒**完成 `list_files → write_file × 3 → exec → start_preview → create_version`。
 - 预览标题 `五子棋 · Gomoku`；点击棋盘后「已落子 1 手」「轮到白棋」；localStorage 写入；无 console 错误。
 

@@ -116,6 +116,45 @@ export type WorkspaceMeta = {
   published: boolean;
   publishedVersionId: string | null;
   deploymentUrl: string | null;
+  designStatus?: string;
+  designId?: string | null;
+  requirementsStatus?: string | null;
+};
+
+export type RequirementsBrief = {
+  audience: string;
+  job: string;
+  mustHave: string[];
+  constraints: string[];
+  success: string[];
+  visual: string[];
+  nonGoals: string[];
+  summary: string;
+};
+
+export type WorkspaceRequirements = {
+  status: string;
+  brief: RequirementsBrief;
+  markdown: string;
+  updatedAt: number;
+};
+
+export type WorkspaceDesign = {
+  id: string;
+  title: string;
+  thesis: string;
+  palette: string;
+  status: string;
+  files: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type WorkspaceDesignListing = {
+  status: string;
+  selectedId: string | null;
+  requirementsStatus: string | null;
+  designs: WorkspaceDesign[];
 };
 
 export type UsageTotals = {
@@ -431,6 +470,65 @@ export async function fetchUsageStatus(
   return json<UsageStatus>(res, "usage status");
 }
 
+export async function fetchWorkspaceRequirements(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceRequirements | null> {
+  const res = await fetch(projectApiUrl(projectId, "/requirements"), { signal });
+  const data = (await json<{ requirements?: WorkspaceRequirements | null }>(
+    res,
+    "workspace requirements"
+  )) as { requirements?: WorkspaceRequirements | null };
+  return data.requirements ?? null;
+}
+
+export async function fetchWorkspaceDesigns(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<WorkspaceDesignListing> {
+  const res = await fetch(projectApiUrl(projectId, "/designs"), { signal });
+  return json<WorkspaceDesignListing>(res, "workspace designs");
+}
+
+export async function selectWorkspaceDesign(
+  projectId: string,
+  designId: string,
+  notes?: string
+): Promise<{ ok: boolean; id: string }> {
+  const res = await fetch(
+    projectApiUrl(projectId, `/designs/${encodeURIComponent(designId)}/select`),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ notes }),
+    }
+  );
+  return json<{ ok: boolean; id: string }>(res, "select design");
+}
+
+export async function applyWorkspaceDesign(
+  projectId: string,
+  designId?: string
+): Promise<{ ok: boolean; id: string; title: string }> {
+  const res = await fetch(
+    projectApiUrl(
+      projectId,
+      designId
+        ? `/designs/${encodeURIComponent(designId)}/apply`
+        : "/designs/apply"
+    ),
+    { method: "POST" }
+  );
+  return json<{ ok: boolean; id: string; title: string }>(res, "apply design");
+}
+
+export function designPreviewUrl(projectId: string, designId: string): string {
+  return projectApiUrl(
+    projectId,
+    `/designs/${encodeURIComponent(designId)}/`
+  );
+}
+
 export async function fetchWorkspaceMeta(
   projectId: string,
   signal?: AbortSignal
@@ -450,6 +548,9 @@ export async function fetchWorkspaceMeta(
     published: data.published === true,
     publishedVersionId: data.publishedVersionId ?? null,
     deploymentUrl: data.deploymentUrl ?? null,
+    designStatus: data.designStatus ?? "none",
+    designId: data.designId ?? null,
+    requirementsStatus: data.requirementsStatus ?? null,
   };
 }
 
@@ -539,6 +640,26 @@ export function useUsageStatus(): Endpoint<UsageStatus> {
 export function useWorkspaceMeta(projectId: string): Endpoint<WorkspaceMeta> {
   const fetcher = useCallback(
     (signal?: AbortSignal) => fetchWorkspaceMeta(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useWorkspaceRequirements(
+  projectId: string
+): Endpoint<WorkspaceRequirements | null> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchWorkspaceRequirements(projectId, signal),
+    [projectId]
+  );
+  return useEndpoint(fetcher);
+}
+
+export function useWorkspaceDesigns(
+  projectId: string
+): Endpoint<WorkspaceDesignListing> {
+  const fetcher = useCallback(
+    (signal?: AbortSignal) => fetchWorkspaceDesigns(projectId, signal),
     [projectId]
   );
   return useEndpoint(fetcher);

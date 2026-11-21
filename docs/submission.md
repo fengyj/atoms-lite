@@ -269,12 +269,14 @@ POC 数据：
 | 非破坏性回滚后端 + HEAD 校验 | ✅ |
 | 运行环境单向切换与迁移 | ✅ |
 | 容器实例手动升级 | ✅ |
+| 需求 brief 确认（`save_requirements_brief` / `confirm_requirements`） | ✅ |
+| design-first：2–3 个静态概念页、设计 tab、批注/选择/`DESIGN.md` 应用 | ✅ |
 | `design_check` / `design_review` / `code_review` | ✅ |
 | `/design-review`、`/code-review`、`/polish` 命令 + `/` 菜单 | ✅ |
 | 会话时间分隔、ask_user 历史问答、步数上限确认卡、过程折叠 | ✅ |
 | 项目自动命名 + 会话页重命名 | ✅ |
 | 版本发布到 Workers / D1 / 自定义域名；首页已发布 badge + 取消发布 | ✅ |
-| Token 用量：主对话 / planner / 命名 / 子 agent / compaction，会话与每日全站汇总，默认 $1/天限额 | ✅ |
+| Token 用量：主对话 / planner / 命名 / 子 agent / compaction / designer，会话与每日全站汇总，默认 $1/天限额 | ✅ |
 | 生产部署 | ✅ |
 
 ### 3.2 部分完成
