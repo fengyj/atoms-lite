@@ -638,6 +638,23 @@ export class ChatAgent extends AIChatAgent<Env> {
       },
     });
 
-    return result.toUIMessageStreamResponse();
+    return result.toUIMessageStreamResponse({
+      redactToolErrors: false,
+      onError: (error) => {
+        const name = error instanceof Error ? error.name : typeof error;
+        const message =
+          error instanceof Error
+            ? error.message || String(error)
+            : typeof error === "string"
+              ? error
+              : JSON.stringify(error);
+        const detail = `${name}: ${message || "未知错误"}`.slice(0, 500);
+        console.error(
+          "[agent.stream.error]",
+          JSON.stringify({ projectId, requestId, detail }),
+        );
+        return `模型调用失败：${detail}`;
+      },
+    });
   }
 }
