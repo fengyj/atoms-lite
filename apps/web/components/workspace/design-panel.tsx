@@ -59,6 +59,10 @@ export function DesignPanel({
   const [selecting, setSelecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [previewState, setPreviewState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     const preferred = designs.data?.selectedId;
@@ -86,6 +90,40 @@ export function DesignPanel({
 
   const selected =
     list.find((design) => design.id === selectedId) ?? list[0] ?? null;
+
+  useEffect(() => {
+    if (!selected) return;
+    let alive = true;
+    const controller = new AbortController();
+    setPreviewState("loading");
+    setPreviewError(null);
+    fetch(designPreviewUrl(projectId, selected.id), {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          const detail = text.trim().slice(0, 300);
+          throw new Error(
+            detail
+              ? `${detail}（HTTP ${res.status}）`
+              : `设计稿加载失败（HTTP ${res.status}）`,
+          );
+        }
+        if (alive) setPreviewState("ready");
+      })
+      .catch((err) => {
+        if (!alive || controller.signal.aborted) return;
+        setPreviewError(err instanceof Error ? err.message : String(err));
+        setPreviewState("error");
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [projectId, selected?.id, reloadKey]);
+
   const requirementsConfirmed =
     designs.data?.requirementsStatus === "confirmed" ||
     requirements.data?.status === "confirmed";
@@ -321,16 +359,43 @@ export function DesignPanel({
               </div>
 
               <div className="flex min-h-[360px] flex-1 justify-center overflow-hidden border border-border bg-muted/20 p-3">
-                <iframe
-                  key={`${selected.id}-${reloadKey}-${mobilePreview}`}
-                  title={`设计方向 ${selected.title}`}
-                  src={designPreviewUrl(projectId, selected.id)}
-                  sandbox=""
-                  className={cn(
-                    "h-[520px] border-0 bg-white shadow-sm transition-all",
-                    mobilePreview ? "w-[390px] max-w-full" : "w-full",
-                  )}
-                />
+                {previewState === "error" ? (
+                  <div className="flex w-full max-w-md flex-col items-center justify-center gap-3 px-4 text-center">
+                    <span className="grid size-10 place-items-center rounded-full border border-border bg-muted/30 text-muted-foreground">
+                      <Palette className="size-4" />
+                    </span>
+                    <p className="font-serif text-lg">设计稿加载失败</p>
+                    <p className="text-2xs leading-5 text-muted-foreground">
+                      预览文件没有返回可用内容；设计列表和需求不受影响。
+                    </p>
+                    <InlineError
+                      className="w-full text-left"
+                      message={previewError ?? "无法加载设计稿"}
+                      onRetry={() => setReloadKey((value) => value + 1)}
+                    />
+                  </div>
+                ) : (
+                  <div className="relative flex w-full justify-center">
+                    {previewState === "loading" ? (
+                      <div className="absolute inset-0 z-10 grid place-items-center bg-background/70">
+                        <span className="flex items-center gap-2 text-2xs text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" />
+                          加载设计稿…
+                        </span>
+                      </div>
+                    ) : null}
+                    <iframe
+                      key={`${selected.id}-${reloadKey}-${mobilePreview}`}
+                      title={`设计方向 ${selected.title}`}
+                      src={designPreviewUrl(projectId, selected.id)}
+                      sandbox=""
+                      className={cn(
+                        "h-[520px] border-0 bg-white shadow-sm transition-all",
+                        mobilePreview ? "w-[390px] max-w-full" : "w-full",
+                      )}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-2 border border-border bg-card p-3">

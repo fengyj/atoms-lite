@@ -148,6 +148,20 @@ export default {
         return withCors(res, cors);
       }
 
+      if (projectId && tail.length === 1 && tail[0] === "compact") {
+        if (request.method !== "POST") {
+          return new Response("method not allowed", {
+            status: 405,
+            headers: cors,
+          });
+        }
+        const agent = env.ChatAgent.get(env.ChatAgent.idFromName(projectId));
+        const res = await agent.fetch(
+          new Request("https://agent/compact", { method: "POST" }),
+        );
+        return withCors(res, cors);
+      }
+
       if (projectId && tail.length > 0) {
         const res = await proxyTo(
           workspaceStub(env, projectId),

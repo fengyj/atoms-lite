@@ -26,6 +26,7 @@ import {
   switchRuntime,
   renameProject,
   saveExecPreference,
+  compactChat,
   describeAgentError,
   type AgentErrorInfo,
 } from "@/lib/agent";
@@ -63,6 +64,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const [selection, setSelection] = useState<ElementSelection | null>(null);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   const [agentError, setAgentError] = useState<AgentErrorInfo | null>(null);
+  const [compactNotice, setCompactNotice] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
@@ -291,6 +293,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const submitText = useCallback(
     (text: string) => {
       setAgentError(null);
+      setCompactNotice(null);
       sendMessage(
         { text },
         { body: selection ? { selection } : {} }
@@ -303,6 +306,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const designContinue = useCallback(
     (text: string) => {
       setAgentError(null);
+      setCompactNotice(null);
       sendMessage({ text });
       setTab("workbench");
       // 生成/微调是异步的；先轻刷一次，工具完成后再由 completedTools 刷新
@@ -315,11 +319,30 @@ export function Workspace({ projectId }: { projectId: string }) {
   );
 
   const retryLastTurn = useCallback(() => {
+    if (!messages.some((message) => message.role === "assistant")) return;
     setAgentError(null);
     setQuotaNotice(null);
+    setCompactNotice(null);
     // 重新生成上一条 assistant，不新增用户消息，避免每次重试都把历史撑得更长。
     regenerate();
-  }, [regenerate]);
+  }, [messages, regenerate]);
+
+  const compactSession = useCallback(async () => {
+    if (busy) return;
+    setAgentError(null);
+    setCompactNotice("正在压缩会话…");
+    try {
+      const result = await compactChat(projectId);
+      setCompactNotice(
+        result.compacted
+          ? "会话已压缩，后续请求会使用更短的上下文。"
+          : "当前会话还不需要压缩。",
+      );
+    } catch (error) {
+      setCompactNotice(null);
+      setAgentError(describeAgentError(error));
+    }
+  }, [busy, projectId]);
 
   const handleUpgrade = useCallback(async () => {
     if (upgrading) return;
@@ -538,6 +561,10 @@ export function Workspace({ projectId }: { projectId: string }) {
           error={agentError}
           onDismissError={() => setAgentError(null)}
           onRetryError={retryLastTurn}
+          onRetry={retryLastTurn}
+          onCompact={compactSession}
+          notice={compactNotice}
+          onDismissNotice={() => setCompactNotice(null)}
         />
         <ResizeHandle
           className="hidden md:flex"

@@ -81,7 +81,33 @@ import { templateLabel, type AgentErrorInfo } from "@/lib/agent";
 const SAMPLE_PROMPT =
   "做一个五子棋：双人对战、自动判断胜负、支持重新开局，界面简洁好看。";
 
-const COMMANDS = [
+type ChatCommand =
+  | {
+      name: string;
+      label: string;
+      description: string;
+      action: "retry" | "compact";
+    }
+  | {
+      name: string;
+      label: string;
+      description: string;
+      prompt: string;
+    };
+
+const COMMANDS: ChatCommand[] = [
+  {
+    name: "/retry",
+    label: "重试上一轮",
+    description: "按当前上下文重新生成上一条回复，不新增消息",
+    action: "retry",
+  },
+  {
+    name: "/compact",
+    label: "压缩会话",
+    description: "把较早的对话总结成更短的上下文，保留最近消息",
+    action: "compact",
+  },
   {
     name: "/design-review",
     label: "设计审查",
@@ -103,7 +129,7 @@ const COMMANDS = [
     prompt:
       "请在不改变产品意图和现有视觉方向的前提下做一次 polish：修复信息层级、间距、状态和文案问题，完成后 build、start_preview、create_version。",
   },
-] as const;
+];
 
 function isQuotaErrorMessage(message: UIMessage): boolean {
   if (message.role !== "assistant") return false;
@@ -134,6 +160,10 @@ export function ChatPanel({
   error,
   onDismissError,
   onRetryError,
+  onRetry,
+  onCompact,
+  notice,
+  onDismissNotice,
 }: {
   className?: string;
   /** Agent 会话消息（真实数据） */
@@ -168,6 +198,10 @@ export function ChatPanel({
   error?: AgentErrorInfo | null;
   onDismissError?: () => void;
   onRetryError?: () => void;
+  onRetry?: () => void;
+  onCompact?: () => Promise<void> | void;
+  notice?: string | null;
+  onDismissNotice?: () => void;
 }) {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim();
@@ -182,6 +216,11 @@ export function ChatPanel({
     const command = COMMANDS.find((item) => item.name === name);
     if (!command) {
       onSubmitText(trimmed);
+      return;
+    }
+    if ("action" in command) {
+      if (command.action === "retry") onRetry?.();
+      else void onCompact?.();
       return;
     }
     // 命令后面的文字直接追加到指令后，不加额外标签。
@@ -303,6 +342,8 @@ export function ChatPanel({
               error={error}
               onDismissError={onDismissError}
               onRetryError={onRetryError}
+              notice={notice}
+              onDismissNotice={onDismissNotice}
             />
           </PromptInputProvider>
         </div>
@@ -409,6 +450,8 @@ function PromptComposer({
   error,
   onDismissError,
   onRetryError,
+  notice,
+  onDismissNotice,
 }: {
   busy: boolean;
   status: ChatStatus;
@@ -419,6 +462,8 @@ function PromptComposer({
   error?: AgentErrorInfo | null;
   onDismissError?: () => void;
   onRetryError?: () => void;
+  notice?: string | null;
+  onDismissNotice?: () => void;
 }) {
   const { textInput } = usePromptInputController();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -522,6 +567,23 @@ function PromptComposer({
       {quotaBlocked ? (
         <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-2xs text-amber-700">
           今日模型额度已用完，输入已暂停。明日额度恢复后可以继续。
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="mb-2 flex items-start gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-2xs text-success">
+          <Check className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 leading-5">{notice}</span>
+          {onDismissNotice ? (
+            <button
+              type="button"
+              onClick={onDismissNotice}
+              aria-label="关闭提示"
+              className="text-success/70 transition-colors hover:text-success"
+            >
+              <X className="size-3" />
+            </button>
+          ) : null}
         </div>
       ) : null}
 

@@ -73,7 +73,8 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 两栏：左侧对话；右侧工作台（窄屏底部「对话 / 工作台」切换）
 - 工作台顶部 tab：**预览 / 工作区 / 设计 / 终端 / 版本**，使用细线 active 状态
 - **设计**：需求摘要（已确认/待确认）、2–3 个设计方向、iframe 实时预览、桌面/移动切换、
-  批注微调、选择并继续；选中后写入 `DESIGN.md` 再进入实现
+  批注微调、选择并继续；选中后写入 `DESIGN.md` 再进入实现。预览前会先 fetch 一次
+  设计稿 URL，404/500 时显示「设计稿加载失败」+ 重试，而不是只显示空白 iframe。
 - 顶栏：品牌、项目名、模板、项目 ID、运行状态、用量、升级、当前版本
 - **打开项目不启动沙箱**：文件列表读 SQL 缓存，预览只探测状态
 - 构建型项目在改完源码后调用 build，构建通过再启动预览
@@ -227,7 +228,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **项目自动命名**：首轮对话结束后，用一次短模型调用根据需求生成 4–12 字标题，
   写入 `name_source=ai`；失败只标记 `fallback`，不阻塞对话。用户可在会话顶栏点项目名
   重命名，写入 `name_source=user`，此后自动命名不会覆盖。
-- **对话命令**：输入框提供 `/design-review`、`/code-review`、`/polish` 命令，映射为对应的 Agent 指令；
+- **对话命令**：输入框提供 `/retry`、`/compact`、`/design-review`、`/code-review`、`/polish`。
+  `/retry` 调用 `regenerate` 重跑上一条回复，不新增用户消息；`/compact` 调用
+  `POST /api/projects/:id/compact` 手动压缩会话；其余命令映射为对应的 Agent 指令。
   输入 `/` 直接弹出命令菜单，支持方向键选择、Enter/Tab 插入命令名、Esc 关闭；
   选中后可继续补充要求，再按回车执行。
 - **步数上限确认**：单轮工具步数上限为 **50**（static 与 build 型一致）。达到上限时，
@@ -275,6 +278,7 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 项目 API：`/api/projects`（列表/创建）、`/api/projects/:id`
   （详情 / PATCH 重命名 / DELETE 删除）、`/api/projects/:id/{versions,files,publish,deployments,preview/*}`；
   需求与设计：`/api/projects/:id/{requirements,requirements/confirm,designs,designs/:designId/*}`；
+  会话压缩：`POST /api/projects/:id/compact`；
   预览 `/previews/:id/*`。
 - 删除项目会删除索引行，并尽力销毁对应 WorkspaceDO（容器 + DO 存储）
   与 ChatAgent 的会话存储。

@@ -468,6 +468,15 @@ export async function renameProject(
   return project;
 }
 
+export async function compactChat(
+  projectId: string
+): Promise<{ ok: boolean; compacted: boolean }> {
+  const res = await fetch(projectApiUrl(projectId, "/compact"), {
+    method: "POST",
+  });
+  return json<{ ok: boolean; compacted: boolean }>(res, "compact chat");
+}
+
 export async function deleteProject(
   projectId: string,
   signal?: AbortSignal

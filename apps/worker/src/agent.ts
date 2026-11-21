@@ -116,6 +116,17 @@ export class ChatAgent extends AIChatAgent<Env> {
       await this.ctx.storage.deleteAll();
       return Response.json({ ok: true });
     }
+    if (url.pathname === "/compact" && request.method === "POST") {
+      try {
+        const result = await this.sessions.session().compact();
+        return Response.json({ ok: true, compacted: result !== null });
+      } catch (error) {
+        return Response.json(
+          { error: String(error).slice(0, 500) },
+          { status: 500 },
+        );
+      }
+    }
     return super.onRequest(request);
   }
 
