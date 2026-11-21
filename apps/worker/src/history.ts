@@ -125,3 +125,42 @@ export function appendRetryNudge(
   }
   return next;
 }
+
+function approxChars(messages: ModelMessage[]): number {
+  return JSON.stringify(messages).length;
+}
+
+/**
+ * 供应商网关对超大请求可能直接返回 upstream_unavailable。
+ * 这里按字符数做最后一道预算：保留最近消息，从最近的 user 开始，
+ * 并在最前面放一条“较早对话已省略”的提示。
+ */
+export function trimModelMessages(
+  messages: ModelMessage[],
+  maxChars: number,
+): ModelMessage[] {
+  if (approxChars(messages) <= maxChars) return messages;
+
+  const kept: ModelMessage[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message) continue;
+    kept.unshift(message);
+    if (approxChars(kept) > maxChars) {
+      kept.shift();
+      break;
+    }
+  }
+
+  let start = 0;
+  while (start < kept.length && kept[start]?.role !== "user") start += 1;
+  const trimmed = kept.slice(start);
+  if (trimmed.length === 0) return messages.slice(-1);
+  return [
+    {
+      role: "user",
+      content: "（较早的对话已省略；请以最近的消息和当前工作区文件为准。）",
+    },
+    ...trimmed,
+  ];
+}

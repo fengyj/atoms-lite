@@ -25,6 +25,7 @@ import {
   appendRetryNudge,
   normalizeModelMessages,
   shouldRetryEmptyTurn,
+  trimModelMessages,
 } from "./history";
 import { createTools } from "./tools";
 import { WorkspaceClient } from "./workspace/client";
@@ -390,10 +391,26 @@ export class ChatAgent extends AIChatAgent<Env> {
     }
     const modelMessages = await convertToModelMessages(this.messages);
     const normalizedMessages = normalizeModelMessages(modelMessages);
+    const preparedMessages = shouldRetryEmptyTurn(this.messages)
+      ? appendRetryNudge(normalizedMessages)
+      : normalizedMessages;
+    // 供应商网关对超大请求可能直接返回 upstream_unavailable；
+    // 保留最近约 30k tokens，避免长会话永远无法继续。
+    const budgetedMessages = trimModelMessages(preparedMessages, 120_000);
+    if (budgetedMessages.length !== preparedMessages.length) {
+      console.warn(
+        "[agent.history.trimmed]",
+        JSON.stringify({
+          projectId,
+          requestId: options?.requestId ?? "unknown",
+          before: preparedMessages.length,
+          after: budgetedMessages.length,
+          chars: JSON.stringify(preparedMessages).length,
+        }),
+      );
+    }
     const messages = appendRuntimeContext(
-      shouldRetryEmptyTurn(this.messages)
-        ? appendRetryNudge(normalizedMessages)
-        : normalizedMessages,
+      budgetedMessages,
       renderRuntimeContext(ctx),
     );
 
