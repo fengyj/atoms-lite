@@ -17,6 +17,8 @@ const WORKSPACE_PATH = z
   .string()
   .max(300)
   .describe("必须是 /workspace/... 绝对路径");
+// 注意：tool inputSchema 里不要用 .regex()。上游供应商会把 JSON Schema 的
+// pattern 判为不可用请求并返回 upstream_unavailable；路径校验放在 execute 里。
 const FILE_PATH = z
   .string()
   .max(300)

@@ -665,12 +665,41 @@ export class ChatAgent extends AIChatAgent<Env> {
             : typeof error === "string"
               ? error
               : JSON.stringify(error);
-        const detail = `${name}: ${message || "未知错误"}`.slice(0, 500);
+        const extra = error as {
+          cause?: unknown;
+          responseBody?: unknown;
+          statusCode?: number;
+        };
+        const cause =
+          extra.cause === undefined
+            ? ""
+            : extra.cause instanceof Error
+              ? `${extra.cause.name}: ${extra.cause.message}`
+              : typeof extra.cause === "string"
+                ? extra.cause
+                : JSON.stringify(extra.cause);
+        const body =
+          extra.responseBody === undefined
+            ? ""
+            : typeof extra.responseBody === "string"
+              ? extra.responseBody
+              : JSON.stringify(extra.responseBody);
+        const detail =
+          `${name}: ${message || "未知错误"}` +
+          (extra.statusCode ? ` [${extra.statusCode}]` : "") +
+          (cause ? ` | cause: ${cause}` : "") +
+          (body ? ` | body: ${body}` : "");
+        const historyInfo = `${messages.length} msgs / ${JSON.stringify(messages).length} chars`;
         console.error(
           "[agent.stream.error]",
-          JSON.stringify({ projectId, requestId, detail }),
+          JSON.stringify({
+            projectId,
+            requestId,
+            detail: detail.slice(0, 1000),
+            historyInfo,
+          }),
         );
-        return `模型调用失败：${detail}`;
+        return `模型调用失败：${detail.slice(0, 1000)}（请求：${historyInfo}）`;
       },
     });
   }
