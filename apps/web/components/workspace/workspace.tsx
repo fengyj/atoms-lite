@@ -19,7 +19,6 @@ import {
   useWorkspaceFiles,
   useWorkspaceMeta,
   useWorkspaceDesigns,
-  useWorkspaceRequirements,
   useWorkspaceVersions,
   upgradeInstance,
   configureProject,
@@ -162,12 +161,10 @@ export function Workspace({ projectId }: { projectId: string }) {
   const workspaceMeta = useWorkspaceMeta(projectId);
   const versions = useWorkspaceVersions(projectId);
   const files = useWorkspaceFiles(projectId);
-  const requirements = useWorkspaceRequirements(projectId);
   const designs = useWorkspaceDesigns(projectId);
   const refreshVersions = versions.refresh;
   const refreshFiles = files.refresh;
   const refreshMeta = workspaceMeta.refresh;
-  const refreshRequirements = requirements.refresh;
   const refreshDesigns = designs.refresh;
 
   // 预览刷新：start_preview / create_version 完成后由 watcher 触发
@@ -212,13 +209,10 @@ export function Workspace({ projectId }: { projectId: string }) {
           refreshMeta();
         }
         if (name === "manage_requirements") {
-          refreshRequirements();
-          refreshDesigns();
           refreshMeta();
         }
         if (name === "manage_design") {
           refreshDesigns();
-          refreshRequirements();
           refreshMeta();
         }
       }
@@ -229,7 +223,6 @@ export function Workspace({ projectId }: { projectId: string }) {
     refreshFiles,
     refreshVersions,
     refreshMeta,
-    refreshRequirements,
     refreshDesigns,
   ]);
 
@@ -312,10 +305,9 @@ export function Workspace({ projectId }: { projectId: string }) {
       // 生成/微调是异步的；先轻刷一次，工具完成后再由 completedTools 刷新
       window.setTimeout(() => {
         refreshDesigns();
-        refreshRequirements();
       }, 1200);
     },
-    [sendMessage, refreshDesigns, refreshRequirements]
+    [sendMessage, refreshDesigns]
   );
 
   const retryLastTurn = useCallback(() => {
@@ -587,7 +579,6 @@ export function Workspace({ projectId }: { projectId: string }) {
           previewTick={previewTick}
           versions={versions}
           files={files}
-          requirements={requirements}
           designs={designs}
           messages={messages}
           busy={busy}

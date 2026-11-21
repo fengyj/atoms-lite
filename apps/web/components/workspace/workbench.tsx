@@ -43,7 +43,6 @@ import {
   type WorkspaceDesignListing,
   type WorkspaceFileEntry,
   type WorkspaceFileListing,
-  type WorkspaceRequirements,
   type WorkspaceVersion,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
@@ -63,7 +62,6 @@ export function WorkbenchPanel({
   previewTick,
   versions,
   files,
-  requirements,
   designs,
   messages,
   busy,
@@ -77,7 +75,6 @@ export function WorkbenchPanel({
   previewTick: number;
   versions: Endpoint<WorkspaceVersion[]>;
   files: Endpoint<WorkspaceFileListing>;
-  requirements: Endpoint<WorkspaceRequirements | null>;
   designs: Endpoint<WorkspaceDesignListing>;
   messages: UIMessage[];
   busy: boolean;
@@ -227,7 +224,6 @@ export function WorkbenchPanel({
           <DesignPanel
             projectId={projectId}
             designs={designs}
-            requirements={requirements}
             busy={busy || publishingId !== null || unpublishingId !== null}
             onContinue={onDesignContinue}
           />

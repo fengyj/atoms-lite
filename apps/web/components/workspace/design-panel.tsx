@@ -8,7 +8,6 @@ import {
   Palette,
   RefreshCw,
   Smartphone,
-  Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,14 +19,15 @@ import {
   type Endpoint,
   type WorkspaceDesign,
   type WorkspaceDesignListing,
-  type WorkspaceRequirements,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 
 function designStatusLabel(status: string): string {
+  if (status === "none") return "未开始";
+  if (status === "review") return "待选择";
+  if (status === "approved") return "已选择";
   if (status === "applied") return "已应用";
   if (status === "selected") return "已选择";
-  if (status === "review") return "待选择";
   return "草稿";
 }
 
@@ -42,13 +42,11 @@ function designStatusTone(status: string): string {
 export function DesignPanel({
   projectId,
   designs,
-  requirements,
   busy,
   onContinue,
 }: {
   projectId: string;
   designs: Endpoint<WorkspaceDesignListing>;
-  requirements: Endpoint<WorkspaceRequirements | null>;
   busy: boolean;
   onContinue: (text: string) => void;
 }) {
@@ -124,22 +122,9 @@ export function DesignPanel({
     };
   }, [projectId, selected?.id, reloadKey]);
 
-  const requirementsConfirmed =
-    designs.data?.requirementsStatus === "confirmed" ||
-    requirements.data?.status === "confirmed";
-  const loadError = designs.error ?? requirements.error;
+  const loadError = designs.error;
   const retryLoad = () => {
     designs.refresh();
-    requirements.refresh();
-  };
-
-  const generate = (mode: "new" | "revision") => {
-    setError(null);
-    onContinue(
-      mode === "revision"
-        ? "请基于当前需求摘要和已有设计，再生成 3 个结构不同的设计方向，放到设计 tab 里让我比较。"
-        : "请根据已确认的需求摘要生成 3 个结构不同的设计方向。",
-    );
   };
 
   const select = async (design: WorkspaceDesign) => {
@@ -149,9 +134,8 @@ export function DesignPanel({
     try {
       await selectWorkspaceDesign(projectId, design.id, notes.trim() || undefined);
       designs.refresh();
-      await requirements.refresh();
       onContinue(
-        `我选择了设计方向「${design.title}」（designId: ${design.id}）。请先应用这个设计（manage_design action=apply），然后按 DESIGN.md 开始实现。`,
+        `我选择了设计草案「${design.title}」（designId: ${design.id}）。请先应用这个设计（manage_design action=apply），然后按 DESIGN.md 开始实现。`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -163,7 +147,7 @@ export function DesignPanel({
   const refine = () => {
     if (!selected || !notes.trim() || busy) return;
     onContinue(
-      `请微调设计方向「${selected.title}」（designId: ${selected.id}）：${notes.trim()}`,
+      `请微调设计草案「${selected.title}」（designId: ${selected.id}）：${notes.trim()}`,
     );
   };
 
@@ -171,8 +155,8 @@ export function DesignPanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
         <Palette className="size-3.5 text-muted-foreground" />
-        <h2 className="font-serif text-base font-medium">设计方向</h2>
-        {designs.data ? (
+        <h2 className="font-serif text-base font-medium">设计草案</h2>
+        {designs.data && designs.data.status !== "none" ? (
           <Badge
             variant="outline"
             className={cn(
@@ -184,25 +168,8 @@ export function DesignPanel({
           </Badge>
         ) : null}
         <span className="text-2xs text-muted-foreground">
-          {list.length ? `${list.length} 个方向` : "还没有设计稿"}
+          {list.length} 个草案
         </span>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-full"
-            disabled={busy || !requirementsConfirmed}
-            onClick={() => generate(list.length ? "revision" : "new")}
-          >
-            {list.length ? (
-              <RefreshCw className="size-3.5" />
-            ) : (
-              <Sparkles className="size-3.5" />
-            )}
-            {list.length ? "再生成 3 个" : "生成 3 个方向"}
-          </Button>
-        </div>
       </div>
 
       {error ? (
@@ -214,63 +181,20 @@ export function DesignPanel({
       {loadError ? (
         <InlineError
           className="mx-4 mt-3"
-          message={`需求/设计加载失败：${loadError}`}
+          message={`设计草案加载失败：${loadError}`}
           onRetry={retryLoad}
         />
       ) : null}
-
-      {requirements.data ? (
-        <div className="mx-4 mt-3 border border-border bg-muted/20 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-3xs tracking-[0.14em] text-muted-foreground uppercase">
-              需求摘要
-            </span>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-3xs",
-                requirements.data.status === "confirmed"
-                  ? "border-success/40 bg-success/10 text-success"
-                  : "border-warning/40 bg-warning/10 text-warning",
-              )}
-            >
-              {requirements.data.status === "confirmed" ? "已确认" : "待确认"}
-            </Badge>
-          </div>
-          <p className="mt-2 text-xs leading-6 text-foreground">
-            {requirements.data.brief.summary}
-          </p>
-          <p className="mt-1 text-2xs text-muted-foreground">
-            {requirements.data.brief.audience} · {requirements.data.brief.job}
-          </p>
-        </div>
-      ) : (
-        <p className="mx-4 mt-3 border border-dashed border-border px-4 py-3 text-2xs text-muted-foreground">
-          还没有需求摘要。先在对话里让 Agent 了解需求并确认。
-        </p>
-      )}
 
       {list.length === 0 && !loadError ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
           <span className="grid size-12 place-items-center rounded-full border border-border bg-muted/30 text-muted-foreground">
             <Palette className="size-5" />
           </span>
-          <p className="font-serif text-lg">还没有设计方向</p>
+          <p className="font-serif text-lg">还没有设计草案</p>
           <p className="max-w-md text-xs leading-6 text-muted-foreground">
-            {requirementsConfirmed
-              ? "让 Agent 生成 3 个结构不同的方向，再在这里比较、选择或继续微调。"
-              : "先完成需求确认，再生成设计方向。"}
+            在对话里让 Agent 生成或更新设计草案后，会显示在这里。
           </p>
-          <Button
-            type="button"
-            size="sm"
-            className="rounded-full"
-            disabled={busy || !requirementsConfirmed}
-            onClick={() => generate("new")}
-          >
-            <Sparkles className="size-3.5" />
-            生成 3 个方向
-          </Button>
         </div>
       ) : list.length === 0 ? null : (
         <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -386,7 +310,7 @@ export function DesignPanel({
                     ) : null}
                     <iframe
                       key={`${selected.id}-${reloadKey}-${mobilePreview}`}
-                      title={`设计方向 ${selected.title}`}
+                      title={`设计草案 ${selected.title}`}
                       src={designPreviewUrl(projectId, selected.id)}
                       sandbox=""
                       className={cn(
