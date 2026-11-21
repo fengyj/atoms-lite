@@ -111,14 +111,16 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **前端结构**：`src/App.tsx` 是 HashRouter shell，默认首页在 `src/pages/Index.tsx`；
   新页面放 `src/pages` 并在 App.tsx 注册。HashRouter 避免 `/previews/:id/` 路径冲突。
 - **需求优先**：需求未确认前不写生产代码、不生成设计稿。Agent 先用 `ask_user` 问清目标用户、
-  核心任务、必须内容、约束、成功标准、视觉方向和非目标，再调用 `save_requirements_brief` 保存；
-  用户确认后调用 `confirm_requirements`（`atoms_requirements.status=confirmed`）。
+  核心任务、必须内容、约束、成功标准、视觉方向和非目标，再调用
+  `manage_requirements(action=save)` 保存；用户确认后调用
+  `manage_requirements(action=confirm)`（`atoms_requirements.status=confirmed`）。
 - **设计优先**：需求确认后询问用户「先看设计方向 / 直接实现 / 设计延后」。选择先看时调用
-  `create_design_concepts` 生成 2–3 个结构不同的静态概念页，资料进入工作台「设计」tab；
+  `manage_design(action=create)` 生成 2–3 个结构不同的静态概念页，资料进入工作台「设计」tab；
   用户在 iframe 里比较、批注或选择。`design_status=review` 期间不写生产代码。
-- **设计应用**：用户选中后 `select_design`（`approved`），`apply_design` 把该方向的
-  `DESIGN.md` 写入工作区并标记 `applied`；主 Agent 必须读取 `DESIGN.md` 后再实现。
-  后续 UI 反馈先用 `create_design_concepts({ mode: "revision" })` 生成变体，不直接大改生产代码。
+- **设计应用**：用户选中后 `manage_design(action=select)`（`approved`），
+  `manage_design(action=apply)` 把该方向的 `DESIGN.md` 写入工作区并标记 `applied`；
+  主 Agent 必须读取 `DESIGN.md` 后再实现。后续 UI 反馈先用
+  `manage_design(action=create, mode="revision")` 生成变体，不直接大改生产代码。
 - **Designer 子 agent**：`designer.ts` 独立调用模型，不做用户沟通、不写生产代码。
   每个方向单独一次调用（并行执行、硬超时 120s + 精简重试 90s，24k 输出，真实文案、
   真实数据、响应式、纯静态 HTML/CSS，不依赖构建和外部资源）；每完成一个就先落库。
@@ -196,8 +198,7 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   不写回消息存储；工具按 `RuntimeContext` 条件动态挂载。
 - **ask_user**：15 分钟线性倒计时卡片；提交后客户端配置项目并 `addToolOutput` 续跑。
 - **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
-- **需求/设计工具**：`save_requirements_brief` / `confirm_requirements` / `create_design_concepts` /
-  `refine_design_concept` / `list_designs` / `select_design` / `apply_design`；
+- **需求/设计工具**：`manage_requirements` / `manage_design`；
   Designer 调用以 `source=designer` 单独记账。
 - **空回复与连续消息**：主对话显式设置 `maxOutputTokens: 16k`，避免供应商默认预算被
   reasoning 吃光后返回空的 `finishReason=stop`；模型输入前先归一化历史：丢掉空 assistant，

@@ -107,7 +107,7 @@ export function DesignPanel({
       designs.refresh();
       await requirements.refresh();
       onContinue(
-        `我选择了设计方向「${design.title}」（designId: ${design.id}）。请先 apply_design，然后按 DESIGN.md 开始实现。`,
+        `我选择了设计方向「${design.title}」（designId: ${design.id}）。请先应用这个设计（manage_design action=apply），然后按 DESIGN.md 开始实现。`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

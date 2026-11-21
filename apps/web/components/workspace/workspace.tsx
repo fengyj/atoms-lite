@@ -188,7 +188,7 @@ export function Workspace({ projectId }: { projectId: string }) {
           name === "build" ||
           name === "exec" ||
           name === "finish" ||
-          name === "apply_design"
+          name === "manage_design"
         ) {
           refreshFiles();
         }
@@ -196,20 +196,12 @@ export function Workspace({ projectId }: { projectId: string }) {
           refreshVersions();
           refreshMeta();
         }
-        if (
-          name === "save_requirements_brief" ||
-          name === "confirm_requirements"
-        ) {
+        if (name === "manage_requirements") {
           refreshRequirements();
           refreshDesigns();
           refreshMeta();
         }
-        if (
-          name === "create_design_concepts" ||
-          name === "refine_design_concept" ||
-          name === "select_design" ||
-          name === "apply_design"
-        ) {
+        if (name === "manage_design") {
           refreshDesigns();
           refreshRequirements();
           refreshMeta();
