@@ -139,7 +139,7 @@ export function DesignPanel({
     const controller = new AbortController();
     setPreviewState("loading");
     setPreviewError(null);
-    fetch(designPreviewUrl(projectId, selected.id), {
+    fetch(`${designPreviewUrl(projectId, selected.id)}?v=${selected.updatedAt}`, {
       signal: controller.signal,
       cache: "no-store",
     })
@@ -164,7 +164,7 @@ export function DesignPanel({
       alive = false;
       controller.abort();
     };
-  }, [projectId, selected?.id, reloadKey]);
+  }, [projectId, selected?.id, selected?.updatedAt, reloadKey]);
 
   const loadError = designs.error;
 
@@ -411,9 +411,9 @@ export function DesignPanel({
                         ) : null}
                         <iframe
                           ref={iframeRef}
-                          key={`${selected.id}-${reloadKey}-${mobilePreview}`}
+                          key={`${selected.id}-${selected.updatedAt}-${reloadKey}-${mobilePreview}`}
                           title={`设计草案 ${selected.title}`}
-                          src={designPreviewUrl(projectId, selected.id)}
+                          src={`${designPreviewUrl(projectId, selected.id)}?v=${selected.updatedAt}`}
                           sandbox="allow-same-origin"
                           onLoad={() => setFrameLoaded((value) => value + 1)}
                           className={cn(
