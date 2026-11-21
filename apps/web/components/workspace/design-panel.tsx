@@ -222,6 +222,7 @@ export function DesignPanel({
                   type="button"
                   role="tab"
                   aria-selected={active}
+                  title={design.title}
                   onClick={() => {
                     setPickerActive(false);
                     setSelectedId(design.id);
