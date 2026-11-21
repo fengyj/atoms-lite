@@ -23,21 +23,22 @@
    - 即使用户选择“先看设计”，如果需求仍有歧义，仍要先继续澄清。
 
 3. **设计探索**
-   - `manage_design(action=create)` 生成 2–3 个概念，默认 3 个；每个概念是独立静态 HTML，
+   - `manage_design(action=create)` 生成 2–5 个概念，默认 3 个；每个概念是独立静态 HTML，
      CSS 内联，真实文案和真实数据，响应式覆盖 360 / 768 / 1280，不依赖构建和外部资源。
-   - 概念必须结构不同，不能只是换色；三个默认方向是：
-     编排式日志（排版/留白）、工作台清单（密度/扫描）、触感摘要（色块/摘要图形）。
+   - 概念必须结构不同，不能只是换色；五个可选方向是：
+     编排式日志（排版/留白）、工作台清单（密度/扫描）、触感摘要（色块/摘要图形）、
+     索引档案（目录/固定栏）、宣言海报（大字号/色带）。
    - 每个方向单独调用一次模型，并行执行，`reasoningEffort=low`，24k 输出；
      HTML 控制在 100–160 行；硬超时 120s，失败时用精简提示重试一次（90s）。
-   - 每完成一个方向就先写入 `atoms_designs`，用户不必等全部 3 个都完成。
+   - 每完成一个方向就先写入 `atoms_designs`，用户不必等全部草案都完成。
    - 概念存入 `atoms_designs` / `atoms_design_files`，通过独立路由在 iframe 中预览；
      不启动容器。
 
 4. **选择、批注与应用**
-   - 工作台新增「设计」tab：只展示 Agent 生成的草案、桌面/移动预览、批注框、
-     「让 Agent 微调」、「选择并继续」。生成/更新通过对话触发，面板里不放生成按钮；
-     没有草案时只显示「还没有设计草案」。
-   - 用户选择后 `manage_design(action=select)` 把 `design_status` 改为 `approved`；
+   - 工作台「设计」tab 是纯展示：草案列表、桌面/移动预览、重新加载；没有生成、再生成、
+     选择、批注或微调按钮。生成/选择/批注/微调都在对话里完成。
+   - 没有草案时只显示「还没有设计草案」。
+   - 用户在对话里选择后 `manage_design(action=select)` 把 `design_status` 改为 `approved`；
      具体视觉反馈用 `manage_design(action=refine)` 只改当前方向。
    - `manage_design(action=apply)` 把该方向的 `design_md` 写入工作区 `DESIGN.md`，
      `design_status=applied`。主 Agent 之后必须读取 `DESIGN.md` 并遵守。

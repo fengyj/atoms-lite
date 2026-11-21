@@ -296,20 +296,6 @@ export function Workspace({ projectId }: { projectId: string }) {
     [sendMessage, selection]
   );
 
-  const designContinue = useCallback(
-    (text: string) => {
-      setAgentError(null);
-      setCompactNotice(null);
-      sendMessage({ text });
-      setTab("workbench");
-      // 生成/微调是异步的；先轻刷一次，工具完成后再由 completedTools 刷新
-      window.setTimeout(() => {
-        refreshDesigns();
-      }, 1200);
-    },
-    [sendMessage, refreshDesigns]
-  );
-
   const retryLastTurn = useCallback(() => {
     if (!messages.some((message) => message.role === "assistant")) return;
     setAgentError(null);
@@ -582,7 +568,6 @@ export function Workspace({ projectId }: { projectId: string }) {
           designs={designs}
           messages={messages}
           busy={busy}
-          onDesignContinue={designContinue}
           onSelectElement={(next) => {
             setSelection(next);
             if (

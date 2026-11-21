@@ -72,10 +72,10 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - Editorial Feature 主题：顶部 4px cobalt 色线、纸张面板、衬线项目名
 - 两栏：左侧对话；右侧工作台（窄屏底部「对话 / 工作台」切换）
 - 工作台顶部 tab：**预览 / 工作区 / 设计 / 终端 / 版本**，使用细线 active 状态
-- **设计**：只负责展示 Agent 生成的设计草案；没有草案时显示「还没有设计草案」空态。
-  窗口内不提供「生成/再生成 3 个方向」按钮，生成和更新都通过对话触发。保留
-  iframe 实时预览、桌面/移动切换、批注微调、选择并继续；选中后写入 `DESIGN.md`
-  再进入实现。预览前会先 fetch 一次设计稿 URL，404/500 时显示「设计稿加载失败」+ 重试，
+- **设计**：纯展示 Agent 生成的设计草案；没有草案时显示「还没有设计草案」空态。
+  窗口内不提供生成、再生成、选择、批注或微调按钮，这些操作都在对话里完成。
+  保留草案列表（点击切换预览）、iframe 实时预览、桌面/移动切换和重新加载。
+  预览前会先 fetch 一次设计稿 URL，404/500 时显示「设计稿加载失败」+ 重试，
   而不是只显示空白 iframe。
 - 顶栏：品牌、项目名、模板、项目 ID、运行状态、用量、升级、当前版本
 - **打开项目不启动沙箱**：文件列表读 SQL 缓存，预览只探测状态
@@ -117,10 +117,11 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   核心任务、必须内容、约束、成功标准、视觉方向和非目标，再调用
   `manage_requirements(action=save)` 保存；用户确认后调用
   `manage_requirements(action=confirm)`（`atoms_requirements.status=confirmed`）。
-- **设计优先**：需求确认后询问用户「先看设计方向 / 直接实现 / 设计延后」。选择先看时调用
-  `manage_design(action=create)` 生成 2–3 个结构不同的静态概念页，资料进入工作台「设计」tab；
-  用户在 iframe 里比较、批注或选择。`design_status=review` 期间不写生产代码。
-- **设计应用**：用户选中后 `manage_design(action=select)`（`approved`），
+- **设计优先**：需求确认后询问用户「先看设计草案 / 直接实现 / 设计延后」。选择先看时调用
+  `manage_design(action=create)` 生成 2–5 个结构不同的静态草案（默认 3，最多 5），
+  资料进入工作台「设计」tab；该 tab 只负责展示，用户在对话里比较、批注或选择。
+  `design_status=review` 期间不写生产代码。
+- **设计应用**：用户在对话里选中后 `manage_design(action=select)`（`approved`），
   `manage_design(action=apply)` 把该方向的 `DESIGN.md` 写入工作区并标记 `applied`；
   主 Agent 必须读取 `DESIGN.md` 后再实现。后续 UI 反馈先用
   `manage_design(action=create, mode="revision")` 生成变体，不直接大改生产代码。
@@ -293,11 +294,11 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 静态模板：容器启动 ~1s；3 个文件；预览 200。
 - 需求/设计接口：`/requirements` 保存 → confirm；`/designs` 创建 → detail → 预览 HTML →
   select → apply；`DESIGN.md` 写入正确，`/meta` 返回 `designStatus=applied`。
-- Designer 真实模型：3 个结构不同的概念页，并行生成约 55 秒完成；单概念 130–190 行 HTML，
-  无外部资源，designMd 1.7–2.3 KB；单概念 120s 硬超时 + 90s 精简重试。
+- Designer 真实模型：默认 3 个、支持 2–5 个结构不同的草案；3 个并行生成约 55 秒完成；
+  单概念 130–190 行 HTML，无外部资源，designMd 1.7–2.3 KB；单概念 120s 硬超时 + 90s 精简重试。
 - 设计面板：Playwright 验证空态只显示「还没有设计草案」，没有生成/再生成按钮、需求摘要
-  或「先完成需求确认」提示；有草案时显示「1 个草案」、iframe、批注框、
-  「让 Agent 微调」与「选择并继续」，无 console 错误。
+  或「先完成需求确认」提示；有草案时只显示「1 个草案」、草案列表、iframe、桌面/移动切换
+  和重新加载，没有选择/批注/微调按钮，无 console 错误。
 - 空回复复现：116k tokens 的长会话里，失败的 assistant 消息为空，转换成模型输入后变成
   连续 user，模型稳定返回空内容。合并连续 user + 对空回复追加明确提示后，同一历史
   返回约 1.9k 字正常回答；空 assistant 在 UI 里显示为可重试的提示。

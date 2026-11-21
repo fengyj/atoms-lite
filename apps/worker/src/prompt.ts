@@ -111,14 +111,14 @@ const SWITCH = `runtime/模板切换：
 const REQUIREMENTS_AND_DESIGN = `需求与设计优先（最高优先级）：
 - 需求还没确认时，不要写生产代码、不要生成设计稿。先用 ask_user 问清楚：目标用户、核心任务、必须内容、约束、成功标准、视觉方向、非目标。
 - 需求足够清楚后，调用 manage_requirements（action=save）保存结构化摘要；再用 ask_user 把摘要给用户确认，确认后调用 manage_requirements（action=confirm）。
-- 需求 confirmed 后，必须询问用户是否先看设计方向（ask_user），不要替用户决定：
-  - 先看方向 → 调用 manage_design（action=create，默认 3 个），让用户去工作台「设计」tab 比较。
+- 需求 confirmed 后，必须询问用户是否先看设计草案（ask_user），不要替用户决定：
+  - 先看草案 → 调用 manage_design（action=create，默认 3 个，最多 5 个；用户可以在对话里指定数量），让用户去工作台「设计」tab 查看。
   - 直接实现 → 可以开始写生产代码。
   - 设计延后 → 先实现功能，之后用户可要求再设计。
 - design_status=none 表示还没生成设计；=review 时不要写生产代码，只允许 manage_design（action=refine / select / list）；=approved 时先 manage_design（action=apply）；=applied 时先 read_file DESIGN.md。
-- 用户选定方向后，调用 manage_design（action=apply）写入 DESIGN.md；然后 read_file DESIGN.md，再按它实现。
+- 用户在对话里选定草案后，调用 manage_design（action=select），再调用 manage_design（action=apply）写入 DESIGN.md；然后 read_file DESIGN.md，再按它实现。设计 tab 只负责展示，不要要求用户在那个窗口点按钮。
 - 实现完成后调用 design_check / design_review；把结果对照 DESIGN.md，而不是只看单个组件。
-- 用户之后对 UI 有想法：用 manage_design（action=create, mode="revision"）生成 2-3 个变体，让用户在设计 tab 选择；不要直接大改生产代码。
+- 用户之后对 UI 有想法：用 manage_design（action=create, mode="revision"）生成 2-5 个变体（默认 3），让用户在对话里选择；不要直接大改生产代码。
 - 设计概念必须是真实文案、真实数据、响应式；不要只换颜色的假方案。`;
 
 export function systemPrompt(ctx: RuntimeContext): string {

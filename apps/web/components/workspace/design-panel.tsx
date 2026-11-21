@@ -1,23 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Check,
-  Loader2,
-  Monitor,
-  Palette,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react";
+import { Loader2, Monitor, Palette, RefreshCw, Smartphone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { InlineError } from "@/components/workspace/inline-error";
 import {
   designPreviewUrl,
-  selectWorkspaceDesign,
   type Endpoint,
-  type WorkspaceDesign,
   type WorkspaceDesignListing,
 } from "@/lib/agent";
 import { cn } from "@/lib/utils";
@@ -43,19 +33,14 @@ export function DesignPanel({
   projectId,
   designs,
   busy,
-  onContinue,
 }: {
   projectId: string;
   designs: Endpoint<WorkspaceDesignListing>;
   busy: boolean;
-  onContinue: (text: string) => void;
 }) {
   const list = designs.data?.designs ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
   const [mobilePreview, setMobilePreview] = useState(false);
-  const [selecting, setSelecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [previewState, setPreviewState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -81,7 +66,7 @@ export function DesignPanel({
 
   useEffect(() => {
     if (!busy) return;
-    // 概念是逐个落库的；Agent 忙碌时轻量轮询，让先完成的方向先出现。
+    // 草案是逐个落库的；Agent 忙碌时轻量轮询，让先完成的方向先出现。
     const timer = window.setInterval(() => designs.refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [busy, designs.refresh]);
@@ -123,33 +108,6 @@ export function DesignPanel({
   }, [projectId, selected?.id, reloadKey]);
 
   const loadError = designs.error;
-  const retryLoad = () => {
-    designs.refresh();
-  };
-
-  const select = async (design: WorkspaceDesign) => {
-    if (busy || selecting) return;
-    setSelecting(true);
-    setError(null);
-    try {
-      await selectWorkspaceDesign(projectId, design.id, notes.trim() || undefined);
-      designs.refresh();
-      onContinue(
-        `我选择了设计草案「${design.title}」（designId: ${design.id}）。请先应用这个设计（manage_design action=apply），然后按 DESIGN.md 开始实现。`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSelecting(false);
-    }
-  };
-
-  const refine = () => {
-    if (!selected || !notes.trim() || busy) return;
-    onContinue(
-      `请微调设计草案「${selected.title}」（designId: ${selected.id}）：${notes.trim()}`,
-    );
-  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
@@ -172,17 +130,11 @@ export function DesignPanel({
         </span>
       </div>
 
-      {error ? (
-        <p className="mx-4 mt-3 border border-destructive/30 bg-destructive/10 px-3 py-2 text-2xs text-destructive">
-          {error}
-        </p>
-      ) : null}
-
       {loadError ? (
         <InlineError
           className="mx-4 mt-3"
           message={`设计草案加载失败：${loadError}`}
-          onRetry={retryLoad}
+          onRetry={() => designs.refresh()}
         />
       ) : null}
 
@@ -193,7 +145,7 @@ export function DesignPanel({
           </span>
           <p className="font-serif text-lg">还没有设计草案</p>
           <p className="max-w-md text-xs leading-6 text-muted-foreground">
-            在对话里让 Agent 生成或更新设计草案后，会显示在这里。
+            在对话里让 Agent 生成或更新设计草案后，会显示在这里。每轮默认 3 个，最多 5 个。
           </p>
         </div>
       ) : list.length === 0 ? null : (
@@ -290,7 +242,7 @@ export function DesignPanel({
                     </span>
                     <p className="font-serif text-lg">设计稿加载失败</p>
                     <p className="text-2xs leading-5 text-muted-foreground">
-                      预览文件没有返回可用内容；设计列表和需求不受影响。
+                      预览文件没有返回可用内容；设计列表不受影响。
                     </p>
                     <InlineError
                       className="w-full text-left"
@@ -320,44 +272,6 @@ export function DesignPanel({
                     />
                   </div>
                 )}
-              </div>
-
-              <div className="flex flex-col gap-2 border border-border bg-card p-3">
-                <Textarea
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="想改哪里？比如：标题太大、项目列表太挤、配色再暖一点……"
-                  className="min-h-16 resize-none text-xs"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-2xs text-muted-foreground">
-                    选定后会写入 DESIGN.md，再进入实现。
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto rounded-full"
-                    disabled={!notes.trim() || busy}
-                    onClick={refine}
-                  >
-                    让 Agent 微调
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="rounded-full"
-                    disabled={busy || selecting}
-                    onClick={() => void select(selected)}
-                  >
-                    {selecting ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Check className="size-3.5" />
-                    )}
-                    选择并继续
-                  </Button>
-                </div>
               </div>
             </div>
           ) : null}

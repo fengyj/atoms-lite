@@ -365,13 +365,13 @@ export function createTools({
 
   tools.manage_design = tool({
     description:
-      "管理设计方向。action=create：需求 confirmed 后生成 2-3 个结构不同的静态概念；refine：按反馈微调一个方向；list：列出方向；select：选中一个方向（approved）；apply：把选中方向写成 DESIGN.md（applied）。create/refine 结果会进入工作台「设计」tab。",
+      "管理设计草案。action=create：需求 confirmed 后生成 2-5 个结构不同的静态草案（默认 3）；refine：按反馈微调一个；list：列出；select：选中一个（approved）；apply：把选中草案写成 DESIGN.md（applied）。生成/更新由对话触发，工作台「设计」tab 只负责展示。",
     inputSchema: z.object({
       action: z.enum(["create", "refine", "list", "select", "apply"]),
       mode: z.enum(["new", "revision"]).optional().describe("create 时使用，默认 new"),
-      count: z.number().int().min(2).max(3).optional().describe("create 时使用，默认 3"),
+      count: z.number().int().min(2).max(5).optional().describe("create 时使用，2-5 个，默认 3"),
       notes: z.string().max(2000).optional().describe("create/select 时的补充说明"),
-      designId: z.string().max(100).optional().describe("refine/select/apply 的目标方向"),
+      designId: z.string().max(100).optional().describe("refine/select/apply 的目标草案"),
       feedback: z.string().max(4000).optional().describe("refine 时的用户反馈"),
     }),
     execute: async (input) => {

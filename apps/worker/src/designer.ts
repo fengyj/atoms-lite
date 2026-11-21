@@ -57,6 +57,20 @@ const NEW_DIRECTIONS: DirectionSeed[] = [
     layout:
       "像一张海报或工作台上的便签：首屏有一个很大的摘要数字或环形/条形图形（完成数、连续天数），周围是短句和手写感标记，任务列表放在下半部分。可以用不对称构图、大圆角、色带或叠层，但保持克制，不做通用 SaaS 仪表盘。",
   },
+  {
+    title: "索引档案",
+    thesis: "用目录和索引组织内容，强调快速定位，而不是从头读到尾。",
+    palette: "中性纸色 / 深色文字 / 一个目录强调色",
+    layout:
+      "像一份档案索引：首屏是一条横向目录，或左侧固定索引栏；主体是按编号/字母分组的高密度条目，右侧或下方显示当前条目的详情。不要卡片网格、不要大标题海报；用编号、对齐、细线和固定栏建立秩序。",
+  },
+  {
+    title: "宣言海报",
+    thesis: "用一句明确的宣言和强对比排版建立记忆点，内容按横向色带展开。",
+    palette: "高对比主色 / 大面积留白或深底 / 一个辅助色",
+    layout:
+      "像一张宣言海报：首屏是一句大字宣言或一个超大关键词，配少量说明；往下用横向色带、粗线和错位栅格展示内容。允许不对称和大字号，但信息仍要可读；不要通用仪表盘。",
+  },
 ];
 
 const REVISION_DIRECTIONS: DirectionSeed[] = [
@@ -80,6 +94,20 @@ const REVISION_DIRECTIONS: DirectionSeed[] = [
     palette: "沿用当前设计，但允许一个更强的主色块",
     layout:
       "在现有设计基础上做结构变化：首屏使用一个非标准的视觉装置（超大数字、色块切分、叠层、非对称栅格或图形化进度），让页面有明确的观点。仍然要能用，不要做成展示页。",
+  },
+  {
+    title: "更索引",
+    thesis: "保留产品事实，把当前页面重排成可快速定位的索引/档案结构。",
+    palette: "沿用当前设计，但减少装饰色",
+    layout:
+      "在现有设计基础上做结构变化：增加目录/索引栏、编号系统、固定详情栏，把内容变成可跳转的条目。不要只是换颜色。",
+  },
+  {
+    title: "更海报",
+    thesis: "保留产品事实，用一句宣言和强对比色带建立更强的视觉记忆。",
+    palette: "沿用当前设计，但允许一个高对比主色",
+    layout:
+      "在现有设计基础上做结构变化：首屏用大字号宣言/关键词、横向色带或错位栅格；内容仍然可用，不要做成纯展示页。",
   },
 ];
 
@@ -288,23 +316,38 @@ export async function generateDesignConcepts({
 }): Promise<DesignConceptInput[]> {
   const seeds = (
     mode === "revision" ? REVISION_DIRECTIONS : NEW_DIRECTIONS
-  ).slice(0, Math.max(2, Math.min(3, count)));
+  ).slice(0, Math.max(2, Math.min(5, count)));
 
-  const results = await Promise.allSettled(
-    seeds.map(async (seed, index) => {
-      const concept = await generateOne({
-        model,
-        seed,
-        brief,
-        mode,
-        current,
-        notes,
-        onUsage,
-      });
-      // 每成功一个就落库，用户不必等全部 3 个都完成。
-      await onConcept?.(concept, index);
-      return concept;
-    }),
+  const results: PromiseSettledResult<DesignConceptInput>[] = new Array(
+    seeds.length,
+  );
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= seeds.length) return;
+      const seed = seeds[index]!;
+      try {
+        const concept = await generateOne({
+          model,
+          seed,
+          brief,
+          mode,
+          current,
+          notes,
+          onUsage,
+        });
+        // 每成功一个就落库，用户不必等全部草案都完成。
+        await onConcept?.(concept, index);
+        results[index] = { status: "fulfilled", value: concept };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(3, seeds.length) }, () => worker()),
   );
 
   const concepts: DesignConceptInput[] = [];
