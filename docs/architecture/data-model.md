@@ -410,7 +410,7 @@ CREATE TABLE atoms_deployments (
   d1_id          TEXT,
   hostname       TEXT NOT NULL,
   domain_id      TEXT,
-  status         TEXT NOT NULL,          -- deploying | ready | failed
+  status         TEXT NOT NULL,          -- deploying | ready | failed | unpublished
   url            TEXT,
   schema_version TEXT,                   -- 最后一个 D1 migration 文件名
   domain_error   TEXT,                   -- 自定义域名绑定失败原因
@@ -446,6 +446,8 @@ CREATE TABLE atoms_deployments (
 - D1 迁移只向前应用；如果目标版本缺少数据库已应用的 migration，发布被阻断（见 9.5）。
 - 删除项目时按 domain → Worker → D1 的顺序删除；Worker 还绑定自定义域名时
   Cloudflare 会拒绝删除脚本。失败只记日志，不阻塞删除。
+- 取消发布时删除自定义域名和 Worker，保留 D1；把当前 `ready` 记录标为
+  `unpublished`。再次发布时重建 Worker/域名，D1 数据继续使用。
 
 ### 6.6 v1 的文件与附件边界
 

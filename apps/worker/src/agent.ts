@@ -3,8 +3,6 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createCompactFunction } from "agents/sessions";
 import {
   convertToModelMessages,
-  createUIMessageStream,
-  createUIMessageStreamResponse,
   generateText,
   stepCountIs,
   streamText,
@@ -55,8 +53,23 @@ export class ChatAgent extends AIChatAgent<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    const contextWindow =
+      Number(this.env.MODEL_CONTEXT_WINDOW ?? 1_000_000) || 1_000_000;
+    const ratioRaw = this.env.COMPACTION_CONTEXT_RATIO;
+    const ratio =
+      ratioRaw === undefined || ratioRaw === ""
+        ? contextWindow >= 500_000
+          ? 0.5
+          : 0.65
+        : Number(ratioRaw);
+    const explicitThreshold = Number(this.env.COMPACTION_TOKEN_THRESHOLD ?? 0);
     const threshold =
-      Number(this.env.COMPACTION_TOKEN_THRESHOLD ?? 100_000) || 100_000;
+      explicitThreshold > 0
+        ? explicitThreshold
+        : Math.max(
+            1_000,
+            Math.floor(contextWindow * (Number.isFinite(ratio) ? ratio : 0.5)),
+          );
     const keepRecent =
       Number(this.env.COMPACTION_KEEP_RECENT_TOKENS ?? 20_000) || 20_000;
     const name = this.ctx.id.name ?? this.name;
@@ -71,7 +84,7 @@ export class ChatAgent extends AIChatAgent<Env> {
             const result = await generateText({
               model,
               prompt,
-              maxOutputTokens: 2000,
+              maxOutputTokens: 4000,
               maxRetries: 0,
               abortSignal: AbortSignal.timeout(60_000),
             });
@@ -268,16 +281,15 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const budget = await checkDailyLimit(this.env);
     if (!budget.allowed) {
-      const message = `今日模型额度已用完（${budget.usedTokens}/${budget.limit} tokens），请明天再试。`;
-      const stream = createUIMessageStream({
-        execute: ({ writer }) => {
-          const id = "daily-token-limit";
-          writer.write({ type: "text-start", id });
-          writer.write({ type: "text-delta", id, delta: message });
-          writer.write({ type: "text-end", id });
+      return Response.json(
+        {
+          error: "DAILY_TOKEN_LIMIT",
+          message: `今日模型额度已用完（$${budget.costUsd?.toFixed(4) ?? "0"} / $${budget.costLimitUsd.toFixed(2)}），请明天再试。`,
+          usedTokens: budget.usedTokens,
+          limit: budget.costLimitUsd,
         },
-      });
-      return createUIMessageStreamResponse({ stream });
+        { status: 429 },
+      );
     }
 
     // Agent 实例名就是项目 ID：/agents/chat-agent/<projectId>
@@ -412,6 +424,7 @@ export class ChatAgent extends AIChatAgent<Env> {
         });
       }
     };
+    let budgetWrapRequested = false;
 
     const result = streamText({
       model,
@@ -422,6 +435,47 @@ export class ChatAgent extends AIChatAgent<Env> {
       // 到达单轮步数上限时，不再静默停止：强制模型调用确认卡，
       // 让用户决定是否继续，避免必须手动发送“继续”。
       prepareStep: ({ stepNumber, steps }) => {
+        const spentCost = steps.reduce((sum, step) => {
+          const usage = normalizeUsage(step.usage);
+          const cost =
+            estimateCostUsd(
+              this.env,
+              step.model?.modelId ?? this.env.MODEL_ID ?? null,
+              usage,
+            ) ?? 0;
+          return sum + cost;
+        }, 0);
+        const remaining = budget.remainingCostUsd - spentCost;
+        if (
+          !budgetWrapRequested &&
+          budget.costLimitUsd > 0 &&
+          remaining <= budget.costReserveUsd
+        ) {
+          budgetWrapRequested = true;
+          console.warn(
+            "[agent.budget.wrapup]",
+            JSON.stringify({
+              projectId,
+              requestId,
+              stepNumber,
+              spentCost,
+              remaining,
+              reserve: budget.costReserveUsd,
+            }),
+          );
+          return {
+            system: `${systemPrompt(ctx)}
+
+【预算提醒】今日模型额度即将用完。请不要继续调用任何工具，用一段简洁的中文总结：
+1. 已完成的内容；
+2. 尚未完成的内容；
+3. 建议用户下一步做什么。
+然后立即结束本轮。`,
+            toolChoice: "none" as const,
+            activeTools: [],
+          };
+        }
+
         const last = steps.at(-1);
         const finished = last?.toolCalls?.some(
           (call) => call.toolName === "finish",

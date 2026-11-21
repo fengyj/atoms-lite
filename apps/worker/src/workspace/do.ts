@@ -2578,6 +2578,44 @@ export default {
     });
   }
 
+  private async unpublish(): Promise<{ ok: true; unpublished: boolean }> {
+    return this.exclusive(async () => {
+      const deployment = this.currentDeployment();
+      if (!deployment) return { ok: true, unpublished: false };
+      const target = this.publishTarget();
+      if (target) {
+        const { account } = this.cloudflareConfig();
+        if (target.domainId) {
+          try {
+            await this.cf(
+              `/accounts/${account}/workers/domains/${target.domainId}`,
+              { method: "DELETE" },
+            );
+          } catch (error) {
+            console.warn(
+              "[workspace] unpublish domain delete failed",
+              String(error),
+            );
+          }
+          this.ctx.storage.sql.exec(
+            "UPDATE atoms_project_config SET publish_domain_id = NULL, updated_at = ? WHERE id = ?",
+            Date.now(),
+            this.projectId,
+          );
+        }
+        await this.cf(
+          `/accounts/${account}/workers/scripts/${target.worker}`,
+          { method: "DELETE" },
+        );
+      }
+      this.ctx.storage.sql.exec(
+        "UPDATE atoms_deployments SET status = 'unpublished', updated_at = ? WHERE status = 'ready'",
+        Date.now(),
+      );
+      return { ok: true, unpublished: true };
+    });
+  }
+
   private async deployVersion(versionId: string) {
     await this.prepareVersionArtifacts(versionId);
     return this.exclusive(async () => {
@@ -2740,6 +2778,16 @@ export default {
     }
   }
 
+  private currentDeployment(): DeploymentDbRow | null {
+    return (
+      this.ctx.storage.sql
+        .exec<DeploymentDbRow>(
+          "SELECT * FROM atoms_deployments WHERE status = 'ready' ORDER BY created_at DESC LIMIT 1",
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
   private listVersions(): VersionRow[] {
     const rows = this.ctx.storage.sql
       .exec<VersionDbRow>("SELECT * FROM atoms_versions ORDER BY created_at ASC")
@@ -2748,11 +2796,7 @@ export default {
       this.currentVersionId() ??
       rows.find((row) => row.archived === 0)?.id ??
       null;
-    const deployment = this.ctx.storage.sql
-      .exec<DeploymentDbRow>(
-        "SELECT * FROM atoms_deployments WHERE status = 'ready' ORDER BY created_at DESC LIMIT 1",
-      )
-      .toArray()[0];
+    const deployment = this.currentDeployment();
     return rows.map((r) => ({
       id: r.id,
       gitCommit: r.git_commit,
@@ -3263,6 +3307,7 @@ export default {
       if (path === "/meta") {
         // 只读 SQL，不启动容器：首页列表用
         const current = this.latestVersion();
+        const deployment = this.currentDeployment();
         return Response.json({
           template: this.template(),
           runtime: this.runtime(),
@@ -3286,6 +3331,9 @@ export default {
               .toArray()[0]?.snapshot_at ?? null,
           migration: this.migrationInfo(),
           versionCount: this.versionCount(),
+          published: deployment !== null,
+          publishedVersionId: deployment?.version_id ?? null,
+          deploymentUrl: deployment?.url ?? null,
           currentVersion: current
             ? {
                 id: current.id,
@@ -3707,6 +3755,10 @@ export default {
         return Response.json({
           artifacts: await this.prepareVersionArtifacts(body.versionId),
         });
+      }
+
+      if (path === "/unpublish" && request.method === "POST") {
+        return Response.json(await this.unpublish());
       }
 
       if (path === "/publish" && request.method === "POST") {

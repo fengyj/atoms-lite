@@ -273,7 +273,7 @@ POC 数据：
 | `/design-review`、`/code-review`、`/polish` 命令 + `/` 菜单 | ✅ |
 | 会话时间分隔、ask_user 历史问答、步数上限确认卡、过程折叠 | ✅ |
 | 项目自动命名 + 会话页重命名 | ✅ |
-| 版本发布到 Workers / D1 / 自定义域名 | ✅ |
+| 版本发布到 Workers / D1 / 自定义域名；首页已发布 badge + 取消发布 | ✅ |
 | Token 用量：主对话 / planner / 命名 / 子 agent / compaction，会话与每日全站汇总，默认 $1/天限额 | ✅ |
 | 生产部署 | ✅ |
 
@@ -308,9 +308,10 @@ POC 数据：
 - 三种模板在生产跑通：静态、React、全栈
 - 全栈预览重启、旧快照兼容、容器快照恢复
 - 版本发布：静态/React 到 Workers；全栈自动创建 D1 并应用 migration；
-  自定义域名绑定、version badge 切换、旧版本发布阻断、删除项目清理 Worker/D1/域名
+  自定义域名绑定、version badge 切换、旧版本发布阻断、删除项目清理 Worker/D1/域名；
+  首页已发布 badge、版本列表取消发布（保留 D1）
 - Token 用量：主对话/planner/自动命名/subagent/compaction 记账，会话页顶栏显示累计，
-  每日全站汇总与默认 $1/天费用限额已验证；额度不足时禁用输入框
+  每日全站汇总与默认 $1/天费用限额已验证；额度不足时输入框上方显示临时横幅
 - 非破坏性回滚：marker 文件恢复、历史保留、新的 rollback commit
 - design detector 扫描、`/design-review` 命令、元素选择并入运行环境上下文（`runtime_context`）
 - 首页/工作台响应式与横向溢出检查

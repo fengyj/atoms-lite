@@ -102,6 +102,17 @@ const COMMANDS = [
   },
 ] as const;
 
+function isQuotaErrorMessage(message: UIMessage): boolean {
+  if (message.role !== "assistant") return false;
+  return message.parts.some(
+    (part) =>
+      part.type === "text" &&
+      (part.text.includes('"error":"DAILY_TOKEN_LIMIT"') ||
+        part.text.includes("今日模型额度已用完（") ||
+        part.text.includes("今日模型额度已用完，")),
+  );
+}
+
 export function ChatPanel({
   className,
   messages,
@@ -165,6 +176,8 @@ export function ChatPanel({
     onSubmitText(extra ? `${command.prompt}\n\n${extra}` : command.prompt);
   };
 
+  const visibleMessages = messages.filter((message) => !isQuotaErrorMessage(message));
+
   return (
     <Panel
       title="对话"
@@ -180,9 +193,9 @@ export function ChatPanel({
       <div className="flex h-full flex-col">
         <Conversation className="flex-1">
           <ConversationContent
-            className={`gap-5 px-3 py-4${messages.length === 0 ? " min-h-full justify-center" : ""}`}
+            className={`gap-5 px-3 py-4${visibleMessages.length === 0 ? " min-h-full justify-center" : ""}`}
           >
-            {messages.length === 0 ? (
+            {visibleMessages.length === 0 ? (
               <ConversationEmptyState className="gap-4">
                 <span className="grid size-10 place-items-center rounded-full border border-border bg-muted text-muted-foreground">
                   <Sparkles className="size-4" />
@@ -211,9 +224,9 @@ export function ChatPanel({
 
             {(() => {
               let previousTimestamp: number | null = null;
-              return messages.map((message, messageIndex) => {
+              return visibleMessages.map((message, messageIndex) => {
                 const active =
-                  busy && messageIndex === messages.length - 1;
+                  busy && messageIndex === visibleMessages.length - 1;
                 const timestamp = messageTimestamp(message);
                 const showTime =
                   timestamp !== null &&

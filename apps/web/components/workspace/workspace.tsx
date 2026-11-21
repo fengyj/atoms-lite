@@ -54,6 +54,7 @@ export function Workspace({ projectId }: { projectId: string }) {
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [selection, setSelection] = useState<ElementSelection | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(() =>
     storedWidth(CHAT_WIDTH_KEY, DEFAULT_CHAT_WIDTH, MIN_CHAT_WIDTH, MAX_CHAT_WIDTH),
   );
@@ -85,7 +86,19 @@ export function Workspace({ projectId }: { projectId: string }) {
     addToolApprovalResponse,
     addToolOutput,
     isStreaming,
-  } = useAgentChat({ agent });
+  } = useAgentChat({
+    agent,
+    onError: (error) => {
+      const text = error instanceof Error ? error.message : String(error);
+      if (
+        text.includes("DAILY_TOKEN_LIMIT") ||
+        text.includes("额度已用完")
+      ) {
+        setQuotaNotice("今日模型额度已用完，输入已暂停。");
+        usage.refresh();
+      }
+    },
+  });
 
   // 首页把第一条需求放在 ?prompt= 里；连接就绪且当前空闲时自动发送
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
@@ -219,7 +232,12 @@ export function Workspace({ projectId }: { projectId: string }) {
         : "暂无版本";
 
   const projectName = project.data?.name ?? "工作区";
-  const quotaBlocked = usage.data ? !usage.data.limit.allowed : false;
+  const quotaBlocked =
+    (usage.data ? !usage.data.limit.allowed : false) || quotaNotice !== null;
+
+  useEffect(() => {
+    if (usage.data?.limit.allowed) setQuotaNotice(null);
+  }, [usage.data?.limit.allowed]);
 
   useEffect(() => {
     document.title = `${projectName} · atoms-lite`;

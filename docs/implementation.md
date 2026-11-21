@@ -74,8 +74,8 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **工作区**：左侧文件树（目录折叠、文件图标、大小），右侧源码查看器
   （行号 + 语法高亮）；选择文件会读取内容，容器项目读取时会启动沙箱
 - **终端**：从消息里的 `exec` / `build` 工具调用还原 `$ 命令`、stdout/stderr 与 exit code
-- **版本**：版本列表带「发布 / 重新发布」按钮；已发布版本显示 badge，
-  发布失败保留上一个线上版本，自定义域名失败时显示 workers.dev 警告
+- **版本**：版本列表带「发布 / 重新发布」按钮；已发布版本显示 badge、访问链接和
+  「取消发布」按钮；发布失败保留上一个线上版本，自定义域名失败时显示 workers.dev 警告
 - 对话栏支持拖动调整宽度；双击把手恢复默认值，宽度写入 localStorage
 - 站内图标文件：`app/icon.svg`（favicon）、`app/apple-icon.png`、页内 `BrandMark`；
   生成项目的图标库约定见 `docs/decisions/07-generated-project-icons.md`
@@ -320,6 +320,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 发布入口在「版本」tab：每个版本有「发布 / 重新发布」按钮；没有发布产物的版本显示
   「构建并发布」，发布会先自动补齐产物。
 - 发布成功后该版本显示「已发布」badge；发布另一个版本时 badge 自动移动，访问地址不变。
+- 首页项目卡根据 WorkspaceDO `/meta` 显示「已发布」badge，并带上部署 URL 的 tooltip。
+- 已发布版本提供「取消发布」：删除自定义域名和 Worker，保留 D1；
+  部署记录标为 `unpublished`。再次发布会复用原 D1。
 - 项目首次发布时生成固定的 6 位 slug：
   - 域名 `<slug>.atoms-lite.fengyj.me`
   - Worker `atoms-lite-<slug>`
@@ -341,6 +344,8 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   - 回滚阻断：D1 已应用 `0002` 后再发布会缺该 migration 的 v1，
     返回「该版本不包含数据库已应用的迁移 0002_add_note.sql」；
     线上仍保持 v2，站点继续可用。
+  - 取消发布：版本列表点「取消发布」后，项目 `published=false`、域名 530；
+    Worker/域名已删除，D1 保留。再次发布成功复用原域名和 D1。
 - 自定义域名绑定使用 `PUT /accounts/:id/workers/domains`（wrangler 也是 PUT）。
   之前用 POST 会得到 `405 Method not allowed for this authentication scheme`，不是权限不足。
 - 当前生产 secret 里的 token 来自 wrangler OAuth，命令能正常调用；但 OAuth access token
@@ -374,15 +379,18 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
   - 判断只发生在**新一轮请求开始前**，不会中断已经开始的回合；
   - 只剩不到预留金额时直接判定额度不足，避免单轮透支；
   - 主对话返回普通助手文本；planner 回退规则模板；自动命名跳过；
-  - 额度不足提示不是模型调用，**不写 usage 事件**；它可能作为普通聊天消息存在。
-  - 额度不足时前端禁用输入框并显示“今日模型额度已用完”。
+  - 额度不足提示不是模型调用，**不写 usage 事件**；UI 用输入框上方的临时横幅提示，
+    不写聊天消息。
+  - 一轮进行中如果剩余额度低于预留值，会给模型一个“预算提醒”，要求它总结进度、
+    未完成事项和下一步后停止，不再调用工具。
   - 查询用量失败时 fail-open，避免统计故障把站点锁死。
 - 费用：内置 OpenCode Go `deepseek-v4.1-flash` 默认价格
   （input 0.15 / output 0.60 / cache read 0.003 USD per 1M，来源 models.dev，
   2026-11-21），可用 `MODEL_PRICING_JSON` 覆盖；未知模型 `costUsd = null`。
-- 上下文压缩：`ChatAgent` 构造时注册 `createCompactFunction`，
-  默认 `COMPACTION_TOKEN_THRESHOLD=100000`、`COMPACTION_KEEP_RECENT_TOKENS=20000`；
-  压缩调用记录 `source=compaction`。
+- 上下文压缩：`ChatAgent` 构造时注册 `createCompactFunction`；
+  默认按模型上下文比例触发（大窗口 50%、小窗口 65%），可用
+  `MODEL_CONTEXT_WINDOW` / `COMPACTION_CONTEXT_RATIO` / `COMPACTION_TOKEN_THRESHOLD`
+  调整；当前 1M 模型约 500k 触发，保留最近 20k。压缩调用记录 `source=compaction`。
 - 本地实测：planner 362 tokens / $0.000107；主对话约 17.6k、自动命名 140；
   把每日费用上限临时设为 $0.00015、预留 $0.00005 后，`allowed=false`，
   UI 输入框被禁用并显示额度提示。
@@ -514,8 +522,9 @@ React（番茄钟）与全栈（优先级待办）生成结果：
   仍可作为额外的 token 上限。额度判断只在新一轮请求开始前发生。
 - 费用内置 `deepseek-v4.1-flash` 默认价格（OpenCode Go / models.dev），
   可用 `MODEL_PRICING_JSON` 覆盖；未知模型不会计入费用限额。
-- 上下文压缩默认 100k 触发、保留最近 20k；可通过
-  `COMPACTION_TOKEN_THRESHOLD` / `COMPACTION_KEEP_RECENT_TOKENS` 调整。
+- 上下文压缩默认按模型上下文比例触发（1M 模型约 500k），保留最近 20k；
+  可通过 `MODEL_CONTEXT_WINDOW` / `COMPACTION_CONTEXT_RATIO` /
+  `COMPACTION_TOKEN_THRESHOLD` 调整。
 - 旧版本没有产物时可以自动补齐：browser 从 `atoms_file_versions` 重建；
   container 只对当前版本重新 build；旧 container 版本和旧 fullstack 模板需要新建版本
   （旧 fullstack 项目建议新建项目或迁移模板）。

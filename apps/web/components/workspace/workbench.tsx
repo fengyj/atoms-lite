@@ -18,6 +18,7 @@ import {
   Terminal,
   ExternalLink,
   Rocket,
+  Undo2,
 } from "lucide-react";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ import {
   previewUrl,
   prepareVersionArtifacts,
   publishVersion,
+  unpublishProject,
   shortCommit,
   type Endpoint,
   type WorkspaceFileEntry,
@@ -65,6 +67,7 @@ export function WorkbenchPanel({
 }) {
   const terminal = useMemo(() => buildTerminal(messages), [messages]);
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [unpublishingId, setUnpublishingId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
 
   const handlePublish = async (version: WorkspaceVersion) => {
@@ -88,6 +91,24 @@ export function WorkbenchPanel({
       setPublishError(error instanceof Error ? error.message : String(error));
     } finally {
       setPublishingId(null);
+    }
+  };
+
+  const handleUnpublish = async (version: WorkspaceVersion) => {
+    if (unpublishingId) return;
+    const confirmed = window.confirm(
+      `取消发布版本 ${shortCommit(version.gitCommit)}？\n\n线上站点会下线，Worker 和自定义域名会被删除；D1 数据会保留。`,
+    );
+    if (!confirmed) return;
+    setUnpublishingId(version.id);
+    setPublishError(null);
+    try {
+      await unpublishProject(projectId);
+      versions.refresh();
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUnpublishingId(null);
     }
   };
 
@@ -201,7 +222,7 @@ export function WorkbenchPanel({
           />
           {publishError ? (
             <p className="mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-2xs text-destructive">
-              发布失败：{publishError}
+              操作失败：{publishError}
             </p>
           ) : null}
 
@@ -217,7 +238,9 @@ export function WorkbenchPanel({
                     key={version.id}
                     version={version}
                     publishing={publishingId === version.id}
+                    unpublishing={unpublishingId === version.id}
                     onPublish={handlePublish}
+                    onUnpublish={handleUnpublish}
                   />
                 ))}
               </ul>
@@ -632,11 +655,15 @@ function versionStatus(
 function VersionRow({
   version,
   publishing,
+  unpublishing,
   onPublish,
+  onUnpublish,
 }: {
   version: WorkspaceVersion;
   publishing: boolean;
+  unpublishing: boolean;
   onPublish: (version: WorkspaceVersion) => Promise<void>;
+  onUnpublish: (version: WorkspaceVersion) => Promise<void>;
 }) {
   const meta = versionStatus(version.status);
 
@@ -699,6 +726,24 @@ function VersionRow({
             访问站点
             <ExternalLink className="size-3" />
           </a>
+        ) : null}
+        {version.published ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 px-2 text-2xs text-muted-foreground"
+            disabled={unpublishing}
+            title="下线站点，保留 D1 数据"
+            onClick={() => void onUnpublish(version)}
+          >
+            {unpublishing ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <Undo2 className="size-3" />
+            )}
+            {unpublishing ? "取消中…" : "取消发布"}
+          </Button>
         ) : null}
         <Button
           type="button"

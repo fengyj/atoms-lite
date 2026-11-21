@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Rocket,
   Settings,
   Sparkles,
   SquareDashed,
@@ -499,6 +500,16 @@ function ProjectCard({
                   ? templateLabel(project.template)
                   : "待确认"}
               </Badge>
+              {project.published ? (
+                <Badge
+                  variant="outline"
+                  className="border-success/40 bg-success/10 text-3xs text-success"
+                  title={project.deploymentUrl ?? "已发布"}
+                >
+                  <Rocket className="size-2.5" />
+                  已发布
+                </Badge>
+              ) : null}
             </div>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
               {version?.summary || project.prompt}

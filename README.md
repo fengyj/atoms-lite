@@ -117,10 +117,12 @@ pnpm build
 - [x] browser-static 运行时（无容器静态预览、SQLite 文件/版本、esm.sh 依赖）
 - [x] 依赖安装工具（browser: importmap；container: pnpm add + 开放 egress）
 - [x] **版本发布**：版本窗口发布到 Cloudflare Workers；项目固定域名/Worker/D1，
-      版本切换更新 badge；全栈项目自动应用 D1 migration
+      版本切换更新 badge；全栈项目自动应用 D1 migration；已发布项目在首页显示 badge，
+      版本列表支持取消发布（删除 Worker/域名，保留 D1）
 - [x] **Token 用量**：主对话、planner、自动命名、subagent、上下文压缩统一记录
       输入/输出/缓存/推理 token 和费用；会话/项目/每日全站汇总，顶栏显示本会话用量
-- [x] **上下文压缩**：超过阈值自动 compaction，保留最近窗口，压缩调用也计入用量
+- [x] **上下文压缩**：按模型上下文比例自动 compaction（大窗口 50%、小窗口 65%），
+      保留最近窗口，压缩调用也计入用量
 - [x] 生产部署（`atoms-lite.fengyj.me`，静态资源 + Worker + Container）
 
 ## 未实现（按计划推进）
@@ -150,11 +152,12 @@ pnpm build
   但约 1 小时过期，生产长期使用建议换长期 `CLOUDFLARE_API_TOKEN` 或定期刷新 secret。
 - 发布产物存在 DO SQLite，单版本上限约 12 MiB；更大的应用需要 R2/Assets。
 - 旧静态版本没有产物时发布会从版本快照自动重建；旧容器版本需重新构建并创建新版本。
+- 取消发布会删除 Worker 和自定义域名，但保留 D1；再次发布会复用原 D1。
 - Token 用量存在 `Projects` DO；v1 一项目一会话，所以会话总计与项目总计相同。
 - `DAILY_COST_LIMIT_USD` 默认 **1 美元/天**，按 `USAGE_TIMEZONE`（默认 Asia/Shanghai）切日；
   `DAILY_COST_RESERVE_USD`（默认 0.05）用于避免单轮透支，剩余额度低于预留值时直接判定额度不足。
 - 额度判断只发生在**新一轮请求开始前**，不会中断进行中的回合；额度不足时 UI 禁用输入框。
-- 额度不足提示不是模型调用，不写 usage 事件，也不计入 token/费用。
+- 额度不足只显示输入框上方的临时横幅，不写 usage 事件，也不计入 token/费用。
 - `DAILY_TOKEN_LIMIT` 仍可作为额外的 token 上限；默认不设置。
 - DeepSeek V4.1 Flash 默认价格写死在代码里（input 0.15 / output 0.60 / cache read 0.003 USD per 1M，
   来源 models.dev `opencode-go`，2026-11-21）；可用 `MODEL_PRICING_JSON` 覆盖。

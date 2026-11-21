@@ -38,6 +38,9 @@ type ProjectRow = {
 
 type WorkspaceMeta = {
   versionCount: number;
+  published?: boolean;
+  publishedVersionId?: string | null;
+  deploymentUrl?: string | null;
   currentVersion: {
     id: string;
     gitCommit: string;
@@ -132,6 +135,9 @@ export type ProjectSummary = {
   updatedAt: number;
   versionCount: number;
   currentVersion: WorkspaceMeta["currentVersion"];
+  published: boolean;
+  publishedVersionId: string | null;
+  deploymentUrl: string | null;
 };
 
 /** 从需求里取一个可读的兜底项目名；首轮对话后会用小模型生成更好的标题。 */
@@ -589,6 +595,9 @@ export class Projects extends DurableObject<Env> {
       updatedAt: Math.max(row.updated_at, meta?.currentVersion?.createdAt ?? 0),
       versionCount: meta?.versionCount ?? 0,
       currentVersion: meta?.currentVersion ?? null,
+      published: meta?.published === true,
+      publishedVersionId: meta?.publishedVersionId ?? null,
+      deploymentUrl: meta?.deploymentUrl ?? null,
     };
   }
 
@@ -713,6 +722,9 @@ export class Projects extends DurableObject<Env> {
       updatedAt: now,
       versionCount: 0,
       currentVersion: null,
+      published: false,
+      publishedVersionId: null,
+      deploymentUrl: null,
     };
   }
 

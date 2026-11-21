@@ -30,8 +30,10 @@
 
 `ChatAgent` 构造时给 `sessions.session()` 注册 `createCompactFunction`：
 
-- 默认 `COMPACTION_TOKEN_THRESHOLD=100000`；
-- 默认 `COMPACTION_KEEP_RECENT_TOKENS=20000`；
+- 默认按模型上下文比例触发：大窗口（≥500k）50%，小窗口 65%；
+- 当前 1M 模型约 **500k tokens** 触发；
+- 可用 `MODEL_CONTEXT_WINDOW`、`COMPACTION_CONTEXT_RATIO`、`COMPACTION_TOKEN_THRESHOLD`
+  精确调整；`COMPACTION_KEEP_RECENT_TOKENS` 默认 20k；
 - summarize 使用当前模型，单次超时 60s；
 - 压缩调用记录 `source=compaction`，同样计入费用和每日限额。
 
@@ -57,14 +59,14 @@
 - 按 `USAGE_TIMEZONE`（默认 `Asia/Shanghai`）切日，不是 UTC。
 - **判断只发生在下一轮模型请求开始前**，不会中断已经开始的回合；
   中间工具调用和 compaction 继续执行，下一轮再根据已记录的费用决定。
+- 一轮进行中如果剩余额度低于预留值，会给模型注入“预算提醒”，要求它总结当前进度、
+  未完成事项和下一步后停止，不再调用工具；这是软收尾，不是硬中断。
 - 剩余额度低于预留金额时直接判定额度不足。
 - 达到上限后：
-  - 主对话返回普通助手文本“今日模型额度已用完”，不产生原始 JSON；
+  - 主对话返回 429；UI 在输入框上方显示临时横幅，并禁用输入；
   - planner 回退规则模板；
-  - 自动命名跳过，标记 fallback；
-  - UI 禁用输入框并显示额度提示。
-- 额度不足的提示**不是模型调用，不写 usage 事件**；它可能作为普通聊天消息存在，
-  但不计入 token/费用。
+  - 自动命名跳过，标记 fallback。
+- 额度不足的提示**不是模型调用，不写 usage 事件**；也不作为聊天消息持久化。
 - 用量查询失败时 fail-open，避免统计故障导致站点不可用。
 
 ## 费用

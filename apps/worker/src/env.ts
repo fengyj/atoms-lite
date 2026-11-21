@@ -20,8 +20,12 @@ export interface Env {
   DAILY_COST_LIMIT_USD?: string;
   /** 预留给单轮透支的金额；默认 0.05 美元。 */
   DAILY_COST_RESERVE_USD?: string;
-  /** 触发上下文压缩的 token 阈值；默认 100k。 */
+  /** 触发上下文压缩的 token 阈值；为空时按模型上下文比例计算。 */
   COMPACTION_TOKEN_THRESHOLD?: string;
+  /** 模型上下文窗口；默认 1,000,000。 */
+  MODEL_CONTEXT_WINDOW?: string;
+  /** 压缩触发比例；默认大上下文 50%，小上下文 65%。 */
+  COMPACTION_CONTEXT_RATIO?: string;
   /** 压缩时保留最近多少 token；默认 20k。 */
   COMPACTION_KEEP_RECENT_TOKENS?: string;
 }

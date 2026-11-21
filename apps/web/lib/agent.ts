@@ -59,6 +59,9 @@ export type ProjectSummary = {
   updatedAt: number;
   versionCount: number;
   currentVersion: ProjectVersion | null;
+  published: boolean;
+  publishedVersionId: string | null;
+  deploymentUrl: string | null;
 };
 
 /** GET /api/projects/:id/versions 的条目 */
@@ -110,6 +113,9 @@ export type WorkspaceMeta = {
   snapshotAt: number | null;
   versionCount: number;
   currentVersion: ProjectVersion | null;
+  published: boolean;
+  publishedVersionId: string | null;
+  deploymentUrl: string | null;
 };
 
 export type UsageTotals = {
@@ -222,6 +228,17 @@ export async function publishVersion(
   )) as { deployment?: WorkspaceDeployment };
   if (!data.deployment) throw new Error("publish did not return a deployment");
   return data.deployment;
+}
+
+export async function unpublishProject(
+  projectId: string,
+  signal?: AbortSignal
+): Promise<{ ok: boolean; unpublished: boolean }> {
+  const res = await fetch(`${projectApiUrl(projectId)}/unpublish`, {
+    method: "POST",
+    signal,
+  });
+  return json<{ ok: boolean; unpublished: boolean }>(res, "unpublish");
 }
 
 export async function renameProject(
@@ -413,6 +430,9 @@ export async function fetchWorkspaceMeta(
     snapshotAt: data.snapshotAt ?? null,
     versionCount: Number(data.versionCount ?? 0),
     currentVersion: data.currentVersion ?? null,
+    published: data.published === true,
+    publishedVersionId: data.publishedVersionId ?? null,
+    deploymentUrl: data.deploymentUrl ?? null,
   };
 }
 
