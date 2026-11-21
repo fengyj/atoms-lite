@@ -12,8 +12,8 @@
 
 页面：
 
-- `/` 首页工作台（需求输入、技术栈自动选型、示例、最近项目）
-- `/sessions/:projectId` 会话工作区（左侧对话；右侧工作台：预览 / 工作区 / 终端 / 版本）
+- `/` 首页工作台（Editorial Feature：大标题 + 需求输入、featured 项目、项目列表、今日预算）
+- `/sessions/:projectId` 会话工作区（Editorial 顶栏；左侧对话，右侧预览 / 工作区 / 终端 / 版本）
 - 每个项目有独立的文件、版本和 Agent 会话；容器 runtime 另有独立容器与 git 历史
 - 首页项目卡支持重命名、删除；会话顶栏点击项目名也可重命名；首轮对话后会用小模型自动生成项目标题；工作台分「预览 / 工作区 / 终端 / 版本」四个 tab
 - 工作区 tab 左侧文件树、右侧源码查看器（行号 + 语法高亮）
@@ -105,6 +105,8 @@ pnpm build
 - [x] pnpm workspace、共享 tsconfig、锁文件
 - [x] Next.js + Tailwind v4 可启动
 - [x] 设计 token + 两栏工作台 shell + 组件 gallery（`/design`）
+- [x] **Editorial Feature 主题**：暖纸底、墨色正文、cobalt 点缀、衬线标题；
+      首页改为 top masthead + featured 项目 + 编辑式列表，会话页同步浅色工作台
 - [x] AI Elements 组件接入（含本地化、shiki 按需高亮）
 - [x] 容器启停、预览 HTTP/WS 代理、快照恢复、非破坏性版本回滚（PoC + 生产验证）
 - [x] AIChatAgent 会话、停止、续传、多会话隔离、工具与审批（PoC 验证；v1 一项目一会话，审批未接线）

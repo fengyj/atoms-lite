@@ -72,6 +72,20 @@ function markTone(project: ProjectSummary): string {
   return "bg-secondary text-warning";
 }
 
+function projectMark(name: string): string {
+  if (/记账|账单|收支/.test(name)) return "记";
+  if (/费用|统计|报表/.test(name)) return "费";
+  if (/2048/i.test(name)) return "20";
+  if (/五子棋|棋盘|棋/.test(name)) return "棋";
+  if (/打印|3D/i.test(name)) return "3D";
+  if (/番茄|计时|倒计时/.test(name)) return "番";
+  if (/待办|任务|清单/.test(name)) return "待";
+  if (/计算器/.test(name)) return "算";
+  if (/周报|日报|月报/.test(name)) return "报";
+  if (/简历|作品集|个人/.test(name)) return "简";
+  return name.slice(0, 1);
+}
+
 function ProjectMark({
   project,
   className,
@@ -87,7 +101,7 @@ function ProjectMark({
         className
       )}
     >
-      {project.name.slice(0, 2)}
+      {projectMark(project.name)}
     </span>
   );
 }
