@@ -95,6 +95,7 @@ export function Workspace({ projectId }: { projectId: string }) {
     addToolApprovalResponse,
     addToolOutput,
     isStreaming,
+    connectionError,
   } = useAgentChat({
     agent,
     onError: (error) => {
@@ -110,6 +111,15 @@ export function Workspace({ projectId }: { projectId: string }) {
       setAgentError(describeAgentError(error));
     },
   });
+
+  useEffect(() => {
+    if (!connectionError) return;
+    setAgentError({
+      title: "与服务器的连接中断",
+      hint: "消息可能没有发送成功。检查网络后重试。",
+      detail: `${connectionError.code} ${connectionError.reason}`.trim(),
+    });
+  }, [connectionError]);
 
   // 首页把第一条需求放在 ?prompt= 里；连接就绪且当前空闲时自动发送
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
