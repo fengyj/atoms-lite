@@ -15,7 +15,8 @@ const TEMPLATE_ENUM = z.enum(["static", "react-vite", "fullstack-hono"]);
 const EXEC_PROGRAM = z.enum(EXEC_ALLOWED_PROGRAMS);
 const WORKSPACE_PATH = z
   .string()
-  .regex(/^\/workspace\//, "must be an absolute path under /workspace");
+  .max(300)
+  .describe("必须是 /workspace/... 绝对路径");
 const FILE_PATH = z
   .string()
   .max(300)
@@ -252,11 +253,15 @@ export function createTools({
         cwd: z
           .string()
           .max(200)
-          .regex(/^\/workspace(\/|$)/, "must be /workspace or a subdirectory")
           .optional()
           .describe("工作目录，默认 /workspace；只接受 /workspace 或其子目录"),
       }),
-      execute: async ({ program, args, cwd }) => ws.exec({ program, args, cwd }),
+      execute: async ({ program, args, cwd }) => {
+        if (cwd && !/^\/workspace(\/|$)/.test(cwd)) {
+          throw new Error("cwd must be /workspace or a subdirectory");
+        }
+        return ws.exec({ program, args, cwd });
+      },
     });
   }
 
@@ -481,7 +486,12 @@ export function createTools({
           "新工作区绝对路径，例如 /workspace/public/hero.png",
         ),
       }),
-      execute: async ({ from, to }) => ws.copyMigrationFile(from, to),
+      execute: async ({ from, to }) => {
+        if (!/^\/workspace\//.test(to)) {
+          throw new Error("to must be an absolute path under /workspace");
+        }
+        return ws.copyMigrationFile(from, to);
+      },
     });
 
     tools.finish_migration = tool({

@@ -200,6 +200,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - **subagent**：只读的 `subagent` + `code_review` / `design_review`，每次最多 2 次。
 - **需求/设计工具**：`manage_requirements` / `manage_design`；
   Designer 调用以 `source=designer` 单独记账。
+- **工具 schema 兼容性**：不要在任何 tool `inputSchema` 里使用 `.regex()`。上游供应商会把
+  JSON Schema 的 `pattern` 当成不可用请求并返回 `upstream_unavailable`，而且错误信息
+  完全不会提示是 schema 问题。路径、枚举等校验放在 `execute` 里手动做。
 - **空回复与连续消息**：主对话显式设置 `maxOutputTokens: 16k`，避免供应商默认预算被
   reasoning 吃光后返回空的 `finishReason=stop`；模型输入前先归一化历史：丢掉空 assistant，
   把相邻 user 合并成一条；如果上一轮 assistant 是空回复，或用户只说了「重试/继续」，
@@ -282,6 +285,9 @@ A/B 完成三种模板与构建/预览闭环；C 完成智能选型、browser-st
 - 空回复复现：116k tokens 的长会话里，失败的 assistant 消息为空，转换成模型输入后变成
   连续 user，模型稳定返回空内容。合并连续 user + 对空回复追加明确提示后，同一历史
   返回约 1.9k 字正常回答；空 assistant 在 UI 里显示为可重试的提示。
+- `upstream_unavailable` 复现：本地 container 项目 1 条消息也失败；逐项去掉 `exec` 的
+  `cwd` schema 后恢复正常，确认是工具 schema 里的 `.regex()` / JSON Schema `pattern`
+  导致供应商拒绝请求。改为普通 string + execute 手动校验后，container 项目恢复。
 - 真实模型生成：**约 90 秒**完成 `list_files → write_file × 3 → exec → start_preview → create_version`。
 - 预览标题 `五子棋 · Gomoku`；点击棋盘后「已落子 1 手」「轮到白棋」；localStorage 写入；无 console 错误。
 
