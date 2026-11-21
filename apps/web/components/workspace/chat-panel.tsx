@@ -678,7 +678,10 @@ function finalTextIndex(parts: UIMessage["parts"]): number {
   return -1;
 }
 
-function isPinnedCard(part: UIMessage["parts"][number]): boolean {
+function isPinnedCard(
+  part: UIMessage["parts"][number],
+  active: boolean,
+): boolean {
   if (
     part.type === "tool-ask_user" ||
     part.type === "tool-switch_runtime" ||
@@ -692,8 +695,10 @@ function isPinnedCard(part: UIMessage["parts"][number]): boolean {
       state !== "output-denied"
     );
   }
-  // exec 被偏好拒绝时，错误要直接可见，方便用户去「执行偏好」移除。
+  // 当前回合的 exec 错误直接露出，方便用户去「执行偏好」移除规则；
+  // 历史回合的错误仍折叠，避免聊天记录被旧错误刷屏。
   if (
+    active &&
     part.type === "tool-exec" &&
     (part as ToolUIPart).state === "output-error"
   ) {
@@ -736,10 +741,10 @@ function AssistantParts({
 }) {
   const finalIndex = finalTextIndex(parts);
   const finalPart = finalIndex >= 0 ? (parts[finalIndex] ?? null) : null;
-  const pinned = parts.filter(isPinnedCard);
+  const pinned = parts.filter((part) => isPinnedCard(part, active));
   const processParts = parts.filter(
     (part, index) =>
-      index !== finalIndex && part.type !== "step-start" && !isPinnedCard(part)
+      index !== finalIndex && part.type !== "step-start" && !isPinnedCard(part, active)
   );
   const toolCount = processParts.filter((part) =>
     part.type.startsWith("tool-")

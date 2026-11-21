@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { InlineError } from "@/components/workspace/inline-error";
 import {
   designPreviewUrl,
   selectWorkspaceDesign,
@@ -88,6 +89,11 @@ export function DesignPanel({
   const requirementsConfirmed =
     designs.data?.requirementsStatus === "confirmed" ||
     requirements.data?.status === "confirmed";
+  const loadError = designs.error ?? requirements.error;
+  const retryLoad = () => {
+    designs.refresh();
+    requirements.refresh();
+  };
 
   const generate = (mode: "new" | "revision") => {
     setError(null);
@@ -167,6 +173,14 @@ export function DesignPanel({
         </p>
       ) : null}
 
+      {loadError ? (
+        <InlineError
+          className="mx-4 mt-3"
+          message={`需求/设计加载失败：${loadError}`}
+          onRetry={retryLoad}
+        />
+      ) : null}
+
       {requirements.data ? (
         <div className="mx-4 mt-3 border border-border bg-muted/20 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -198,7 +212,7 @@ export function DesignPanel({
         </p>
       )}
 
-      {list.length === 0 ? (
+      {list.length === 0 && !loadError ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
           <span className="grid size-12 place-items-center rounded-full border border-border bg-muted/30 text-muted-foreground">
             <Palette className="size-5" />
@@ -220,7 +234,7 @@ export function DesignPanel({
             生成 3 个方向
           </Button>
         </div>
-      ) : (
+      ) : list.length === 0 ? null : (
         <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[240px_minmax(0,1fr)]">
           <div className="grid content-start gap-2">
             {list.map((design) => (

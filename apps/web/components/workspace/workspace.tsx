@@ -7,6 +7,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { ToolUIPart } from "ai";
 import { execPreferenceKey, type ExecInput } from "@atoms-lite/contracts";import { MessageSquare, Monitor } from "lucide-react";
 import { ChatPanel } from "@/components/workspace/chat-panel";
+import { InlineError } from "@/components/workspace/inline-error";
 import { TopBar } from "@/components/workspace/top-bar";
 import { WorkbenchPanel } from "@/components/workspace/workbench";
 import type { RunState } from "@/components/workspace/top-bar";
@@ -265,6 +266,7 @@ export function Workspace({ projectId }: { projectId: string }) {
         : "暂无版本";
 
   const projectName = project.data?.name ?? "工作区";
+  const loadError = project.error ?? workspaceMeta.error;
   const quotaBlocked =
     (usage.data ? !usage.data.limit.allowed : false) || quotaNotice !== null;
 
@@ -317,13 +319,24 @@ export function Workspace({ projectId }: { projectId: string }) {
       const result = await upgradeInstance(projectId);
       if (!result.upgraded && result.error) {
         setUpgradeError(result.error);
+        setAgentError({
+          title: "容器升级失败",
+          hint: "当前容器和版本不受影响，可以稍后重试。",
+          detail: result.error,
+        });
       }
       workspaceMeta.refresh();
       versions.refresh();
       files.refresh();
       refreshPreview();
     } catch (error) {
-      setUpgradeError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setUpgradeError(message);
+      setAgentError({
+        title: "容器升级失败",
+        hint: "当前容器和版本不受影响，可以稍后重试。",
+        detail: message,
+      });
     } finally {
       setUpgrading(false);
     }
@@ -476,9 +489,22 @@ export function Workspace({ projectId }: { projectId: string }) {
         currentVersion={currentVersion}
         versionNote={versionNote}
         usage={usage.data}
+        usageError={usage.error}
         usageLoading={usage.loading}
+        onRefreshUsage={() => usage.refresh()}
         onRename={renameProjectName}
       />
+
+      {loadError ? (
+        <InlineError
+          className="mx-3 mt-3 shrink-0 rounded-md"
+          message={`项目信息加载失败：${loadError}`}
+          onRetry={() => {
+            project.refresh();
+            workspaceMeta.refresh();
+          }}
+        />
+      ) : null}
 
       <div className="flex min-h-0 flex-1 gap-3 p-3" style={layoutStyle}>
         <ChatPanel

@@ -407,8 +407,8 @@ export function Dashboard() {
             />
             <Stat
               label="Today"
-              value={formatUsd(usage.data?.costUsd ?? 0)}
-              sub={`of ${formatUsd(costLimit)}`}
+              value={usage.error ? "$—" : formatUsd(usage.data?.costUsd ?? 0)}
+              sub={usage.error ? "用量暂不可用" : `of ${formatUsd(costLimit)}`}
             />
           </section>
 

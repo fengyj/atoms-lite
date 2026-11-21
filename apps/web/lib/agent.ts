@@ -342,7 +342,30 @@ type ProjectResponse = { project?: ProjectSummary };
 type VersionsResponse = { versions?: WorkspaceVersion[] };
 
 async function json<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let detail = "";
+    if (text.trim()) {
+      try {
+        const body = JSON.parse(text) as {
+          error?: unknown;
+          message?: unknown;
+        };
+        if (typeof body.message === "string" && body.message.trim()) {
+          detail = body.message.trim();
+        } else if (typeof body.error === "string" && body.error.trim()) {
+          detail = body.error.trim();
+        }
+      } catch {
+        detail = text.trim();
+      }
+    }
+    throw new Error(
+      detail
+        ? `${detail.slice(0, 500)}（HTTP ${res.status}）`
+        : `${label} 请求失败（HTTP ${res.status}）`
+    );
+  }
   return (await res.json()) as T;
 }
 

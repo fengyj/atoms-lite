@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { InlineError } from "@/components/workspace/inline-error";
 import {
   formatClock,
   shortCommit,
@@ -94,7 +95,9 @@ export function TopBar({
   currentVersion,
   versionNote,
   usage,
+  usageError,
   usageLoading,
+  onRefreshUsage,
   onRename,
 }: {
   /** Agent 运行状态（就绪 / 生成中 / 出错） */
@@ -114,7 +117,9 @@ export function TopBar({
   currentVersion: WorkspaceVersion | null;
   versionNote: string | null;
   usage: ProjectUsage | null;
+  usageError?: string | null;
   usageLoading: boolean;
+  onRefreshUsage?: () => void;
   onRename: (name: string) => Promise<void>;
 }) {
   const run = runStateMeta[runState];
@@ -252,6 +257,16 @@ export function TopBar({
               </span>
             ) : null}
           </button>
+        ) : usageError ? (
+          <button
+            type="button"
+            onClick={onRefreshUsage}
+            title={usageError}
+            className="hidden items-center gap-1 rounded-full border border-destructive/30 bg-destructive/5 px-2 py-0.5 text-2xs text-destructive transition-colors hover:bg-destructive/10 lg:inline-flex"
+          >
+            <Gauge className="size-3" />
+            用量不可用
+          </button>
         ) : usageLoading ? (
           <span className="hidden text-2xs text-muted-foreground lg:inline">
             用量加载中
@@ -332,6 +347,13 @@ export function TopBar({
               可用 MODEL_PRICING_JSON 覆盖。
             </DialogDescription>
           </DialogHeader>
+          {usageError ? (
+            <InlineError
+              className="mb-2 rounded-md"
+              message={`用量加载失败：${usageError}`}
+              onRetry={onRefreshUsage}
+            />
+          ) : null}
           {usage ? (
             <div className="space-y-3">
               <UsageBlock title="本会话" totals={usage.session} />
