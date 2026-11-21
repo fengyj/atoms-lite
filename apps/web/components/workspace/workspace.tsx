@@ -88,6 +88,7 @@ export function Workspace({ projectId }: { projectId: string }) {
     sendMessage,
     status,
     stop,
+    regenerate,
     addToolApprovalResponse,
     addToolOutput,
     isStreaming,
@@ -310,10 +311,9 @@ export function Workspace({ projectId }: { projectId: string }) {
   const retryLastTurn = useCallback(() => {
     setAgentError(null);
     setQuotaNotice(null);
-    sendMessage({
-      text: "请重试上一条请求，直接给出完整回答，不要返回空内容。",
-    });
-  }, [sendMessage]);
+    // 重新生成上一条 assistant，不新增用户消息，避免每次重试都把历史撑得更长。
+    regenerate();
+  }, [regenerate]);
 
   const handleUpgrade = useCallback(async () => {
     if (upgrading) return;

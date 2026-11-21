@@ -121,6 +121,18 @@ export function describeAgentError(error: unknown): AgentErrorInfo {
     };
   }
   if (
+    lower.includes("upstream_unavailable") ||
+    lower.includes("temporarily unavailable") ||
+    lower.includes("overloaded") ||
+    lower.includes("503")
+  ) {
+    return {
+      title: "模型服务暂时不可用",
+      hint: "上游模型服务暂时不可用，通常几分钟内恢复。可以直接重试；如果持续失败，稍后再试。",
+      detail,
+    };
+  }
+  if (
     lower.includes("context") ||
     lower.includes("maximum") ||
     lower.includes("too many tokens") ||
