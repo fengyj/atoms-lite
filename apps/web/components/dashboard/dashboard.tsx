@@ -14,7 +14,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
-import { ProjectArt, artVariantFor } from "@/components/dashboard/project-art";
+import { FeaturedArt, ProjectArt } from "@/components/dashboard/project-art";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -630,10 +630,7 @@ function FeaturedProject({
         <span className="absolute top-4 left-5 text-3xs tracking-[0.16em] text-brand/70 uppercase">
           Featured project
         </span>
-        <ProjectArt
-          variant={artVariantFor(project.id)}
-          className="pointer-events-none text-brand/45"
-        />
+        <FeaturedArt className="pointer-events-none text-brand/45" />
         <ProjectMark
           project={project}
           className="absolute bottom-5 left-5 size-20 rounded-full border border-brand/20 text-3xl"
@@ -739,7 +736,7 @@ function ProjectCard({
             {String(index).padStart(2, "0")}
           </span>
           <ProjectArt
-            variant={index % 6}
+            variant={index % 10}
             className={cn("pointer-events-none", artColor)}
           />
         </div>

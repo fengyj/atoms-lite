@@ -1,17 +1,9 @@
 import { cn } from "@/lib/utils";
 
 /**
- * 首页项目卡的抽象封面：同一套线稿语言，6 种构图。
- * 用项目 ID 做确定性哈希，刷新后不会跳变。
+ * 首页项目卡的抽象封面：同一套线稿语言，10 种构图。
+ * 卡片按顺序轮换，Featured 使用独立构图。
  */
-export function artVariantFor(projectId: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < projectId.length; index += 1) {
-    hash ^= projectId.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash >>> 0) % 6;
-}
 
 function Orbits() {
   return (
@@ -111,6 +103,71 @@ function Frames() {
   );
 }
 
+function Arcs() {
+  return (
+    <>
+      <path d="M210 154a100 100 0 0 1 200 0" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.5" />
+      <path d="M240 154a70 70 0 0 1 140 0" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.7" />
+      <path d="M270 154a40 40 0 0 1 80 0" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.85" />
+      <circle cx="310" cy="154" r="5" fill="currentColor" opacity="0.7" />
+      <path d="M40 60h140" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+    </>
+  );
+}
+
+function Stripes() {
+  return (
+    <>
+      {Array.from({ length: 9 }).map((_, index) => (
+        <line
+          key={index}
+          x1={228 + index * 18}
+          y1={32 + (index % 3) * 11}
+          x2={228 + index * 18}
+          y2={128 - (index % 4) * 12}
+          stroke="currentColor"
+          strokeWidth="1"
+          opacity={0.25 + (index % 3) * 0.14}
+        />
+      ))}
+      <circle cx="300" cy="80" r="32" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.7" />
+      <circle cx="300" cy="80" r="5" fill="currentColor" opacity="0.8" />
+    </>
+  );
+}
+
+function Eclipse() {
+  return (
+    <>
+      <circle cx="288" cy="80" r="46" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.55" />
+      <circle cx="314" cy="80" r="46" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.55" />
+      <circle cx="301" cy="80" r="7" fill="currentColor" opacity="0.75" />
+      <path d="M40 80h120" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <path d="M360 80h40" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+    </>
+  );
+}
+
+function Terraces() {
+  return (
+    <>
+      {Array.from({ length: 7 }).map((_, index) => (
+        <line
+          key={index}
+          x1={208 + index * 8}
+          y1={26 + index * 17}
+          x2={390 - index * 7}
+          y2={26 + index * 17}
+          stroke="currentColor"
+          strokeWidth="1"
+          opacity={0.22 + (index % 3) * 0.14}
+        />
+      ))}
+      <circle cx="292" cy="80" r="5" fill="currentColor" opacity="0.7" />
+    </>
+  );
+}
+
 const CONSTELLATION = [
   [60, 122],
   [112, 52],
@@ -159,7 +216,18 @@ function Constellation() {
   );
 }
 
-const VARIANTS = [Orbits, Sun, DotGrid, Waves, Frames, Constellation];
+const VARIANTS = [
+  Orbits,
+  Sun,
+  DotGrid,
+  Waves,
+  Frames,
+  Constellation,
+  Arcs,
+  Stripes,
+  Eclipse,
+  Terraces,
+];
 
 export function ProjectArt({
   variant,
@@ -177,6 +245,37 @@ export function ProjectArt({
       className={cn("absolute inset-0 h-full w-full", className)}
     >
       <Art />
+    </svg>
+  );
+}
+
+/**
+ * Featured 专用构图：把轨道、波纹和星座叠在一起，
+ * 和 10 个项目卡封面都不重复。
+ */
+export function FeaturedArt({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 400 160"
+      preserveAspectRatio="xMidYMid slice"
+      className={cn("absolute inset-0 h-full w-full", className)}
+    >
+      <circle cx="300" cy="80" r="96" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.3" />
+      <circle cx="300" cy="80" r="64" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.48" />
+      <circle cx="300" cy="80" r="32" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.65" />
+      <path
+        d="M-20 132C40 92 100 92 160 132s120 40 180 0 120-40 180 0"
+        stroke="currentColor"
+        strokeWidth="1"
+        fill="none"
+        opacity="0.28"
+      />
+      <circle cx="300" cy="80" r="8" fill="currentColor" opacity="0.55" />
+      <circle cx="120" cy="34" r="2.5" fill="currentColor" opacity="0.55" />
+      <circle cx="180" cy="64" r="1.8" fill="currentColor" opacity="0.45" />
+      <circle cx="82" cy="118" r="1.8" fill="currentColor" opacity="0.45" />
+      <path d="M120 34 180 64 82 118" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.2" />
     </svg>
   );
 }
