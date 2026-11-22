@@ -1,4 +1,4 @@
-# atoms-lite 笔试说明
+# atoms-lite 项目说明
 
 > 一句话：用户用自然语言描述需求，Agent 在隔离工作区里真实读写代码、构建、启动预览、保存可回滚版本，并可直接发布到 Cloudflare Workers（全栈项目自动创建 D1）。
 >

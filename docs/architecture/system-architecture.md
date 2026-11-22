@@ -411,7 +411,7 @@ Run
 
 SSE 不是不可行：AI SDK 的 `useChat` 支持自定义 `ChatTransport`，可以改走 HTTP SSE。
 代价是要自己实现续传（cursor / replay）和面板状态的独立推送。**v1 用 WebSocket；
-如果面试官网络对 WS 不友好，再加 SSE 回退**（UIMessage chunk 格式不变，只换传输）。
+如果目标网络环境对 WS 不友好，再加 SSE 回退**（UIMessage chunk 格式不变，只换传输）。
 
 ## 11. 未定与风险
 
